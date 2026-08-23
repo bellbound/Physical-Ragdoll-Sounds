@@ -1,0 +1,3 @@
+file(GLOB_RECURSE sources CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+)

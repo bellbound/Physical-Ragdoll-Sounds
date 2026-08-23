@@ -1,0 +1,15 @@
+# Build output
+build/
+testbench/build/
+testbench/framecache/
+testbench/external/miniaudio.h
+
+# Python
+__pycache__/
+*.pyc
+
+# Runtime logs
+*.log
+
+# Raw capture video (hundreds of MB; CSV/YAML sidecars are kept)
+*.mp4

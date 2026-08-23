@@ -1,0 +1,74 @@
+TAKE
+  stem            Lennald_the_Brash_Whiterun_Guard_impacts_log_3
+  note            requested-capture stack-onto-standing (9/13): dropped onto a second actor who stays on their feet - limp on keyframed
+  actor           Lennald the Brash [Whiterun Guard]
+  cell            Dragonsreach
+  duration        7885 ms
+  impacts         0 (dropped 0, complete yes)
+  playhead        0 ms
+  seed            1
+  config          masson (side 0)
+
+VIDEO
+  (this take has no video)
+
+CONFIG - values differing from default
+  Limbs:bMassDeterminesLoudness=1 (default 0)
+  Slots:iRngSeed=1 (default 0)
+
+SOUND BANK
+  imp_transient  3/3 files, wav, 120 ms
+  imp_body       3/3 files, wav, 240 ms
+  imp_sub        2/2 files, wav, 300 ms
+  surf_wood      0/2 files, procedural, 120 ms
+  surf_stone     0/2 files, procedural, 100 ms
+  surf_soft      0/2 files, procedural, 150 ms
+  limb_tap       4/4 files, wav, 74 ms
+  crunch_gran    0/2 files, procedural, 250 ms
+  gore_wet       0/2 files, procedural, 200 ms
+  scrape_loop    1/1 files, wav, 1260 ms
+  foley_cloth    1/1 files, wav, 3000 ms
+  air_whoosh     0/1 files, procedural, 1500 ms
+  head_crunch    0/2 files, procedural, 300 ms
+  settle_rest    0/2 files, procedural, 200 ms
+  grunt_impact   declared and unfilled
+  scream_big     declared and unfilled
+
+FUNNEL - contacts in, cues out
+  events read           26
+  contacts              0
+    rejected below floor 0
+    rejected blow-up     0
+    mirrored self-hit    0
+    manifold collapsed   0
+    routed to foley bed  0
+  proposed cues         0
+    dropped rate cap     0
+    dropped chain merge  0
+    dropped masking      0
+    dropped burst cap    0
+    dropped voice cap    0
+    muted by layer       0
+  emitted               0 in 0 bursts
+  first cue             0 ms
+  last cue              0 ms
+  peak contact          0.0 u/s
+
+AUDIO
+  250 ms at 48000 Hz, 12001 frames
+  peak 0.000 heard, 0.000 before the limiter (limiter on)
+
+TIMELINE - state, contacts and cues in one column
+  (a cue's `seq` is the contact row that produced it)
+
+      2.7 ms  STATE     session_start          phase=unknown
+   1336.4 ms  STATE     ragdoll_rebuilt        phase=animated
+   1858.7 ms  STATE     ragdoll_rebuilt        phase=animated
+   2382.0 ms  STATE     ragdoll_rebuilt        phase=animated
+   2901.1 ms  STATE     ragdoll_rebuilt        phase=animated
+   3415.6 ms  STATE     ragdoll_rebuilt        phase=animated
+   3918.0 ms  STATE     ragdoll_rebuilt        phase=animated
+   7884.7 ms  STATE     session_stop           phase=animated
+
+CUES
+     time  slot           op       gain  pitch  reason           phase          int   limb     site  seq

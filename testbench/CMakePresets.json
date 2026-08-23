@@ -1,0 +1,29 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "testbench",
+            "displayName": "Testbench (Release)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/testbench",
+            "cacheVariables": {
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "VCPKG_TARGET_TRIPLET": "x64-windows",
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_CXX_COMPILER": "cl.exe"
+            }
+        },
+        {
+            "name": "testbench-debug",
+            "inherits": "testbench",
+            "displayName": "Testbench (Debug)",
+            "binaryDir": "${sourceDir}/build/testbench-debug",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+        }
+    ],
+    "buildPresets": [
+        { "name": "testbench", "configurePreset": "testbench" },
+        { "name": "testbench-debug", "configurePreset": "testbench-debug" }
+    ]
+}

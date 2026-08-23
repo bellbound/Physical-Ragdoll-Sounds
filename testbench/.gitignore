@@ -1,0 +1,4 @@
+build/
+framecache/
+external/miniaudio.h
+external/nlohmann/

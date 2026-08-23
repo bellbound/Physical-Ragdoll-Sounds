@@ -1,0 +1,337 @@
+// RagdollSounds.dll - the game half.
+//
+// Everything interesting is in core/. This file is the wiring: read the config,
+// open the log, build the engine, hand it a feed and a sink, and tick it once a
+// frame. The three game-facing pieces it wires up are deliberately stubbed until
+// the testbench has tuned the algorithm - see GameFeed.h, GameRenderer.h and
+// VanillaSuppression.h for what each one will do and why.
+
+#include <spdlog/spdlog.h>
+
+#include <chrono>
+#include <format>
+#include <memory>
+#include <string>
+
+#include "AudioBlobs.h"
+#include "DevLink.h"
+#include "FrameHook.h"
+#include "GameFeed.h"
+#include "GameRenderer.h"
+#include "TestCue.h"
+#include "VanillaSuppression.h"
+#include "rds/ConfigManager.h"
+#include "rds/Engine.h"
+#include "rds/Log.h"
+#include "rds/Sfx.h"
+#include "rds/SlotManifest.h"
+
+namespace {
+
+/// Where the ini files and the sound bank live, matching the other mods here.
+constexpr auto kDataDirectory = "Data/SKSE/Plugins/RagdollSounds";
+constexpr auto kSoundDirectory = "Data/SKSE/Plugins/RagdollSounds/sounds";
+/// The named library RagdollSounds_SFX.ini assigns from. Beside the pack rather
+/// than instead of it: a slot with no assignment still falls back to
+/// `sounds\<slot>_<NN>.wav`, so an install that predates the ini is unchanged.
+constexpr auto kLibraryDirectory = "Data/SKSE/Plugins/RagdollSounds/sounds/library";
+
+struct Mod {
+    rds::SoundBank bank;
+    rds::SfxLibrary library;
+    rds::game::GameFeed feed;
+    rds::game::GameRenderer renderer;
+    rds::Engine engine;
+    rds::game::DevLink link;
+    /// The feed the engine actually reads. Either `feed` itself, or `feed`
+    /// wrapped in the tee that copies each drained batch to the testbench - so
+    /// with the link off there is not so much as an extra virtual call.
+    std::unique_ptr<rds::game::LinkTap> tap;
+    rds::IFeed* engineFeed{};
+    /// Where the sfx library is read from. Empty means the shipped one; the
+    /// testbench pushes its own so a file being auditioned is heard in game
+    /// before it has been copied into the pack.
+    std::string libraryOverride;
+    bool running{};
+    bool wasTracking{};
+};
+
+Mod& Get() {
+    static Mod mod;
+    return mod;
+}
+
+/// The engine's clock lives in GameFeed.h - milliseconds since the session
+/// opened, monotonic, the same clock a recording's t_ms is. It has to be one
+/// definition rather than one per file: a contact's timestamp is stamped in the
+/// Havok callback and a cue's is stamped here, and the two are subtracted from
+/// each other to place the sub layer.
+using rds::game::NowMs;
+
+/// Rebuild the sound bank from whatever the library path and the sfx table
+/// currently are. Every path that changes either ends here, which is what makes
+/// a change audible on the next contact rather than on the next launch.
+void ReloadBank(Mod& mod) {
+    const std::string directory =
+        mod.libraryOverride.empty() ? std::string{kLibraryDirectory} : mod.libraryOverride;
+    mod.library.Load(directory);
+    mod.bank.LoadAssigned(mod.library, rds::ConfigManager::Get().Sfx(), kSoundDirectory);
+    // Re-set rather than left alone: the renderer's PCM cache holds decoded
+    // samples keyed by (slot, variant), and every one of those keys now points
+    // at a different file. SetSoundBank is what drops them.
+    mod.renderer.SetSoundBank(&mod.bank);
+    mod.engine.SetSoundBank(&mod.bank);
+}
+
+/// Anything the testbench pushed since the last frame, applied here on the game
+/// thread. Nothing in this function may run on the socket thread: reloading the
+/// bank races the audio path, and swapping the engine's config mid-tick would
+/// tear one.
+void ApplyDevbench(Mod& mod) {
+    rds::game::DevLink::Pending pending;
+    if (!mod.link.Take(pending)) {
+        return;
+    }
+    auto& config = rds::ConfigManager::Get();
+
+    if (pending.clear) {
+        config.ClearOverride();
+        config.ClearSfxOverride();
+        mod.libraryOverride.clear();
+        spdlog::info("devbench: overrides cleared, back to the inis");
+    }
+    if (pending.library) {
+        mod.libraryOverride = pending.libraryPath;
+        spdlog::info("devbench: sfx library is now {}", mod.libraryOverride);
+    }
+    if (pending.algorithm) {
+        config.PushOverride(pending.config);
+        mod.engine.SetConfig(pending.config);
+        // The feed's radius is read once rather than per frame, so a pushed
+        // config that widens it has to say so - otherwise the engine would be
+        // willing to hear an actor the feed had already stopped tracking.
+        mod.feed.SetCullRadius(pending.config.distance.simplifiedRadius);
+    }
+    if (pending.sfx) {
+        config.PushSfxOverride(pending.sfxTable);
+    }
+    if (pending.sfx || pending.library || pending.clear) {
+        ReloadBank(mod);
+    }
+    if (pending.clear && !pending.algorithm) {
+        const auto algorithm = config.Algorithm();
+        mod.engine.SetConfig(algorithm);
+        mod.feed.SetCullRadius(algorithm.distance.simplifiedRadius);
+    }
+}
+
+/// The heartbeat, about once a second. Everything the testbench's connection row
+/// shows that is not a contact.
+void PublishDevbenchStatus(Mod& mod, rds::TimeMs now) {
+    static rds::TimeMs lastMs = 0.0;
+    if (now - lastMs < 1000.0) {
+        return;
+    }
+    lastMs = now;
+
+    rds::link::StatusPacket status;
+    status.sessionMs = now;
+    status.trackedActors = static_cast<std::uint32_t>(mod.engine.TrackedActors());
+    std::uint64_t cuesIn = 0;
+    std::uint64_t voicesOut = 0;
+    mod.renderer.Counters(cuesIn, voicesOut);
+    status.cuesEmitted = static_cast<std::uint32_t>(cuesIn);
+    status.voicesOut = static_cast<std::uint32_t>(voicesOut);
+    status.droppedContacts = static_cast<std::uint32_t>(mod.feed.Dropped());
+    status.eventsSent = static_cast<std::uint32_t>(mod.engine.Stats().eventsIn);
+    status.overrideFlags = mod.link.OverrideFlags();
+    mod.link.PushStatus(status);
+
+    // The cell travels with the next profile, so the take the testbench writes
+    // can say where it happened. Read here because only the game thread may.
+    if (auto* player = RE::PlayerCharacter::GetSingleton()) {
+        if (auto* cell = player->GetParentCell()) {
+            mod.link.SetCell(cell->GetName());
+        }
+    }
+}
+
+void OnFrame() {
+    Mod& mod = Get();
+    if (!mod.running) {
+        return;
+    }
+    const rds::TimeMs now = NowMs();
+
+    if (rds::game::TakeTestCueRequest()) {
+        rds::game::FireTestCue(mod.renderer, now);
+    }
+
+    // The publisher half of the phase gate: only the game thread may ask an actor
+    // whether it is ragdolling, and the contact callback runs on a Havok worker
+    // (07 §1). This is where that answer is written down.
+    mod.feed.PublishTick(rds::game::FrameHook::DeltaSeconds());
+
+    // Before the tick, so a config that arrived this frame is the one this
+    // frame's contacts are judged by.
+    ApplyDevbench(mod);
+
+    mod.engine.Tick(*mod.engineFeed, now);
+
+    PublishDevbenchStatus(mod, now);
+
+    // After the engine, because a cue emitted this frame with a zero offset is
+    // due this frame.
+    mod.renderer.Update(now);
+
+    // One line when the last tracked actor lets go. The engine writes its own
+    // per-knockdown summary from Release; this is the half it cannot see - how
+    // many engine voices the cues actually cost, and whether the ring had to
+    // throw anything away.
+    //
+    // The two voice numbers are worth having side by side: the engine's cap
+    // counts cues, and one composite is now one voice, so the real cost sits well
+    // under what the config budgets.
+    const std::size_t tracked = mod.engine.TrackedActors();
+    if (tracked == 0 && mod.wasTracking) {
+        std::uint64_t cuesIn = 0;
+        std::uint64_t voicesOut = 0;
+        mod.renderer.Counters(cuesIn, voicesOut);
+        const std::uint64_t dropped = mod.feed.Dropped();
+        spdlog::info("idle: {} cues became {} engine voices{}", cuesIn, voicesOut,
+                     dropped != 0 ? std::format("; {} contact(s) were dropped by a full ring - "
+                                                "raise kRingCapacity", dropped)
+                                  : std::string{});
+    }
+    mod.wasTracking = tracked != 0;
+}
+
+void OnDataLoaded() {
+    Mod& mod = Get();
+    const auto& general = rds::ConfigManager::Get().General();
+
+    if (general.suppression.suppressVanillaBodyImpacts) {
+        rds::game::SuppressVanillaBodyImpacts();
+    } else {
+        spdlog::info("vanilla body impacts left alone; ours will layer on top of them");
+    }
+
+    // The interface the renderer hands its mixed composites to. Installed before
+    // anything can want to play, and after data load because it needs the audio
+    // manager to exist.
+    if (!rds::game::BlobRegistry::Get().Install()) {
+        spdlog::error("the external audio interface could not be installed; this mod cannot play "
+                      "anything and the rest of the startup is pointless");
+        return;
+    }
+
+    // The ini's table when there is one, the filename convention when there is
+    // not - decided inside LoadAssigned per slot, so a half-filled ini is a
+    // half-reassigned pack rather than a broken one.
+    ReloadBank(mod);
+    mod.engine.SetSink(&mod.renderer);
+
+    const auto algorithm = rds::ConfigManager::Get().Algorithm();
+    mod.engine.SetConfig(algorithm);
+
+    // Anything past the engine's own Simplified radius is culled by the engine,
+    // so there is nothing to be gained by still listening to it. Read once:
+    // Algorithm() hands back a copy of a large struct and this runs every frame.
+    mod.feed.SetCullRadius(algorithm.distance.simplifiedRadius);
+    mod.feed.Install();
+
+    // The renderer knows a cue wants a bone; only the feed knows how that actor's
+    // limbs were resolved. This is the seam between them.
+    mod.renderer.SetBoneResolver([](rds::ActorId actor, std::int32_t limbIndex) {
+        return Get().feed.BoneNode(actor, limbIndex);
+    });
+
+    rds::game::ResetClock();
+
+    rds::game::InstallTestCue(&mod.renderer, general.audio.testCueKey);
+
+    // The testbench link, and the tee that feeds it. Both behind bEnableDevbench:
+    // with the flag off the engine reads the feed directly and nothing here
+    // opens a socket, so a shipping install pays a branch a frame and nothing
+    // else. See DevLink.h.
+    mod.engineFeed = &mod.feed;
+    if (general.devbench.enabled) {
+        mod.link.Start(general.devbench);
+        mod.tap = std::make_unique<rds::game::LinkTap>(mod.feed, mod.link);
+        mod.engineFeed = mod.tap.get();
+    }
+
+    // The frame hook, and not SKSE::GetTaskInterface: SKSE's drain loop keeps
+    // popping until the queue is empty, so a task added from inside a task runs in
+    // the same frame and a tick that queues the next tick would never give the
+    // frame back. See FrameHook.h.
+    if (!rds::game::FrameHook::Install(&OnFrame)) {
+        spdlog::error("the frame hook could not be installed; the engine will never be ticked and "
+                      "no sound will play");
+        return;
+    }
+
+    mod.running = true;
+    spdlog::info("running");
+}
+
+void MessageHandler(SKSE::MessagingInterface::Message* message) {
+    if (message == nullptr) {
+        return;
+    }
+    switch (message->type) {
+        case SKSE::MessagingInterface::kDataLoaded:
+            OnDataLoaded();
+            break;
+        case SKSE::MessagingInterface::kPreLoadGame:
+        case SKSE::MessagingInterface::kNewGame:
+            // Drop every tracked actor and every running loop. A scrape that
+            // survives a load screen plays in the main menu.
+            Get().engine.Reset();
+            Get().renderer.StopAll();
+            // Detach every listener before the world it points into goes away.
+            Get().feed.Clear();
+            break;
+        default:
+            break;
+    }
+}
+
+}  // namespace
+
+SKSEPluginLoad(const SKSE::LoadInterface* skse) {
+    SKSE::Init(skse);
+
+    // Config first, log second. rds::log::Setup keeps the logger it already has,
+    // so opening a default one here and reopening it below silently threw away
+    // EnableLogRotation and MaxLogFiles - the log always ran on the defaults and
+    // the ini appeared to do nothing.
+    auto& config = rds::ConfigManager::Get();
+    config.Initialize(kDataDirectory);
+    config.Load();
+
+    const auto& general = config.General();
+
+    const auto logDirectory = SKSE::log::log_directory();
+    rds::log::Setup({.directory = logDirectory ? *logDirectory : std::filesystem::path{"."},
+                     .name = "RagdollSounds",
+                     .level = general.logLevel,
+                     .rotate = general.enableLogRotation,
+                     .maxFiles = static_cast<std::size_t>(std::max(0, general.maxLogFiles))});
+
+    if (!general.enabled) {
+        // Off means the plugin loads, says so plainly, and hooks nothing - so it
+        // can be disabled without uninstalling.
+        spdlog::info("Enabled=0 in RagdollSounds.ini: nothing hooked, no sounds will play");
+        return true;
+    }
+
+    auto* messaging = SKSE::GetMessagingInterface();
+    if (messaging == nullptr || !messaging->RegisterListener("SKSE", MessageHandler)) {
+        spdlog::error("could not register the SKSE message listener; the mod will not start");
+        return false;
+    }
+
+    spdlog::info("Physical Ragdoll Sounds loaded");
+    return true;
+}
