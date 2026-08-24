@@ -169,6 +169,48 @@ void PushState(ContactRing& ring, ActorId actor, std::string_view state) {
     ring.Push(event);
 }
 
+/// One `kLimbSample` per ragdoll limb: where it is and how fast it is going.
+///
+/// This is the only measurement of where the body actually *is*. Everything
+/// else the engine gets is a collision, and collisions are dense exactly when a
+/// fall is busy and absent exactly when it is not - so air time inferred from
+/// the gaps between them is maximal at `ragdoll_start`, when the actor was
+/// standing on the floor a frame earlier, and near zero during the landing that
+/// air time exists to find.
+///
+/// Game thread only, from PublishTick. It reads the same fields the contact
+/// callback reads, but none of the callback's restrictions apply here - which is
+/// why the pose is published from the tick rather than gathered in the listener.
+///
+/// The text is deliberately left empty. QuickModMenuNG's recorder emits a
+/// limb_sample per limb on a *state change* and stamps it with that state; those
+/// two snapshots are a launch pose, not a signal, and `rds::pose::IsTickSample`
+/// tells the two apart on exactly this field.
+void PushLimbSamples(ContactRing& ring, const RagdollView& ragdoll, ActorId actor,
+                     ActorPhase phase) {
+    const float scale = RE::bhkWorld::GetWorldScaleInverse();
+    const TimeMs now = NowMs();
+    for (std::size_t index = 0; index < ragdoll.limbs.size(); ++index) {
+        auto* body = ragdoll.limbs[index].body.get();
+        if (body == nullptr) {
+            continue;
+        }
+        FeedEvent event{};
+        event.timeMs = now;
+        event.kind = EventKind::kLimbSample;
+        event.actorId = actor;
+        event.limbIndex = static_cast<std::uint16_t>(index);
+        event.phase = phase;
+        event.mass = body->motion.GetMass();
+        event.limbRadius = body->motion.motionState.objectRadius * scale;
+        event.bodySpeed = body->motion.linearVelocity.Length3() * scale;
+        event.angularSpeed = body->motion.angularVelocity.Length3();
+        StoreVector(event.velocity, body->motion.linearVelocity, scale);
+        StoreVector(event.position, body->motion.motionState.transform.translation, scale);
+        ring.Push(event);
+    }
+}
+
 }  // namespace
 
 TimeMs NowMs() {
@@ -415,6 +457,10 @@ void GameFeed::Install() {
 
 void GameFeed::SetCullRadius(float units) { m_cullRadius = std::max(1.0f, units); }
 
+void GameFeed::SetBodySampleEveryNTicks(std::int32_t ticks) {
+    m_bodySampleEveryNTicks = std::max(0, ticks);
+}
+
 std::uint64_t GameFeed::Dropped() const { return m_ring.Dropped(); }
 
 void GameFeed::Attach(Tracked& tracked, ActorId actor) {
@@ -517,6 +563,7 @@ void GameFeed::RefreshListener() {
 
 void GameFeed::PublishTick(float frameTimeSec) {
     m_frameTimeSec = frameTimeSec;
+    ++m_tick;
     RefreshListener();
 
     std::lock_guard lock{m_mutex};
@@ -619,6 +666,14 @@ void GameFeed::PublishTick(float frameTimeSec) {
             tracked.lastPhase = phase;
         }
 
+        // The pose, on the same terms and for the same reason: game-thread only,
+        // and the engine cannot measure a fall without it. Skipped while the
+        // actor is on its feet, so a village of walking NPCs costs nothing.
+        if (m_bodySampleEveryNTicks > 0 && phase != ActorPhase::kAnimated &&
+            m_tick % static_cast<std::uint64_t>(m_bodySampleEveryNTicks) == 0) {
+            PushLimbSamples(m_ring, tracked.ragdoll, it->first, phase);
+        }
+
         // Game-thread only, which is the whole reason it is published rather than
         // read in the callback.
         if (auto* tes = RE::TES::GetSingleton()) {
@@ -717,6 +772,31 @@ const ActorProfile* GameFeed::Profile(ActorId actor) const {
 const ListenerState& GameFeed::Listener() const { return m_listener; }
 
 float GameFeed::FrameTimeSec() const { return m_frameTimeSec; }
+
+bool GameFeed::ActorPosition(ActorId actor, Vec3& out) const {
+    std::lock_guard lock{m_mutex};
+    const auto it = m_actors.find(actor);
+    if (it == m_actors.end()) {
+        return false;
+    }
+    auto* refr = it->second->ref.get();
+    if (refr == nullptr) {
+        return false;
+    }
+    const auto p = refr->GetPosition();
+    out = {p.x, p.y, p.z};
+    return true;
+}
+
+RE::NiAVObject* GameFeed::RootNode(ActorId actor) const {
+    std::lock_guard lock{m_mutex};
+    const auto it = m_actors.find(actor);
+    if (it == m_actors.end()) {
+        return nullptr;
+    }
+    auto* refr = it->second->ref.get();
+    return refr != nullptr ? refr->Get3D() : nullptr;
+}
 
 RE::NiAVObject* GameFeed::BoneNode(ActorId actor, std::int32_t limbIndex) const {
     if (limbIndex < 0) {

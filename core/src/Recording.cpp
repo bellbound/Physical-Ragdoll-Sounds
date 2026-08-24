@@ -11,6 +11,8 @@
 #include <fstream>
 #include <unordered_map>
 
+#include "rds/Pose.h"
+
 namespace rds {
 namespace {
 
@@ -459,6 +461,12 @@ void FillInfoFromYaml(const YamlFlat& yaml, RecordingInfo& info) {
     info.impacts = static_cast<std::uint32_t>(ToInt(yaml.Get("session.impacts")));
     info.dropped = static_cast<std::uint32_t>(ToInt(yaml.Get("session.dropped")));
     info.complete = yaml.Get("session.complete") == "true";
+    // A take that names an output OBS opened for it, and does not say it was
+    // riding somebody else's recording, owns its whole mp4. Both halves matter:
+    // the recorder writes `output_path: ""` exactly when it could not be told
+    // where the file went, which is the case where the clip was cut later.
+    info.videoIsWholeOutput = !yaml.Get("obs.output_path").empty() &&
+                              yaml.Get("obs.external_recording") != "true";
 }
 
 }  // namespace
@@ -674,6 +682,22 @@ bool Recording::Load(const std::filesystem::path& csvPath, std::string& error) {
         return false;
     }
 
+    // ── the pose sidecar ─────────────────────────────────────────────────────
+    //
+    // Decoded straight into the event stream, before the sort, so it merges into
+    // place by time like everything else. Nothing downstream of IFeed can tell
+    // that these arrived from a second file rather than through the ring, which
+    // is the point: the engine's input is the same shape live and on replay.
+    //
+    // A missing file is a take from before pose existed and is not an error. A
+    // file that is *there* and malformed is, because that is a truncated write
+    // or a bug, and reading it as "no pose" would hide both.
+    const auto posePath = Sibling(csvPath, "_pose.bin");
+    if (!pose::Read(posePath, m_events, m_info.poseFrames, error)) {
+        return false;
+    }
+    m_info.hasBodySamples = m_info.poseFrames > 0;
+
     // By t_ms, never by seq. The session_stop row is written out of band and
     // carries seq 0, so sorting by seq puts a take's last row first. Stable, so
     // rows sharing a timestamp keep their write order.
@@ -697,16 +721,31 @@ bool Recording::Load(const std::filesystem::path& csvPath, std::string& error) {
     // Frames, from the gaps between contact batches. Measured: 1.0 us inside one
     // frame's callbacks against 20.4 ms between them, so 2 ms separates them with
     // three orders of magnitude to spare.
+    //
+    // The boundary is the batch's **last** row, not its first, and that is the
+    // whole of it: `Drain` takes everything at or before the tick time, so a
+    // boundary on the first row hands the engine that row alone and defers the
+    // rest of the same frame's callbacks to the next tick - one physical landing
+    // arbitrated as two, a frame apart, against two different motion states.
+    // Live there is no such split: the frame hook ticks after the callbacks have
+    // all run, which is exactly what a boundary at the end of the batch
+    // reproduces. Batches are microseconds wide, so this moves the tick time by
+    // nothing that any window can see.
     constexpr double kFrameGapMs = 2.0;
     double previous = -1.0e9;
+    bool inBatch = false;
     for (const auto& event : m_events) {
         if (!event.IsContact()) {
             continue;
         }
-        if (event.timeMs - previous > kFrameGapMs) {
-            m_frames.push_back(event.timeMs);
+        if (inBatch && event.timeMs - previous > kFrameGapMs) {
+            m_frames.push_back(previous);
         }
+        inBatch = true;
         previous = event.timeMs;
+    }
+    if (inBatch) {
+        m_frames.push_back(previous);
     }
     if (m_frames.empty()) {
         m_frames.push_back(m_events.front().timeMs);
@@ -717,9 +756,10 @@ bool Recording::Load(const std::filesystem::path& csvPath, std::string& error) {
 
     // Fill the quiet stretches back in. A batch of callbacks marks a frame that
     // *had* contacts, but the game ran frames in between as well, and the engine
-    // does its phase work on the tick - so a replay that only ticks where the
-    // solver spoke leaves a fall stuck in PrimaryImpact for however long the body
-    // was in the air, and never reaches the settle at all. The step is the take's
+    // does its Stage 2 work on the tick - so a replay that only ticks where the
+    // solver spoke leaves a fall stuck in whatever state it was in for however
+    // long the body was in the air, and never reaches Resting at all. The step is
+    // the take's
     // own median frame interval, so the replay still steps at the rate the game
     // did rather than at one this runner invented.
     std::vector<double> deltas;
@@ -782,6 +822,13 @@ bool Recording::Load(const std::filesystem::path& csvPath, std::string& error) {
         spdlog::warn("recording: {} resolved no limb names - every contact will size off radius",
                      m_info.stem);
     }
+    if (m_info.hasBodySamples) {
+        spdlog::info("recording: {} carries {} pose frames", m_info.stem, m_info.poseFrames);
+    } else {
+        spdlog::warn("recording: {} has no pose sidecar - air time falls back to the gaps "
+                     "between contacts",
+                     m_info.stem);
+    }
     if (m_info.hasSync) {
         spdlog::info("recording: {} video offset {:.0f} ms, drift {:+.2f} ms/s", m_info.stem,
                      m_info.videoOffsetMs, m_info.videoDriftMsPerSec);
@@ -829,6 +876,11 @@ std::vector<RecordingInfo> Recording::Scan(const std::filesystem::path& director
         if (!info.hasSync) {
             info.videoOffsetMs = ToDouble(yaml.Get("obs.offset_ms"));
         }
+        // The header alone, not the frames: the take list wants the flag for
+        // every row in the research folder and must not pay to decode a few
+        // thousand frames per take to get it.
+        const auto posePath = path.parent_path() / (path.stem().string() + "_pose.bin");
+        info.hasBodySamples = pose::Probe(posePath, info.poseFrames);
         out.push_back(std::move(info));
     }
     std::ranges::sort(out, [](const RecordingInfo& a, const RecordingInfo& b) {

@@ -111,9 +111,30 @@ void ApplyDevbench(Mod& mod) {
         // config that widens it has to say so - otherwise the engine would be
         // willing to hear an actor the feed had already stopped tracking.
         mod.feed.SetCullRadius(pending.config.distance.simplifiedRadius);
+        mod.feed.SetBodySampleEveryNTicks(pending.config.ingest.bodySampleEveryNTicks);
     }
     if (pending.sfx) {
         config.PushSfxOverride(pending.sfxTable);
+    }
+    if (pending.audioMode) {
+        // The A/B switch. Vanilla's body impacts come back and ours stop, or the
+        // other way round - both halves together, because either one on its own
+        // is a comparison against silence.
+        //
+        // Going back to ours re-reads the ini rather than assuming suppression:
+        // an install that deliberately runs with vanilla underneath ours must be
+        // left the way it was, not "fixed" by having used the switch once.
+        if (pending.useVanillaAudio) {
+            mod.renderer.SetMuted(true);
+            rds::game::RestoreVanillaBodyImpacts();
+        } else {
+            if (config.General().suppression.suppressVanillaBodyImpacts) {
+                rds::game::SuppressVanillaBodyImpacts();
+            }
+            mod.renderer.SetMuted(false);
+        }
+        spdlog::info("devbench: audio mode is now {}",
+                     pending.useVanillaAudio ? "vanilla" : "ours");
     }
     if (pending.sfx || pending.library || pending.clear) {
         ReloadBank(mod);
@@ -122,6 +143,7 @@ void ApplyDevbench(Mod& mod) {
         const auto algorithm = config.Algorithm();
         mod.engine.SetConfig(algorithm);
         mod.feed.SetCullRadius(algorithm.distance.simplifiedRadius);
+        mod.feed.SetBodySampleEveryNTicks(algorithm.ingest.bodySampleEveryNTicks);
     }
 }
 
@@ -181,7 +203,10 @@ void OnFrame() {
     PublishDevbenchStatus(mod, now);
 
     // After the engine, because a cue emitted this frame with a zero offset is
-    // due this frame.
+    // due this frame. The ears go over first so the renderer's placement line can
+    // say how far our audio ended up from them - the feed has just refreshed them
+    // from the VR camera root, which is where the game's own listener sits.
+    mod.renderer.SetListener(mod.feed.Listener().position);
     mod.renderer.Update(now);
 
     // One line when the last tracked actor lets go. The engine writes its own
@@ -198,10 +223,20 @@ void OnFrame() {
         std::uint64_t voicesOut = 0;
         mod.renderer.Counters(cuesIn, voicesOut);
         const std::uint64_t dropped = mod.feed.Dropped();
-        spdlog::info("idle: {} cues became {} engine voices{}", cuesIn, voicesOut,
+        const std::size_t liveVoices = mod.engine.LiveVoices();
+        spdlog::info("idle: {} cues became {} engine voices; {} still booked{}", cuesIn, voicesOut,
+                     liveVoices,
                      dropped != 0 ? std::format("; {} contact(s) were dropped by a full ring - "
                                                 "raise kRingCapacity", dropped)
                                   : std::string{});
+        if (liveVoices != 0) {
+            // Nothing is tracked, so nothing can be playing on our account. A
+            // non-zero count here is a voice booked and never given back. It no
+            // longer silences anything, now that nothing is capped against it,
+            // but it is still a bug and this line is where it shows.
+            spdlog::warn("idle: {} voice(s) are still booked with no actor tracked - something was "
+                         "taken and not given back", liveVoices);
+        }
     }
     mod.wasTracking = tracked != 0;
 }
@@ -238,12 +273,18 @@ void OnDataLoaded() {
     // so there is nothing to be gained by still listening to it. Read once:
     // Algorithm() hands back a copy of a large struct and this runs every frame.
     mod.feed.SetCullRadius(algorithm.distance.simplifiedRadius);
+    mod.feed.SetBodySampleEveryNTicks(algorithm.ingest.bodySampleEveryNTicks);
     mod.feed.Install();
 
     // The renderer knows a cue wants a bone; only the feed knows how that actor's
     // limbs were resolved. This is the seam between them.
     mod.renderer.SetBoneResolver([](rds::ActorId actor, std::int32_t limbIndex) {
         return Get().feed.BoneNode(actor, limbIndex);
+    });
+    mod.renderer.SetRootResolver(
+        [](rds::ActorId actor) { return Get().feed.RootNode(actor); });
+    mod.renderer.SetActorPositionResolver([](rds::ActorId actor, rds::Vec3& out) {
+        return Get().feed.ActorPosition(actor, out);
     });
 
     rds::game::ResetClock();

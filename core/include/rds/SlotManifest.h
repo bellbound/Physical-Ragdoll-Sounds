@@ -134,8 +134,12 @@ public:
     ///
     /// Selection is a shuffle bag, not random: random repeats immediately, and
     /// immediate repeats are what people notice.
+    /// `token` identifies the contact this cue came from. Non-zero with
+    /// `SlotResolutionConfig::stableVariants` on, the variant is derived from it
+    /// instead of from the shuffle bag's position, so a config change re-rolls
+    /// only the cues it actually altered. Zero keeps the bag.
     [[nodiscard]] bool Resolve(SlotId slot, SurfaceClass surface, Coverage coverage, LimbSite site,
-                               ResolvedSound& out);
+                               ResolvedSound& out, std::uint32_t token = 0);
 
     /// The exact sound a cue names. Unlike Resolve, this is a pure lookup - it
     /// does not touch the shuffle bag - so a renderer can turn a cue's
@@ -152,6 +156,41 @@ public:
     void Seed(std::uint32_t seed);
 
     [[nodiscard]] std::size_t FileCount(SlotId slot) const;
+
+    // ── overrides ────────────────────────────────────────────────────────────
+    //
+    // Two levers over what a slot picks: pin one variant so every cue plays it,
+    // and suspend variants so no cue does. Both are cleared by a load, because a
+    // variant index is a position in a list a load can renumber - whatever set
+    // one owns putting it back.
+    //
+    // They differ in who sets them and how long they last.
+    //
+    //  - A **pin** is a way to listen and nothing else. Nothing reads or writes
+    //    it, the plugin never sets it, and it dies with the process.
+    //  - A **mute** is a decision about the pack. `LoadAssigned` sets it from
+    //    `SlotAssignment::muted`, which is saved in RagdollSounds_SFX.ini and
+    //    read by the game, so a file muted in the testbench is a file the mod
+    //    does not play. The setter is still here for anything that wants a mute
+    //    that outlives no load at all.
+
+    /// No variant: what ForcedVariant says when a slot is resolving normally.
+    static constexpr std::uint8_t kNoVariant = 0xFF;
+
+    /// Pin `variant` on this slot, or kNoVariant to let it resolve again. A
+    /// forced variant beats a mute on the same file: pinning something you have
+    /// muted is asking to hear it.
+    void ForceVariant(SlotId slot, std::uint8_t variant);
+    [[nodiscard]] std::uint8_t ForcedVariant(SlotId slot) const;
+
+    /// Suspend one variant. The slot carries on with what is left, and a slot
+    /// with every variant suspended goes silent rather than playing a stand-in.
+    void MuteVariant(SlotId slot, std::uint8_t variant, bool muted);
+    [[nodiscard]] bool VariantMuted(SlotId slot, std::uint8_t variant) const;
+
+    /// Drop every force and every mute, on every slot. Called at the top of
+    /// LoadAssigned, which then puts the assignment's own mutes back.
+    void ClearOverrides();
 
 private:
     /// Clear every slot, then fill from `<slot name>_<NN>.wav` under
@@ -172,9 +211,27 @@ private:
         /// than from an assignment. Only those get re-sorted by path - the ini's
         /// order is the user's and must survive.
         bool scannedByName{true};
+        /// The last variant this slot played, so the stable picker can still
+        /// avoid an immediate repeat - which is the one thing the shuffle bag
+        /// was there for. 0xFF means nothing has played yet.
+        std::uint8_t lastVariant{0xFF};
+        /// The pinned variant, or kNoVariant. See "session overrides" above.
+        std::uint8_t forced{0xFF};
+        /// One flag per variant, or empty while nothing here is suspended.
+        std::vector<std::uint8_t> muted;
+        /// How many of those are set, so the ordinary path costs one compare.
+        std::size_t mutedCount{};
     };
     SlotFiles m_slots[static_cast<std::size_t>(SlotId::kCount)];
     std::uint64_t m_rng{};
+    /// The seed as given, kept apart from the running state so the stable picker
+    /// has something that does not advance.
+    std::uint32_t m_seed{1};
+    bool m_stableVariants{true};
+
+public:
+    /// Whether Resolve honours a token. Off, it always uses the shuffle bag.
+    void SetStableVariants(bool on) { m_stableVariants = on; }
 };
 
 /// Which surface skin a surface class asks for. kMetal, kWater and kBody have no

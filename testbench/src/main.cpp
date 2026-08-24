@@ -5,6 +5,8 @@
 //   RagdollSoundsTestbench --smoke               headless, plays one take for a second
 //   RagdollSoundsTestbench --export              headless, dumps every take's state to a file
 //                          (--take <match> to dump just one)
+//   RagdollSoundsTestbench --bench               headless, times the backend over every take
+//                          (--take <match> for one, --config <ini> for a config to compare)
 //   RagdollSoundsTestbench --import <file>...    headless, brings files into the sfx library
 //                          (--no-fmts to keep the site stamp in the name)
 //   RagdollSoundsTestbench --take log_7          open that take instead of the first
@@ -41,6 +43,7 @@
 #include "imgui_impl_opengl3.h"
 
 #include "App.h"
+#include "Bench.h"
 #include "Export.h"
 #include "SfxImport.h"
 
@@ -72,6 +75,7 @@ struct Args {
     bool verify{};
     bool smoke{};
     bool exportAll{};
+    bool bench{};
     /// Files to bring into the library. The button's headless twin, for the
     /// same reason --export is: importing forty files should not be forty
     /// clicks, and a batch that can only be done by clicking is one nobody
@@ -91,6 +95,8 @@ Args ParseArgs(int argc, char** argv) {
             a.smoke = true;
         else if (s == "--export")
             a.exportAll = true;
+        else if (s == "--bench")
+            a.bench = true;
         else if (s == "--recordings")
             a.recordings = next();
         else if (s == "--configs")
@@ -375,6 +381,10 @@ int RunExport(const Args& args) {
         req.audio = audio.get();
         req.sync = &sync;
         req.configName = args.configFile.empty() ? "(defaults)" : args.configFile.stem().string();
+        // Always here, where the GUI has a checkbox: a headless dump is read by
+        // somebody who was not at the machine, and `--config config_22_08_5` is
+        // a name they cannot resolve to numbers.
+        req.includeConfigs = true;
         req.videoOffsetMs =
             offsets.Get(csv.stem().string(), sync.valid ? sync.intercept : rec.Info().videoOffsetMs);
         req.offsetMeasured = offsets.Has(csv.stem().string());
@@ -439,6 +449,80 @@ int RunImport(const Args& args) {
 
     std::printf("\nlibrary: %zu -> %zu file(s), %d failed\n", before, library.Size(), failed);
     return failed == 0 ? 0 : 3;
+}
+
+/// The benchmark button's headless twin.
+///
+/// Same measurement, same defaults, so a number quoted from a script and a
+/// number read off the window are the same number. It exists for the case the
+/// button cannot cover: "did this commit make the engine slower", which is a
+/// question about two builds rather than two configs and therefore has to be
+/// askable without a window, a take selected by hand, or anybody clicking.
+int RunBenchMode(const Args& args) {
+    rds::AlgorithmConfig cfg{};
+    cfg.slots.rngSeed = 1;
+    if (!args.configFile.empty()) {
+        const std::size_t keys =
+            rds::ConfigManager::LoadInto(args.configFile, &cfg, rds::AlgorithmParams());
+        std::printf("config: %s (%zu keys)\n", args.configFile.string().c_str(), keys);
+    } else {
+        std::printf("config: defaults\n");
+    }
+
+    rds::SoundBank bank;
+    rds::SfxLibrary library;
+    rds::SfxAssignments assignments;
+    LoadBank(args, bank, library, assignments);
+
+    const std::vector<fs::path> csvs = RecordingCsvs(args.recordings);
+    if (csvs.empty()) {
+        std::fprintf(stderr, "no recordings under %s\n", args.recordings.string().c_str());
+        return 2;
+    }
+
+    tb::BenchOptions opt;
+    opt.seed = 1;
+    opt.trace = false;
+    opt.budgetMs = 500.0;
+
+    std::printf("\n%-46s %9s %9s %8s %7s %9s %9s %6s\n", "take", "best ms", "median", "us/tick",
+                "ticks", "realtime", "contacts", "cues");
+    std::printf("%s\n", std::string(112, '-').c_str());
+
+    int measured = 0;
+    double totalUsPerTick = 0.0;
+    for (const fs::path& csv : csvs) {
+        if (!args.take.empty() && csv.stem().string().find(args.take) == std::string::npos) {
+            continue;
+        }
+        rds::Recording rec;
+        std::string error;
+        if (!rec.Load(csv, error)) {
+            std::printf("%-46s LOAD FAILED: %s\n", csv.stem().string().c_str(), error.c_str());
+            continue;
+        }
+        const tb::BenchResult r = tb::RunBench(rec, cfg, bank, opt);
+        if (!r.valid) {
+            std::printf("%-46s no runs\n", csv.stem().string().c_str());
+            continue;
+        }
+        std::printf("%-46s %9.3f %9.3f %8.2f %7u %8.0fx %9u %6u\n", rec.Info().stem.c_str(),
+                    r.bestMs, r.medianMs, r.UsPerTick(), r.ticks, r.RealtimeFactor(), r.contactsIn,
+                    r.emittedCues);
+        totalUsPerTick += r.UsPerTick();
+        ++measured;
+    }
+
+    if (measured == 0) {
+        std::fprintf(stderr, "\nnothing measured\n");
+        return 3;
+    }
+    // The per-tick mean rather than a total: a tick is a game frame, so this is
+    // the one figure that is about the mod rather than about how long these
+    // particular takes happen to be.
+    std::printf("\n%d take%s, %.2f us per engine tick on average\n", measured,
+                measured == 1 ? "" : "s", totalUsPerTick / measured);
+    return 0;
 }
 
 void GlfwError(int code, const char* description) {
@@ -533,12 +617,13 @@ int main(int argc, char** argv) {
     logOptions.name = "RagdollSoundsTestbench";
     logOptions.level = rds::LogLevel::kInfo;
     logOptions.rotate = true;
-    logOptions.alsoStdout = args.verify;
+    logOptions.alsoStdout = args.verify || args.bench;
     rds::log::Setup(logOptions);
 
     if (args.verify) return RunVerify(args);
     if (args.smoke) return RunSmoke(args);
     if (args.exportAll) return RunExport(args);
+    if (args.bench) return RunBenchMode(args);
     if (!args.importFiles.empty()) return RunImport(args);
     return RunGui(args);
 }

@@ -58,6 +58,17 @@ struct RecordingInfo {
     std::uint32_t dropped{};  ///< non-zero means the take is incomplete
     bool complete{};
 
+    /// True when `<stem>_pose.bin` is beside the take and carries frames.
+    ///
+    /// False is not a failure - the take replays exactly as it always did - but
+    /// it is worth saying out loud, because air time then has no measurement
+    /// behind it and falls back to inferring flight from the gaps between
+    /// contacts. Every take captured before pose existed reads false; the
+    /// `limb_sample` rows those CSVs carry are two snapshots at ragdoll_start
+    /// and ragdoll_end, which is a launch pose, not a signal.
+    bool hasBodySamples{};
+    std::size_t poseFrames{};
+
     /// Present when the take has video beside it.
     std::filesystem::path videoPath;
     /// video_time_ms = t_ms + offsetMs + driftMsPerSec * t_ms / 1000.
@@ -66,12 +77,23 @@ struct RecordingInfo {
     /// sync csv rather than taken from the first row, because the two clocks
     /// genuinely drift: measured at +0.29 to +2.92 ms per second across these
     /// takes, which is up to 20 ms of slip over a seven-second one - more than a
-    /// frame, and enough to put a hit on the wrong side of the picture. The mp4s
-    /// are cuts of a longer OBS recording whose cut point is recorded nowhere, so
-    /// the intercept still needs a per-take nudge in the UI on top of this.
+    /// frame, and enough to put a hit on the wrong side of the picture. Whether
+    /// the intercept can be believed as it stands depends on `videoIsWholeOutput`.
     double videoOffsetMs{};
     double videoDriftMsPerSec{};
     bool hasSync{};
+    /// True when the mp4 beside the take is OBS's own output for this take, and
+    /// not a clip cut out of a longer recording.
+    ///
+    /// The distinction is the whole difference between the two sync regimes. A
+    /// cut clip's sync clocks belong to the recording it was cut from, and the
+    /// cut point is written down nowhere - so the intercept is useless against
+    /// the file on disk and the offset has to be nudged by hand. A whole output
+    /// starts where the sync track says it starts, so the intercept *is* the
+    /// offset. Read off the sidecar rather than guessed: `obs.output_path` names
+    /// a file the take owns, and `obs.external_recording` says the take merely
+    /// rode a recording somebody else had already started.
+    bool videoIsWholeOutput{};
 };
 
 /// A loaded take, ready to replay.

@@ -48,6 +48,16 @@ enum class CueReason : std::uint8_t {
 
 [[nodiscard]] std::string_view ToString(CueReason r);
 
+struct CompressConfig;
+
+/// The compression threshold that governs a cue of this reason, on the pre-trim
+/// scale `Proposal::levelDb` uses. See CompressConfig for what the number means.
+///
+/// Shared rather than switched twice: the engine applies it and the testbench
+/// explains it, and a second copy of this mapping is how the two come to
+/// disagree about which slider held a cue down.
+[[nodiscard]] float CompressThresholdDb(const CompressConfig& cfg, CueReason reason);
+
 /// One voice instruction.
 struct Cue {
     TimeMs timeMs{};  ///< absolute on the engine clock, including the layer offset
@@ -62,9 +72,19 @@ struct Cue {
 
     Vec3 position{};
     /// >= 0 attaches the voice to that limb index and the position is ignored.
-    /// The player's own ragdoll uses this; NPCs collapse to a world point during
-    /// a hero moment and spread back out during the tumble.
+    /// The player's own ragdoll uses this, because at arm's length a collapse to
+    /// one point sounds like the audio is inside your head.
     std::int32_t boneIndex{-1};
+
+    /// Stage 4 rule 5 fired: this cue is part of a hero moment and every layer
+    /// of it belongs at ONE point rather than at its own contact.
+    ///
+    /// The renderer needs to be told rather than left to infer it. It follows
+    /// the contact limb by default - a sound has to come from where the limb
+    /// hit, which is the falsifiable half of the physics/design split - and
+    /// following a limb ignores `position` entirely, so a collapse expressed
+    /// only as "every cue got the same position" would be silently discarded.
+    bool collapsed{};
 
     /// Identifies a loop across kStartLoop / kUpdateLoop / kStopLoop. Unused on
     /// one-shots.
@@ -76,9 +96,24 @@ struct Cue {
     LimbSite site{};
     SurfaceClass surface{};
     CueReason reason{};
-    Phase phase{};
+    /// Both Stage 2 axes at the moment this cue was emitted. Two fields rather
+    /// than one, because "the body was tumbling" and "the mix was in a hero
+    /// moment" are independent facts and a timeline that shows only their
+    /// product cannot explain why a quiet-looking contact came out loud.
+    Motion motion{};
+    Moment moment{};
     float intensity{};            ///< 0..1, what the loudness curve was fed
     std::uint32_t sourceSeq{};    ///< the FeedEvent this traces back to
+
+    /// How much the `[Compress]` threshold for this cue's class took off it,
+    /// negative, or 0 when the moment was under it. Already inside `gainDb`.
+    ///
+    /// Carried rather than recomputed because from the level alone the two
+    /// questions that matter cannot be told apart: "this is as loud as it wanted
+    /// to be" and "this is as loud as it was allowed to be" land on the same
+    /// number. It is also what lets the timeline draw the height a held cue
+    /// would have had, which is the only way to see a compressor working.
+    float compressCutDb{};
 };
 
 /// Where cues go. The game implements it with BSSoundHandle; the testbench

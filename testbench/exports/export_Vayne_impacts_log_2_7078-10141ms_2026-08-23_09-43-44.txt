@@ -1,0 +1,275 @@
+TAKE
+  stem            Vayne_impacts_log_2
+  note            
+  actor           Vayne
+  cell            Winterberry Chateau
+  duration        0 ms
+  impacts         0 (dropped 0, complete no)
+  playhead        8579 ms
+  seed            1
+  config          config_22_08_7 (side 0)
+
+WINDOW - this export covers the loop region only
+  region          7078 - 10141 ms  (3063 ms of 0)
+  phase at start  unknown (session_start, set at 1 ms)
+  NOTE  TIMELINE, CUES and DECISIONS below are cut to this window. SOUND BANK
+        and FUNNEL are the whole take - the funnel counters are accumulated
+        over the run and cannot be re-cut after the fact.
+
+VIDEO
+  file            Vayne_impacts_log_2.mp4
+  clip length     103600 ms at 30.00 fps, decoded
+  offset in use   +0 ms   (video position = take time + offset)
+  window in video 7078 - 10141 ms  (7.08 - 10.14 s)
+  window frames   212 - 304 at 30.00 fps
+  sync fit        slope 0.998719, intercept -203 ms, drift -1.28 ms/s, min rtt 0 ms
+  NOTE  `offset in use` is the measured value from framecache/video-offsets.ini,
+        which overrides the fit above.
+
+CONFIG - values differing from default
+  Phase:fSettleEnergyFloor=80 (default 45)
+  Phase:fSettleQuietMs=0 (default 300)
+  Arbitration:fRateCapMs=43 (default 46)
+  Arbitration:fRateCapOverrideDb=16 (default 6)
+  Arbitration:fBurstWindowMs=110 (default 300)
+  Arbitration:iVoiceCapPerActor=8 (default 12)
+  Arbitration:iVoiceCapGlobal=16 (default 24)
+  Intensity:fSpeedRefHigh=510 (default 960)
+  Intensity:fDynamicRangeDb=15 (default 35)
+  Intensity:fCurveExponent=1.2 (default 0.75)
+  Intensity:fSoftClipKnee=0.25 (default 0.85)
+  Intensity:fMassWeight=0.9 (default 0.35)
+  Intensity:fObliterateFrac=2.7451 (default 1.46)
+  PostIntensity:fExtraRangeDb=-7.5 (default 0)
+  PostIntensity:fCurveExponent=2.4 (default 1)
+  Limbs:bMassDeterminesLoudness=1 (default 0)
+  Limbs:fBodyMass=3.5 (default 5)
+  Limbs:fRotationRefRatio=1.1 (default 1)
+  ImpactComposite:fSubGainAtMaxDb=-6 (default 0)
+  HeadImpact:fGateFrac=0.32 (default 0.31)
+  HeadImpact:fGainDb=-27.5 (default -2)
+  CrunchGore:fCrunchGateFrac=0.9804 (default 0.52)
+  CrunchGore:fCrunchCertainFrac=1.37 (default 0.73)
+  CrunchGore:fCrunchHysteresisFrac=0.1373 (default 0.08)
+  CrunchGore:fGoreGateFrac=0.6863 (default 1.46)
+  CrunchGore:fCrunchGainDb=-33.5 (default -4)
+  ScrapeLoop:bEnabled=0 (default 1)
+  ScrapeLoop:fMinTangentSpeed=660 (default 120)
+  ScrapeLoop:fStartFadeMs=310 (default 60)
+  ScrapeLoop:fStopFadeMs=840 (default 140)
+  ScrapeLoop:fMinDurationMs=100 (default 120)
+  ScrapeLoop:fGainDb=-18.5 (default -20)
+  SettleClose:bEnabled=0 (default 1)
+  SettleClose:fGainDb=-27 (default -16)
+  SettleClose:fDelayMs=70 (default 120)
+  Mix:fMasterGainDb=2 (default 0)
+  Mix:fVoiceFloorDb=-100 (default -48)
+  Player:fSubTrimDb=0 (default -9)
+  Slots:iRngSeed=1 (default 0)
+  Layers:bFoleyCloth=0 (default 1)
+  Layers:bAirWhoosh=0 (default 1)
+
+SOUND BANK
+  imp_transient  3/3 files, wav, 120 ms
+  imp_body       3/3 files, wav, 240 ms
+  imp_sub        2/2 files, wav, 300 ms
+  surf_wood      2/2 files, wav, 190 ms
+  surf_stone     2/2 files, wav, 124 ms
+  surf_soft      2/2 files, wav, 250 ms
+  limb_tap       4/4 files, wav, 74 ms
+  crunch_gran    2/2 files, wav, 400 ms
+  gore_wet       2/2 files, wav, 400 ms
+  scrape_loop    1/1 files, wav, 3000 ms
+  foley_cloth    1/1 files, wav, 3000 ms
+  air_whoosh     1/1 files, wav, 2000 ms
+  head_impact    2/2 files, wav, 300 ms
+  settle_rest    2/2 files, wav, 400 ms
+  grunt_impact   declared and unfilled
+  scream_big     declared and unfilled
+
+FUNNEL - contacts in, cues out (WHOLE TAKE, not the window)
+  events read           11183
+  contacts              778
+    rejected below floor 299
+    rejected blow-up     4
+    mirrored self-hit    275
+    manifold collapsed   63
+    routed to foley bed  257
+  proposed cues         981
+    dropped rate cap     139
+    dropped chain merge  11
+    dropped masking      2
+    dropped burst cap    245
+    dropped voice cap    112
+    muted by layer       440
+  emitted               127 in 55 bursts
+  first cue             8075 ms
+  last cue              94014 ms
+  peak contact          608.7 u/s
+
+AUDIO
+  95214 ms at 48000 Hz, 4570263 frames
+  peak 0.496 heard, 0.533 before the limiter (limiter on)
+
+CUES BY SLOT IN THE WINDOW - 10 cues
+  limb_tap       2
+  imp_transient  2
+  surf_stone     1
+  imp_body       2
+  imp_sub        2
+  surf_wood      1
+
+TIMELINE - state, contacts and cues in one column
+  (a cue's `seq` is the contact row that produced it)
+
+   8049.9 ms  STATE     ragdoll_start          phase=ragdoll
+   8049.9 ms  STATE     knock_explode          phase=ragdoll
+   8065.2 ms    contact  NPC L Forearm [LLar]      50.0 u/s  tan   58.1  body   14.9  ang    6.6  DeadBip  seq 49
+   8065.2 ms    contact  NPC Spine1 [Spn1]         50.0 u/s  tan   58.1  body  107.9  ang    1.6  DeadBip  seq 50
+   8075.3 ms    contact  NPC R Foot [Rft ]        118.7 u/s  tan  162.3  body  153.8  ang   16.1  Static  seq 54
+   8075.3 ms      CUE    limb_tap       play   -10.5 dB  pitch 0.84  tap              PrimaryImpact int 0.07  seq 54
+   8092.1 ms    contact  NPC Spine1 [Spn1]         67.1 u/s  tan  115.4  body  150.9  ang    6.3  Static  seq 57
+   8098.6 ms    contact  NPC L Forearm [LLar]     103.1 u/s  tan  216.1  body  124.2  ang   20.0  DeadBip  seq 61
+   8098.6 ms    contact  NPC Spine2 [Spn2]        103.1 u/s  tan  216.1  body  130.8  ang    2.9  DeadBip  seq 62
+   8107.1 ms    contact  NPC R Thigh [RThg]        18.3 u/s  tan   40.6  body   32.0  ang    7.6  Static  seq 64
+   8139.7 ms    contact  NPC R Forearm [RLar]      89.3 u/s  tan  156.4  body  165.4  ang    6.5  DeadBip  seq 79
+   8139.7 ms    contact  NPC Spine [Spn0]          89.3 u/s  tan  156.4  body   76.2  ang    5.1  DeadBip  seq 80
+   8139.7 ms    contact  NPC R Forearm [RLar]      74.5 u/s  tan   64.9  body  165.4  ang    6.5  DeadBip  seq 81
+   8139.7 ms    contact  NPC Spine1 [Spn1]         74.5 u/s  tan   64.9  body  109.5  ang    5.9  DeadBip  seq 82
+   8139.7 ms    contact  NPC R Forearm [RLar]      37.6 u/s  tan   54.2  body  165.4  ang    6.5  DeadBip  seq 83
+   8139.7 ms    contact  NPC Spine2 [Spn2]         37.6 u/s  tan   54.2  body  144.7  ang    3.0  DeadBip  seq 84
+   8174.8 ms    contact  NPC R Thigh [RThg]        33.5 u/s  tan   47.2  body   52.4  ang    7.8  Static  seq 94
+   8174.8 ms      CUE    limb_tap       play   -10.5 dB  pitch 1.10  tap              PrimaryImpact int 0.03  seq 94
+   8266.0 ms    contact  NPC R Thigh [RThg]        28.9 u/s  tan   38.3  body   61.5  ang    8.7  Static  seq 109
+   8266.4 ms    contact  NPC R UpperArm [RUar]     19.4 u/s  tan  227.4  body  212.8  ang    2.2  Static  seq 111
+   8285.5 ms    contact  NPC R Hand [RHnd]         32.1 u/s  tan  100.6  body  211.7  ang   14.1  Static  seq 116
+   8323.8 ms    contact  NPC L Forearm [LLar]       8.5 u/s  tan  193.6  body  250.5  ang   14.7  DeadBip  seq 122
+   8323.8 ms    contact  NPC Spine2 [Spn2]          8.5 u/s  tan  193.6  body  252.8  ang    4.9  DeadBip  seq 123
+   8323.8 ms    contact  NPC R Hand [RHnd]         32.5 u/s  tan   46.1  body  211.1  ang   59.2  Static  seq 124
+   8342.5 ms    contact  NPC L Thigh [LThg]        28.5 u/s  tan   78.1  body   56.3  ang    7.7  Static  seq 130
+   8342.5 ms    contact  NPC R Hand [RHnd]         32.4 u/s  tan  180.2  body  212.9  ang   43.3  DeadBip  seq 131
+   8342.5 ms    contact  NPC L Hand [LHnd]         32.4 u/s  tan  180.2  body  231.8  ang   36.6  DeadBip  seq 132
+   8342.8 ms    contact  NPC L Thigh [LThg]         7.5 u/s  tan   79.5  body   62.8  ang    6.1  Static  seq 134
+   8342.8 ms    contact  NPC R Forearm [RLar]      56.6 u/s  tan  194.5  body  210.6  ang    7.2  Static  seq 135
+   8361.6 ms    contact  NPC Spine [Spn0]          54.7 u/s  tan  122.1  body  161.4  ang    4.2  Static  seq 139
+   8361.6 ms    contact  NPC Spine [Spn0]          54.7 u/s  tan  122.1  body  161.4  ang    4.2  Static  seq 140
+   8361.6 ms    contact  NPC R Forearm [RLar]      88.1 u/s  tan  152.9  body  208.4  ang    4.8  Static  seq 141
+   8418.7 ms    contact  NPC Spine [Spn0]           8.7 u/s  tan  160.8  body  181.3  ang    3.6  Static  seq 148
+   8547.9 ms    contact  NPC R Forearm [RLar]      30.7 u/s  tan   80.5  body  222.1  ang    3.5  DeadBip  seq 165
+   8547.9 ms    contact  NPC L Hand [LHnd]         30.7 u/s  tan   80.5  body  198.6  ang    6.2  DeadBip  seq 166
+   8563.1 ms    contact  NPC L Forearm [LLar]     210.7 u/s  tan   29.1  body  239.3  ang    6.3  Static  seq 171
+   8563.1 ms      CUE    imp_transient  play   -28.4 dB  pitch 0.86  composite        Settle       int 0.34  seq 171
+   8563.1 ms    contact  NPC R UpperArm [RUar]     59.3 u/s  tan   53.2  body  296.8  ang    4.2  DeadBip  seq 172
+   8563.1 ms    contact  NPC L Hand [LHnd]         59.3 u/s  tan   53.2  body  216.4  ang    5.7  DeadBip  seq 173
+   8563.5 ms    contact  NPC L Forearm [LLar]     139.1 u/s  tan  141.4  body  113.8  ang   15.0  DeadBip  seq 178
+   8563.5 ms    contact  NPC Spine1 [Spn1]        139.1 u/s  tan  141.4  body  257.0  ang    4.3  DeadBip  seq 179
+   8563.5 ms    contact  NPC L Hand [LHnd]        157.4 u/s  tan  244.5  body  173.3  ang   45.0  Static  seq 180
+   8563.5 ms    contact  NPC L Hand [LHnd]        134.5 u/s  tan  258.8  body  173.3  ang   45.0  Static  seq 181
+   8570.6 ms      CUE    surf_stone     play   -28.9 dB  pitch 0.86  surface          Settle       int 0.34  seq 171
+   8578.8 ms    contact  NPC Spine2 [Spn2]        183.3 u/s  tan  205.6  body  294.1  ang    4.7  DeadBip  seq 185
+   8578.8 ms    contact  NPC L Hand [LHnd]        183.3 u/s  tan  205.6  body  119.5  ang   21.0  DeadBip  seq 186
+   8578.8 ms    contact  NPC L UpperArm [LUar]    292.9 u/s  tan   48.4  body  312.3  ang   11.5  Static  seq 187
+   8579.1 ms    contact  NPC L Forearm [LLar]     128.7 u/s  tan  186.2  body   95.3  ang    8.1  DeadBip  seq 191
+   8579.1 ms    contact  NPC R UpperArm [RUar]    128.7 u/s  tan  186.2  body  277.2  ang    2.0  DeadBip  seq 192
+   8579.1 ms    contact  NPC L Forearm [LLar]      53.7 u/s  tan  141.1  body   95.3  ang    8.1  Static  seq 193
+   8579.1 ms    contact  NPC R Forearm [RLar]     256.4 u/s  tan  117.8  body  223.2  ang    5.6  DeadBip  seq 194
+   8579.1 ms    contact  NPC L Hand [LHnd]        256.4 u/s  tan  117.8  body   35.2  ang   18.5  DeadBip  seq 195
+   8579.1 ms    contact  NPC Head [Head]          364.6 u/s  tan   95.1  body  371.0  ang   12.5  Static  seq 196
+   8579.2 ms      CUE    imp_body       play   -24.9 dB  pitch 0.86  composite        Settle       int 0.34  seq 171
+   8594.1 ms    contact  NPC R Hand [RHnd]        111.9 u/s  tan  149.3  body  125.6  ang   13.0  Static  seq 199
+   8594.4 ms    contact  NPC Spine1 [Spn1]         57.9 u/s  tan  138.5  body  169.6  ang    4.3  DeadBip  seq 205
+   8594.4 ms    contact  NPC L Hand [LHnd]         57.9 u/s  tan  138.5  body   45.0  ang    9.7  DeadBip  seq 206
+   8594.4 ms    contact  NPC Spine2 [Spn2]         75.3 u/s  tan  105.4  body  139.2  ang    1.9  Static  seq 207
+   8609.3 ms    contact  NPC L Forearm [LLar]       6.2 u/s  tan   56.9  body   74.3  ang   10.0  DeadBip  seq 214
+   8609.3 ms    contact  NPC R UpperArm [RUar]      6.2 u/s  tan   56.9  body  135.5  ang    6.9  DeadBip  seq 215
+   8609.7 ms    contact  NPC Head [Head]            5.6 u/s  tan   11.9  body   70.6  ang   17.3  Static  seq 219
+   8624.2 ms    contact  NPC R Hand [RHnd]          8.4 u/s  tan  165.6  body  187.5  ang   12.8  Static  seq 221
+   8625.0 ms      CUE    imp_sub        play   -40.7 dB  pitch 0.86  composite        Settle       int 0.34  seq 171
+   8639.7 ms    contact  NPC Spine [Spn0]          88.7 u/s  tan   64.0  body  189.6  ang    9.7  DeadBip  seq 230
+   8639.7 ms    contact  NPC L Forearm [LLar]      88.7 u/s  tan   64.0  body  200.3  ang   11.2  DeadBip  seq 231
+   8672.1 ms    contact  NPC Spine [Spn0]         119.4 u/s  tan  123.8  body  105.2  ang    3.1  DeadBip  seq 239
+   8672.1 ms    contact  NPC L Hand [LHnd]        119.4 u/s  tan  123.8  body  140.7  ang   10.9  DeadBip  seq 240
+   8727.9 ms    contact  NPC L Forearm [LLar]      14.5 u/s  tan   71.8  body   70.4  ang    2.3  Static  seq 249
+   8758.4 ms    contact  NPC L Foot [Lft ]        188.5 u/s  tan   52.3  body  221.5  ang    7.7  Static  seq 252
+   8758.7 ms    contact  NPC L Calf [LClf]        138.3 u/s  tan  166.1  body  213.2  ang    6.3  Static  seq 255
+   8758.7 ms    contact  NPC L Thigh [LThg]       128.4 u/s  tan  213.5  body  164.3  ang    6.2  Static  seq 256
+   8796.8 ms    contact  NPC L Hand [LHnd]         66.0 u/s  tan   67.5  body   46.0  ang    2.7  DeadBip  seq 268
+   8796.8 ms    contact  NPC L Thigh [LThg]        66.0 u/s  tan   67.5  body  119.8  ang    3.9  DeadBip  seq 269
+   8832.5 ms    contact  NPC R Forearm [RLar]      10.5 u/s  tan  161.3  body  125.6  ang    3.2  Static  seq 276
+   8849.9 ms    contact  NPC L Thigh [LThg]        10.8 u/s  tan    8.4  body   62.1  ang    2.9  DeadBip  seq 279
+   8849.9 ms    contact  NPC L Forearm [LLar]      10.8 u/s  tan    8.4  body   64.1  ang    1.5  DeadBip  seq 280
+   8867.4 ms    contact  NPC COM [COM ]            20.7 u/s  tan   25.0  body   56.2  ang    1.7  DeadBip  seq 285
+   8867.4 ms    contact  NPC L Forearm [LLar]      20.7 u/s  tan   25.0  body   55.7  ang    1.2  DeadBip  seq 286
+   8903.5 ms    contact  NPC COM [COM ]            44.6 u/s  tan   50.1  body   57.0  ang    4.9  DeadBip  seq 291
+   8903.5 ms    contact  NPC L Hand [LHnd]         44.6 u/s  tan   50.1  body   47.7  ang    1.8  DeadBip  seq 292
+   8922.5 ms    contact  NPC Spine2 [Spn2]         10.2 u/s  tan   55.0  body   45.1  ang    0.9  Static  seq 295
+   9036.8 ms    contact  NPC R Foot [Rft ]        255.6 u/s  tan   37.5  body  245.6  ang    9.2  Static  seq 301
+   9036.8 ms      CUE    imp_transient  play   -28.9 dB  pitch 0.86  composite        Settle       int 0.40  seq 301
+   9047.5 ms      CUE    surf_wood      play   -28.3 dB  pitch 0.86  surface          Settle       int 0.40  seq 301
+   9054.4 ms    contact  NPC L Calf [LClf]         28.1 u/s  tan   54.9  body   52.6  ang    3.7  Static  seq 304
+   9054.4 ms    contact  NPC L Calf [LClf]         35.7 u/s  tan   61.5  body   52.6  ang    3.7  Static  seq 305
+   9054.5 ms    contact  NPC R Calf [RClf]         91.0 u/s  tan   99.9  body  139.2  ang    3.7  Static  seq 306
+   9059.0 ms      CUE    imp_body       play   -24.3 dB  pitch 0.86  composite        Settle       int 0.40  seq 301
+   9078.8 ms    contact  NPC R Foot [Rft ]         14.6 u/s  tan   74.0  body   52.4  ang    7.7  Static  seq 309
+   9101.5 ms      CUE    imp_sub        play   -39.1 dB  pitch 0.86  composite        Settle       int 0.40  seq 301
+   9121.1 ms    contact  NPC L Foot [Lft ]          5.9 u/s  tan   64.2  body   73.9  ang    1.9  Static  seq 315
+   9156.8 ms    contact  NPC R Foot [Rft ]         12.4 u/s  tan   38.9  body   20.4  ang    4.6  Static  seq 317
+   9212.9 ms    contact  NPC R Foot [Rft ]          9.2 u/s  tan   22.9  body   17.3  ang    1.9  Static  seq 321
+   9298.6 ms  STATE     knock_queued           phase=ragdoll
+   9523.4 ms  STATE     ragdoll_end            phase=getup
+   9523.4 ms  STATE     knock_get_up           phase=getup
+   9593.2 ms    contact  NPC L Calf [LClf]         29.3 u/s  tan  155.6  body  144.9  ang    1.8  Static  seq 366
+   9624.1 ms    contact  NPC Spine2 [Spn2]         38.6 u/s  tan   81.0  body   29.7  ang    1.9  DeadBip  seq 378
+   9624.1 ms    contact  NPC L Hand [LHnd]         38.6 u/s  tan   81.0  body  114.5  ang    8.0  DeadBip  seq 379
+   9654.8 ms    contact  NPC R Thigh [RThg]       196.0 u/s  tan  405.8  body  219.7  ang   15.2  DeadBip  seq 380
+   9654.8 ms    contact  NPC L Thigh [LThg]       196.0 u/s  tan  405.8  body  209.3  ang   13.4  DeadBip  seq 381
+   9693.3 ms    contact  NPC L Thigh [LThg]        67.2 u/s  tan   96.8  body   61.3  ang   11.0  Static  seq 388
+   9773.9 ms    contact  NPC R Thigh [RThg]        32.6 u/s  tan   40.6  body   29.5  ang    1.9  Static  seq 394
+   9774.2 ms    contact  NPC R Thigh [RThg]       123.8 u/s  tan   13.9  body  125.3  ang    2.4  Static  seq 396
+   9810.6 ms    contact  NPC R Calf [RClf]        238.4 u/s  tan    7.2  body  240.0  ang    2.9  Static  seq 398
+   9865.5 ms    contact  NPC R Hand [RHnd]         44.4 u/s  tan   21.3  body   50.6  ang    1.8  Static  seq 405
+   9885.3 ms    contact  NPC Spine [Spn0]          46.2 u/s  tan   11.4  body   50.4  ang    2.6  Static  seq 407
+   9924.2 ms    contact  NPC L Thigh [LThg]        26.1 u/s  tan   19.3  body   25.6  ang    3.4  Static  seq 409
+   9924.2 ms    contact  NPC L Thigh [LThg]        23.2 u/s  tan   21.9  body   25.6  ang    3.4  Static  seq 410
+  10040.9 ms    contact  NPC R Calf [RClf]         11.4 u/s  tan   25.7  body   40.7  ang    2.3  Static  seq 418
+  10095.6 ms    contact  NPC L Calf [LClf]         18.4 u/s  tan    8.7  body   27.1  ang    3.4  Static  seq 427
+  10095.6 ms    contact  NPC L Calf [LClf]         18.5 u/s  tan    8.7  body   27.1  ang    3.4  Static  seq 428
+  10113.1 ms    contact  NPC L Calf [LClf]         51.1 u/s  tan  122.7  body   21.5  ang    3.1  DeadBip  seq 431
+  10113.1 ms    contact  NPC R Foot [Rft ]         51.1 u/s  tan  122.7  body  112.5  ang    4.5  DeadBip  seq 432
+  10128.6 ms    contact  NPC Spine1 [Spn1]         35.5 u/s  tan   22.2  body   58.1  ang    2.3  Static  seq 434
+
+CUES
+     time  slot           op       gain  pitch  reason           phase          int   limb     site  seq
+   8075.3  limb_tap       play    -10.5   0.84  tap              PrimaryImpact  0.07      8     foot   54
+   8174.8  limb_tap       play    -10.5   1.10  tap              PrimaryImpact  0.03      2    thigh   94
+   8563.1  imp_transient  play    -28.4   0.86  composite        Settle        0.34     14  forearm  171
+   8570.6  surf_stone     play    -28.9   0.86  surface          Settle        0.34     14  forearm  171
+   8579.2  imp_body       play    -24.9   0.86  composite        Settle        0.34     14  forearm  171
+   8625.0  imp_sub        play    -40.7   0.86  composite        Settle        0.34     14  forearm  171
+   9036.8  imp_transient  play    -28.9   0.86  composite        Settle        0.40      8     foot  301
+   9047.5  surf_wood      play    -28.3   0.86  surface          Settle        0.40      8     foot  301
+   9059.0  imp_body       play    -24.3   0.86  composite        Settle        0.40      8     foot  301
+   9101.5  imp_sub        play    -39.1   0.86  composite        Settle        0.40      8     foot  301
+
+DECISIONS - every contact that reached arbitration, and what became of it
+   8092.1 ms  seq    57  limb  6     67.1 u/s  int 0.13  PrimaryImpact rate cap 17<43
+   8266.0 ms  seq   109  limb  2     28.9 u/s  int 0.02  PrimaryImpact burst gap
+   8285.5 ms  seq   116  limb 17     32.1 u/s  int 0.01  PrimaryImpact burst gap
+   8342.5 ms  seq   130  limb  1     28.5 u/s  int 0.02  Tumble       burst gap
+   8323.8 ms  seq   124  limb 17     32.5 u/s  int 0.00  Tumble       burst gap
+   8342.8 ms  seq   135  limb 15     56.6 u/s  int 0.04  Tumble       burst gap
+   8361.6 ms  seq   141  limb 15     88.1 u/s  int 0.10  Tumble       burst gap
+   8361.6 ms  seq   139  limb  3     54.7 u/s  int 0.08  Tumble       burst gap
+   8563.5 ms  seq   180  limb 16    157.4 u/s  int 0.09  Settle       rate cap 0<43
+   8579.1 ms  seq   196  limb 13    364.6 u/s  int 0.95  Settle       rate cap 16<43
+   8578.8 ms  seq   187  limb 10    292.9 u/s  int 0.52  Settle       rate cap 16<43
+   8594.1 ms  seq   199  limb 17    111.9 u/s  int 0.06  Settle       rate cap 31<43
+   8579.1 ms  seq   195  limb 16    256.4 u/s  int 0.16  Settle       rate cap 16<43
+   8579.1 ms  seq   193  limb 14     53.7 u/s  int 0.02  Settle       rate cap 16<43
+   8594.4 ms  seq   207  limb  9     75.3 u/s  int 0.14  Settle       rate cap 31<43
+   8758.4 ms  seq   252  limb  7    188.5 u/s  int 0.28  Settle       burst gap
+   8758.7 ms  seq   256  limb  1    128.4 u/s  int 0.36  Settle       burst gap
+   8758.7 ms  seq   255  limb  5    138.3 u/s  int 0.25  Settle       burst gap
+   9054.4 ms  seq   304  limb  5     28.1 u/s  int 0.01  Settle       rate cap 18<43
+   9054.5 ms  seq   306  limb  4     91.0 u/s  int 0.14  Settle       rate cap 18<43
+   9054.4 ms  seq   305  limb  5     35.7 u/s  int 0.02  Settle       rate cap 18<43

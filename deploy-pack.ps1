@@ -88,7 +88,10 @@ Write-Host "pack: $($wavs.Count) file(s), $copied changed -> $dest" -ForegroundC
 # kilobytes and explain what every file is.
 
 $libSource = Join-Path $PSScriptRoot 'assets\sfx\library'
-$libDest = Join-Path (Split-Path $dest -Parent) 'library'
+# Under sounds\, not beside it: plugin.cpp reads
+# Data/SKSE/Plugins/RagdollSounds/sounds/library, and a library one directory up
+# is 788 files the game never opens.
+$libDest = Join-Path $dest 'library'
 
 if (Test-Path $libSource) {
     if (-not (Test-Path $libDest)) {

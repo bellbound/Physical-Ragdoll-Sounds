@@ -36,6 +36,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <vector>
 
 #include "rds/Cue.h"
@@ -50,6 +51,13 @@ namespace rds::game {
 /// resolved. Null means "we cannot attach", and the voice takes a world position.
 using BoneResolver = std::function<RE::NiAVObject*(ActorId, std::int32_t)>;
 
+/// The node an actor's voices follow when no individual bone is named.
+using RootResolver = std::function<RE::NiAVObject*(ActorId)>;
+
+/// Where the game thinks an actor is. Diagnostic only - it never enters the mix.
+/// False when the actor is not tracked.
+using ActorPositionResolver = std::function<bool(ActorId, Vec3&)>;
+
 class GameRenderer final : public ICueSink {
 public:
     GameRenderer();
@@ -63,6 +71,16 @@ public:
 
     void SetBoneResolver(BoneResolver resolver);
 
+    void SetRootResolver(RootResolver resolver);
+
+    /// Only the placement log reads this. See ActorPositionResolver.
+    void SetActorPositionResolver(ActorPositionResolver resolver);
+
+    /// Where the ears are this frame, in world units. Used only to say something
+    /// useful in the log about a voice that has just been placed - the engine
+    /// does its own listener maths and this never enters the mix.
+    void SetListener(const Vec3& position) { m_listener = position; }
+
     /// Called from the frame hook, after Engine::Tick. Mixes and starts every
     /// group that has come due, refreshes running loops, and reclaims finished
     /// blobs.
@@ -71,6 +89,20 @@ public:
     /// Stop everything. Load game, cell change, mod disabled. A scrape that
     /// survives a load screen plays in the main menu.
     void StopAll();
+
+    /// Drop every cue instead of playing it, and stop what is already running.
+    ///
+    /// This is the far half of the testbench's Use Vanilla Audio switch: with
+    /// vanilla's body impacts put back (VanillaSuppression.h) and ours dropped
+    /// here, the two mixes can be heard against each other inside one session
+    /// rather than across two launches - which is the only way a level or a
+    /// character judgement about them means anything.
+    ///
+    /// Muted here rather than by not ticking the engine: the engine's tick is
+    /// what drains the feed, and the feed is what the testbench is recording.
+    /// Stop it and the A side of the comparison stops being observable.
+    void SetMuted(bool muted);
+    [[nodiscard]] bool Muted() const { return m_muted; }
 
     // -- ICueSink -------------------------------------------------------------
     void Emit(const Cue& cue) override;
@@ -98,15 +130,48 @@ private:
     };
 
     /// A one-shot in flight. Held only so its blob can be retired once the engine
-    /// has certainly finished with it.
+    /// has certainly finished with it, and so its placement can be re-sent until
+    /// it sticks.
     struct Voice {
         RE::BSSoundHandle handle{};
         std::uint64_t token{};
         TimeMs startedMs{};
         TimeMs expiresMs{};
         Vec3 position{};
+        ActorId actorId{};
         RE::NiAVObject* follow{};
-        bool reattached{};
+        /// How many frames the placement has been sent on. Bounded, so a handle
+        /// that never admits to playing costs a fixed number of messages rather
+        /// than one per frame for the whole voice.
+        std::uint8_t placeAttempts{};
+        /// Set once the placement has been sent on a frame the handle reported
+        /// itself playing on, which is the first moment the engine is known to
+        /// have somewhere to put it.
+        bool placed{};
+        /// One voice per log interval is followed from Play() to silence, to
+        /// measure what the engine adds on its own.
+        ///
+        /// The design assumes voices start on a frame boundary and treats the
+        /// resulting 7-20 ms of quantisation as acceptable. That assumption has
+        /// never been tested, and it matters: if the engine's own start latency
+        /// dwarfs a frame, then how often our hook runs is not what decides when
+        /// a sound arrives, and making the hook faster would buy nothing.
+        ///
+        /// The measurement is indirect but sound. We know how long the buffer is.
+        /// If the handle stops reporting itself playing about one buffer-length
+        /// after Play(), playback began at once and `IsPlaying` was simply slow to
+        /// admit it. If it stops a good deal later than that, the difference is
+        /// real latency the engine added before the first sample.
+        bool watch{};
+        float bufferMs{};
+        TimeMs firstPlayingMs{-1.0};
+        bool wasPlaying{};
+
+        /// The mixed buffer's peak before the clip, carried purely so the
+        /// placement line can say how hot what we handed the engine actually was.
+        /// "Too quiet" has two halves - what we render and what the game does to
+        /// it afterwards - and they need telling apart from one log.
+        float peak{};
     };
 
     /// A loop in flight. The engine has no reachable whole-file loop flag, so a
@@ -129,9 +194,21 @@ private:
     };
 
     bool StartComposite(const MixBuffer& mixed, ActorId actorId, TimeMs nowMs);
+
+    /// Send a one-shot's position or attachment to its handle, and say in the log
+    /// whether the engine took it. Called on the frame the voice starts and again
+    /// on the frames after it - see Voice::placed.
+    void Place(Voice& voice, bool playing);
+
+    /// The " N units off the body" half of the placement line, or empty when the
+    /// actor cannot be located.
+    [[nodiscard]] std::string DescribeAgainstActor(const Voice& voice) const;
     bool StartLoopVoice(Loop& loop, TimeMs nowMs);
     void ReleaseVoice(Voice& voice);
-    [[nodiscard]] RE::NiAVObject* NodeFor(ActorId actorId, std::int32_t boneIndex) const;
+    /// Which node this voice hangs on: a named bone, the body when the moment
+    /// was collapsed, otherwise the limb that made the contact.
+    [[nodiscard]] RE::NiAVObject* NodeFor(ActorId actorId, std::int32_t boneIndex,
+                                          std::uint16_t limbIndex, bool collapsed) const;
 
     /// Open a handle on `wav` and place it. Everything both paths share.
     bool Open(std::span<const std::uint8_t> wav, const Vec3& position, RE::NiAVObject* follow,
@@ -139,6 +216,8 @@ private:
 
     SoundBank* m_bank{};
     BoneResolver m_boneResolver;
+    RootResolver m_rootResolver;
+    ActorPositionResolver m_actorPositionResolver;
     PcmCache m_cache;
     MixParams m_mixParams;
 
@@ -153,6 +232,15 @@ private:
     std::uint64_t m_cuesIn{};
     std::uint64_t m_voicesOut{};
     bool m_warnedNoModel{};
+    bool m_muted{};
+    Vec3 m_listener{};
+    /// The placement line is worth one voice per burst, not one per voice: it
+    /// answers "is our audio where the body is", which is a question about a
+    /// knockdown rather than about a layer stack.
+    TimeMs m_lastPlaceLogMs{-1.0e9};
+    /// Said once. A handle that refuses its position is not a per-voice event,
+    /// it is the whole mod playing at the world origin.
+    bool m_warnedPlacement{};
 };
 
 }  // namespace rds::game

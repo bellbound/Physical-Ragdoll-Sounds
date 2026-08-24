@@ -13,3 +13,19 @@ __pycache__/
 
 # Raw capture video (hundreds of MB; CSV/YAML sidecars are kept)
 *.mp4
+
+# Vanilla Skyrim audio staged for auditioning in assets\sfx\skyrim\ (see its README).
+# Bethesda's assets, so the audio stays out of the repo; the survey that gives it its
+# value - manifest.csv and README.md - is ours and stays tracked. Matched on the prefix
+# rather than the folder so a stray copy is caught anywhere, including assets\sfx\library\
+# where it would otherwise deploy. Extensions are the set SfxLibrary indexes (Sfx.cpp:30).
+skyrim_*.wav
+skyrim_*.mp3
+skyrim_*.ogg
+skyrim_*.flac
+
+# ...and the sidecar the importer writes beside a local copy of one. It is our
+# measurement rather than Bethesda's audio, but it measures a file that is never
+# in the repo, so tracking it would leave 35 readings of nothing. The survey that
+# is worth keeping is assets\sfx\skyrim\manifest.csv.
+skyrim_*.meta.ini

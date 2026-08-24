@@ -40,7 +40,7 @@ lead-in, level match within a slot, headroom under runtime pitch shift, and loop
 | `air_whoosh` | 1/1 | low air movement, generated as a loop | centroid 218 Hz, 0.6 dB seam |
 | `settle_rest` | 2/2 | slumping fabric + limb, body settling | -20 dB in 28 / 48 ms, soft attack |
 | `surf_soft` | 2/2 | damp soil thump, weight into grass and earth | centroid 674 / 2475 Hz |
-| `surf_wood` | 2/2 | hollow plank knock, old creaking boards | centroid 830 / 1348 Hz |
+| `surf_wood` | 3/2 | hollow plank knock, old creaking boards, damped timber on soil | centroid 830 / 1348 / 2098 Hz, -20 dB in 40 / 78 / 48 ms |
 | `surf_stone` | 2/2 | strike on rough granite | 94 / 118 ms, -20 dB in 8 / 12 ms |
 | `head_impact` | 2/2 | melon in cloth, coconut in a leather sack | 226 / 496 ms, centroid 1100 / 2935 Hz |
 | `crunch_gran` | 2/2 | gravel and gristle, **shelved** before `make` | 18 / 16 lomid transients, centroid 3752 / 4154 Hz |
@@ -82,7 +82,7 @@ Character is measured **after the slot's high-pass**, because that is what ships
 **Band tilt**, `(sub+low)/2 − (high+air)/2`. This is the honest discriminator and the one that
 caught the most. Spectral centroid barely works: the reference hero hits measure 1950–3306 Hz
 centroid while being clearly bass-led, because there are simply more FFT bins up top — the trap
-`01-Reference-Analysis.md` §7 flags for the scrape. Centroid limits in `SPEC` are loose sanity
+`04-Reference-Analysis.md` §7 flags for the scrape. Centroid limits in `SPEC` are loose sanity
 bounds only.
 
 Then: usable event length, decay to −20 dB, transient count in 250–800 Hz (what separates a thud
@@ -161,7 +161,7 @@ outright.
 ### Spares worth using
 
 `takes/ledger.csv` rows with an empty `used_as` are takes that passed but lost the pick. Three
-`short_gritty_scuff` takes pass as a `scrape_grain` — a slot `01-Reference-Analysis.md` §7 asks for
+`short_gritty_scuff` takes pass as a `scrape_grain` — a slot `04-Reference-Analysis.md` §7 asks for
 ("sparse scrape-grain one-shots for the moments where a limb catches") that got dropped from the 29
 in `00-Design.md`, and the only `SPEC` key with no entry in `core/src/SlotManifest.cpp`. Adding it
 back is a design decision, not a tooling one.
@@ -264,3 +264,149 @@ measured against the peak flags `settle_rest`, which is specified to start softl
 leading silence against an absolute floor instead. And a **tail** threshold on the −40 dB time
 flags `imp_sub`'s specified decay tail and the body layers' 145–155 ms house decay, all correct;
 the real rule is the slot length, which `make` already enforces by truncating.
+
+
+---
+
+## 7. The 2026-08-23 Firefly batch
+
+100 unique takes (102 files; two byte-identical duplicates). Triaged with
+`tools/triage_batch.py`, which splits multi-contact takes, drops quiet satellites and
+handles textures both as loops and as long one-shots. Output: **183 cuts** in
+`takes/_split/`, listed in `takes/batch-manifest.csv`, with a per-cut verdict in
+`takes/batch-triage.csv`.
+
+**`takes/_import/` holds the 179 of those that are not technically broken**, each
+prefixed with its best slot so the folder sorts itself — `imp_body__…`, `limb_tap__…`,
+`unsorted__…` — with `_manifest.csv` alongside. That prefix is also what `sfx.py`
+infers a slot from, so `eval` and `make` read the renamed files correctly. Nothing has
+been promoted into `assets/sfx/`; these are candidates to audition.
+
+### 63 cuts KEEP on the slot they were prompted for
+
+| Slot | Cuts | Source |
+|---|---|---|
+| `limb_tap` | 33 | forearm tap on a hard floor, boot heel on stone, knee into packed dirt, series-of-taps, hand on packed earth |
+| `imp_body` | 9 | wet sandbag on packed earth, sandbag of wet sand, weighted leather duffel, raw meat onto wood, `bone_crack_impact-composite` |
+| `imp_transient` | 10 | knuckle crack on a wooden board, sharp dry slap of a leather glove, **fish slap** |
+| `surf_wood` | 6 | hollow plank knock (5), creaking boards (1) |
+| `surf_soft` | 2 | dull muffled thump into damp soil |
+| `settle_rest` | 2 | loose fabric and a heavy limb slumping to rest |
+| `scrape_loop` | 1 | heavy body violently sliding — **the long variant, not a loop window** |
+
+`limb_tap` is the batch's real win: 33 cuts against a slot that currently ships 4, and
+most of them came out of splitting — the tap prompts return four to nine contacts each, and
+`series_of_light_limb_taps` yields nine keepers from two takes on its own.
+The knuckle cracks are the best `imp_transient` material here (centroid 1772–2372 Hz,
+tilt −15 to −25), notably darker than the shipped 3629–5792 Hz.
+
+### Textures are worth cutting both ways
+
+Every sliding / dragging / rustling take now yields two cuts: `-loop`, the 2–2.5 s window
+with the smallest seam, and `-long`, the whole take trimmed and faded but **not**
+seam-matched. `Looping` is a per-slot attribute of the assignment (`Slots.md` §6), so a
+long drag is a perfectly good one-shot in a slot set `Looping = 0`, and a one-shot has no
+seam to give it away.
+
+That change is what found the only passing scrape in the batch.
+`heavy_body_violently_sliding_and_scraping…variation2-long` — **9.9 s, tilt +18.6, centroid
+3135 Hz — KEEPs as `scrape_loop`**, while all eleven 2 s loop windows failed. The window
+sweep optimises the seam, and in doing so lands on a 2 s slice whose grain rate (53–73/s)
+misses the 8–40 band; across the whole take the same material averages into it.
+
+The long variants also reach slots the loop windows never could — the stone glides pass as
+`surf_wood`, `surf_soft`, `scrape_grain`, `crunch_gran`, `gore_wet` and `settle_rest` when
+taken whole, and `naked_body_sliding…dense_continuous-loop` passes as **`foley_cloth`**,
+which is a better answer for that slot than any of the four cloak-rustle takes.
+
+
+### `fish slap` measures as a contact, not a body
+
+Four takes, prompted as the classic wet-slap reference. They measure **4923–7044 Hz, tilt
+−26 to −31** — bright and fast, which is `imp_transient`, not `imp_body` and not `gore_wet`.
+Three KEEP there. The `PROMPT_HEADS` entry says so explicitly rather than recording the
+intent, because in this one case the prompt's family and the take's family disagree and the
+measurement is the honest answer.
+
+They are the brightest `imp_transient` candidates in the batch by a distance — the shipped
+three sit at 3629–5792 Hz — so they read as a harder, thinner contact. Worth an A/B against
+the knuckle cracks at the other end (1772–2372 Hz) before picking.
+
+### A satellite is measured against the loudest contact now
+
+`fish_slap_variation3(1)` exposed a hole: its file peak sits where no onset was detected, so
+every contact in it read as 20+ dB down and the take was dropped whole. Satellite level is
+now relative to the loudest **contact** rather than the file peak, which is what the concept
+meant all along. Nothing else in the batch moved, and one take that was being discarded
+silently now cuts.
+
+### Two systematic failures, both about direction
+
+**Stone prompts come back bass-led.** All four `surf_stone` prompts measured tilt **−0.4 to
++17.7 dB** against the slot's **≤ −2** ceiling. Not one is a stone take; three are good
+*body* takes and are labelled as such. `surf_stone` gets nothing here, which is not
+blocking — it is already 2/2 at 6751–8041 Hz.
+
+**Wet and crunch prompts come back bright.** §3.6 again, and now `gore_wet` too. 38
+wet/crunch cuts measure centroid **3733–8875 Hz** against ceilings of 4000 and 4500.
+
+What is new, and worse: **the density has gone too.** §4 records that for the earlier batch
+"the density was never the problem — the best takes carry 16–63 transients in 250–800 Hz".
+These carry **1–16**, against the 15 `crunch_gran` needs. That matters for the fix: shelving
+the top off, which rescued the two shipped `crunch_gran` files, only works when there is
+something underneath. Here there is not. Re-prompt rather than re-EQ.
+
+### Two gates a take can pass while being wrong
+
+**29 of the 38 wet/crunch cuts report "would pass as `surf_stone`".** The slot's gate is
+bright, fast-decaying and 100–160 ms, and a wet meat slap satisfies all three. `Slots.md` §2
+asks for "a flat tight slap with no resonance and no tail… stone does not ring, it stops".
+
+**Five stone-glide loop windows report "would pass as `air_whoosh`".** That slot wants
+"**no transients at all** — featureless enough that looping is inaudible". A gritty glide is
+nothing but transients.
+
+`takes/_import/` refuses both pairings when it labels a file, and calls those cuts
+`unsorted` instead. They still travel — the label is the only thing withheld.
+
+### Quiet satellites are the norm, not an exception
+
+**39 of 100 takes carry at least one contact 21–34 dB under the hero**, cleanly separated —
+68 satellites in all, **60 after the hero and 8 before**. Mostly bright debris-settling
+washes: the one on `dull_muffled_thump…variation2` sits at +262 ms, −29 dB, centroid 8594 Hz.
+
+Left in, each lands on top of whatever the engine schedules next and reads as a flam — the
+same class of problem §3's `WARN` catches at +55–75 ms, just later and quieter.
+`triage_batch.py` drops them at a 20 dB threshold and records every one in the manifest's
+`note` column, so nothing is discarded silently.
+
+**37 of 100 takes split into more than one usable one-shot.**
+
+### Ruled out for technical reasons — 4 cuts
+
+Everything else travels, because a character failure is a judgement to make by ear.
+
+| Cut | Why |
+|---|---|
+| `hard_flat_impact_of_human_body…variation4` (2 cuts) | stereo correlation **+0.68** — the channels comb-filter when summed |
+| `hitmarker_sound…variation2` | stereo correlation **+0.61**, and the other variation has no contact above the floor at all |
+| `twisting…gristle_variation2` | noise floor only **29 dB** down, under the 30 dB gate |
+
+Plus two byte-identical duplicates dropped before cutting: `limb_tap2.wav` is a copy of the
+damp-soil take rather than a limb tap, and `heavy_body_dragged…variation3(1)` copies
+`variation3`.
+
+### Still not solved
+
+`crunch_gran` and `gore_wet` have no viable candidate in this batch, for the density reason
+above. `foley_cloth`'s four cloak-rustle takes all fail on transients over the bed (8.0–16.1
+dB against a ceiling of 6) — §3.5 once more, the model writing a gesture where the slot wants
+a bed — and the best answer for that slot is the body-slide loop mentioned above.
+
+### Tooling
+
+`tools/triage_batch.py` is new and re-runnable: point it at the download folder and it
+re-derives all of the above. `tools/sfx.py` gained twenty-three `PROMPT_HEADS` entries so this
+batch's prompts infer a slot with no flags. Two of them, the stone heads, deliberately name
+the *prompt's* slot rather than the take's — `make --slot` overrides it anyway, and recording
+the prompt is what makes the failure legible.

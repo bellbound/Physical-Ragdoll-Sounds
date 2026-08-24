@@ -16,10 +16,12 @@
 // byte what the engine consumed, and the two can never diverge over which
 // contacts were seen.
 //
-// In: an algorithm config, an sfx table, and a path to the sfx library. All
-// three land in `Pending` and are applied by the game thread on its next tick,
-// because reloading a sound bank from a socket thread is a data race with the
-// audio path and a crash somebody would spend a day on.
+// In: an algorithm config, an sfx table, a path to the sfx library, and which
+// mix the game should be playing - ours or vanilla's. All four land in `Pending`
+// and are applied by the game thread on its next tick, because reloading a sound
+// bank from a socket thread is a data race with the audio path and a crash
+// somebody would spend a day on - and nulling form pointers off it is the same
+// bet with worse odds.
 
 #include <atomic>
 #include <cstdint>
@@ -74,11 +76,19 @@ public:
         bool sfx{};
         bool library{};
         bool clear{};
+        /// The testbench's Use Vanilla Audio switch changed. `useVanillaAudio`
+        /// says which way. Separate from `algorithm` because it is not a config
+        /// at all - it puts vanilla's impact sounds back and takes ours away,
+        /// which is a thing done to the game rather than to the mix.
+        bool audioMode{};
+        bool useVanillaAudio{};
         AlgorithmConfig config{};
         SfxAssignments sfxTable{};
         std::string libraryPath;
 
-        [[nodiscard]] bool Any() const { return algorithm || sfx || library || clear; }
+        [[nodiscard]] bool Any() const {
+            return algorithm || sfx || library || clear || audioMode;
+        }
     };
 
     /// Game thread. False when nothing changed, which is nearly every frame.

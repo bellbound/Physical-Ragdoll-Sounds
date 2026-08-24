@@ -5,7 +5,7 @@ The settled design. Supersedes the asset and strategy lists in every earlier dra
 | Doc | What it is |
 |---|---|
 | **00-Design.md** (this) | The design. One authoritative asset list, one strategy list, the decisions and why |
-| [01-Reference-Analysis.md](01-Reference-Analysis.md) | Measurements of the Skate 3 reference clips — where the layer timings and level budgets come from |
+| [04-Reference-Analysis.md](04-Reference-Analysis.md) | Measurements of the Skate 3 reference clips — where the layer timings and level budgets come from |
 | [Research/](Research/) | The capture study. What the engine can tell us and how far it can be trusted |
 
 ---
@@ -92,7 +92,6 @@ default path.
    then at least 300 ms of near-silence. The arbitrator picks *bursts*, not individual sounds.
 5. **Spatial collapse** — during a hero moment, place every layer at one point. Several points read
    as several events; one point reads as one event with detail. Spread back out during the tumble.
-6. **Voice cap and ducking** — priority by loudness and distance.
 
 **Stage 5 — Render.** Cue list → voices. Stage 4's output is an abstract cue list, which is the clean
 seam: the game renders it through Skyrim's audio, the testbench through miniaudio, both implementing
@@ -200,6 +199,42 @@ unfinished.
 
 ---
 
+## 7a. The slide
+
+A slide is the one stretch of a fall that is **continuous**, and everything else in the design is
+about picking moments out of a stream. So it is worth stating separately what it is made of.
+
+**Physics owns all four of when, how loud, where and how long**, and unusually there is nothing left
+for design to own but the sample. That falls straight out of §3's falsifiability rule: a slide is
+the most checkable thing in the mod. A listener watches a body skid across a floor and can hear
+whether the grind lasts as long as the skid and gets quieter as it slows. Nothing about it is a
+matter of taste.
+
+**Loudness is the body's speed and nothing else.** No distance ramp, no duration ramp, no
+running maximum: the loop sits `fSpeedRangeDb` under its level at `fSpeedForMinGain` and reaches
+full level at `fSpeedForMaxGain`, tracking the measured centre of mass continuously. Pitch rides
+the same number. The fades stay, because their job is to hide the transition rather than to shape
+the level, and a loop that snaps in at its running level is the most obvious thing in the mix.
+
+**Entry is a collision question and exit is a body question.** Grazing — sideways motion instead of
+a hit — says a slide has started, and it says it well. It cannot say a slide is still going,
+because collisions are dense when a fall is busy and absent when it is not.
+
+**A slide ends three ways, and each sounds different.**
+
+| It ended because | and so |
+|---|---|
+| the body came to rest | the loop fades out and the ordinary closing cue finishes the event |
+| the body left the ground | the loop fades over the shorter **launch fade** — the surface is simply gone, and the ordinary fade drags a grinding rumble out behind a body already in the air |
+| **something stopped it** | an **impact goes there**, and if the body was still travelling fast, a hero moment with it |
+
+The third is inferred rather than measured, which is the whole reason it works: a slide that stops
+for no reason the body can account for was stopped by something. That collision is regularly missing
+from the contact data — a limb catches, reports one glancing row, and the body is simply stopped —
+and the old machine's answer to the loudest moment of a slide was to fade a loop out over silence.
+
+---
+
 ## 8. Suppressing vanilla
 
 Vanilla plays a body impact on every ragdoll contact and resolves nearly every surface in the game to
@@ -223,6 +258,16 @@ they belong in the mod description.
 
 **It also moves the loudness reference.** With vanilla gone we are not sitting next to it any more,
 so our levels calibrate against footsteps and combat instead.
+
+**And it is reversible at runtime, which is how the reference gets checked.** Nulling the pointers
+keeps the originals in a table beside the flag, so putting them back is a walk over that table —
+`RestoreVanillaBodyImpacts`. The testbench's **Use Vanilla Audio** switch flips that and mutes our
+renderer together: vanilla's impacts come back, every cue is still made and still recorded but never
+becomes a voice, and the two mixes can be heard against each other inside one session on the same
+body falling down the same stairs. Either half alone would be a comparison against silence. Going
+back re-reads the ini rather than assuming suppression, so an install deliberately running with
+vanilla underneath ours is left the way it was; and the mod puts itself back the moment the link
+drops, so a closed testbench can never leave a session silently muted.
 
 ---
 
@@ -275,7 +320,7 @@ contact is the only cross-talk.
 | `ImpactComposite` | The core. Builds the timed layer stack for any audible impact, including the surface skin. Intensity drives layer balance, so this covers everything from a quiet tap to an obliterate without tiers |
 | `HeadImpact` | Head contacts get their own layer and their own gate |
 | `CrunchGore` | The gnarly gate — granular crunch and, above the obliterate tier, the wet layer. Probability-ramped |
-| `ScrapeLoop` | Sustained grazing contact drives a looping voice attached to the limb |
+| `ScrapeLoop` | Voices the slide: a looping grind whose level and pitch are the body's measured speed |
 | `MotionFoley` | The continuous bed: cloth, air, and the airborne anticipation rise as a parameter on it |
 | `SettleClose` | The closing cue |
 
@@ -365,8 +410,32 @@ purely by our own gain, which is why it is a config value rather than a mixing d
 ## 14. Performance and robustness
 
 A few dozen floats per tracked actor per frame plus a small cue ring. Distance culling means the
-actor count stays small regardless of what is happening. The real budget is voices, not CPU — cap
-around six to eight per actor and sixteen globally, prioritised by loudness and distance.
+actor count stays small regardless of what is happening.
+
+**Voice count is not a budget.** It was assumed to be one, and the assumption was tested: a
+voice-limit run started 288 sounds with 224 alive at once and the sound manager holding 257, and
+the engine refused none of them — it never found a ceiling, it ran out of sound to play first. So
+there is no global cap. What decides how much is heard is the rate cap, the chain merge, temporal
+masking and burst shaping, all of which judge the mix; a ceiling on the count judges nothing, and
+the one we had could only take sound away from the second and third body in a brawl to guard
+against a limit that was not there.
+
+**Measured, not asserted.** The testbench's **benchmark** button under the transport replays the
+loaded take through the backend as fast as it will go and reports the fastest run — per run, per
+engine tick (a tick is a game frame), and as a multiple of realtime. Tracing is off for it, because
+the game never traces and the transport's own "RunOffline + mix" figure is mostly the cost of
+filling the timeline. While split A/B it measures both configs back to back and prints the
+difference, which is the form the question actually has: not *what does the engine cost* but *does
+this setting cost anything*. `--bench` is the headless twin, over every take.
+
+What it says today, over the whole capture set: **about 0.3 µs per frame for an ordinary
+knockdown**, rising to 1.8 and 2.8 µs on the two long takes that are several knockdowns rather than
+one fall. And the cost barely moves with the cue count — a config emitting 179 cues over
+`Proventus_..._log_14` ran within 0.2% of one emitting 471 over the same take. **The work is in
+ingest and arbitration, which every contact pays for, not in emission, which only the survivors
+do.** That is the right shape: it means the 10:1 reduction of [§7](#7-making-it-read-as-one-fall) is
+bought for the mix rather than for the frame time, and that tuning for taste cannot make the mod
+expensive.
 
 **Frame rate:** every window in seconds with a floor, never in frames or fixed milliseconds. The unit
 that stays stable across frame rates is the collision, not the report.

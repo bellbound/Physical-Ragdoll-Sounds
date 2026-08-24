@@ -67,6 +67,22 @@ public:
     [[nodiscard]] double LoopEndMs() const { return m_loopEndMs.load(std::memory_order_relaxed); }
     [[nodiscard]] bool HasRegion() const;
 
+    /// The default play range, honoured only when no loop region is drawn.
+    ///
+    /// Kept apart from the region on purpose. A region is something you
+    /// dragged and can undo; this is something the take computed for you.
+    /// Folding the second into the first would let a checkbox write over a
+    /// selection - and then Ctrl+Z would put the selection back and the
+    /// checkbox would take it away again on the next frame.
+    void SetPlayBounds(double startMs, double endMs);
+    [[nodiscard]] double PlayStartMs() const {
+        return m_boundsStartMs.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] double PlayEndMs() const {
+        return m_boundsEndMs.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] bool HasPlayBounds() const;
+
     /// While split, each loop alternates A -> B -> A.
     void SetSplit(bool on);
     [[nodiscard]] int ActiveSide() const { return m_side.load(std::memory_order_relaxed); }
@@ -123,6 +139,8 @@ private:
     std::atomic<std::uint32_t> m_loops{0};
     std::atomic<double> m_loopStartMs{0.0};
     std::atomic<double> m_loopEndMs{0.0};
+    std::atomic<double> m_boundsStartMs{0.0};
+    std::atomic<double> m_boundsEndMs{0.0};
     std::atomic<float> m_level{0.0f};
 
     /// Same trick as the take buffers: the callback reads a raw pointer out of

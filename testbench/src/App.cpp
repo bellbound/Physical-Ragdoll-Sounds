@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -79,7 +80,7 @@ void ApplySort(const ImGuiTableSortSpecs* specs, std::vector<int>& index, KeyFn 
 ImU32 ReasonColour(rds::CueReason r) {
     switch (r) {
         case rds::CueReason::kImpactComposite: return IM_COL32(255, 176, 64, 255);
-        case rds::CueReason::kSurfaceSkin:     return IM_COL32(196, 150, 96, 255);
+        case rds::CueReason::kSurfaceSkin:     return IM_COL32(148, 148, 152, 255);
         case rds::CueReason::kHeadImpact:      return IM_COL32(255, 96, 96, 255);
         case rds::CueReason::kCrunch:          return IM_COL32(236, 88, 176, 255);
         case rds::CueReason::kGore:            return IM_COL32(190, 40, 60, 255);
@@ -92,11 +93,56 @@ ImU32 ReasonColour(rds::CueReason r) {
     return IM_COL32(200, 200, 200, 255);
 }
 
+/// The material a surface skin named, or 0 for anything that is not one.
+///
+/// Kept apart from the bar colour rather than folded into it, because a
+/// surface skin is drawn as two things: the layer, which is grey like every
+/// other skin, and the floor it identified, which is the only part that
+/// differs between them. One colour could say either but not both, and the
+/// question a timeline gets asked is "did this take land on wood", which is
+/// about a handful of caps in a lane of grey and not about hue at all.
+ImU32 SurfaceCapColour(rds::SlotId slot) {
+    switch (slot) {
+        case rds::SlotId::kSurfWood:  return IM_COL32(158, 110, 62, 255);
+        case rds::SlotId::kSurfStone: return IM_COL32(96, 138, 196, 255);
+        case rds::SlotId::kSurfSoft:  return IM_COL32(96, 166, 108, 255);
+        default:                      return 0;
+    }
+}
+
+/// The bar colour, by slot where the reason lumps several together.
+///
+/// `kImpactComposite` covers three layers that are the whole argument of the
+/// design - a light transient, the body, and the late sub that is supposed to
+/// be carrying the weight - and drawing them in one orange made the composite
+/// unreadable exactly where it matters: whether the sub is louder than the
+/// transient is a claim you should be able to check by looking. So the three
+/// share a hue and separate by lightness, top to bottom of the stack.
+ImU32 CueColour(rds::SlotId slot, rds::CueReason reason) {
+    switch (slot) {
+        case rds::SlotId::kImpTransient: return IM_COL32(255, 210, 145, 255);
+        case rds::SlotId::kImpBody:      return IM_COL32(255, 176, 64, 255);
+        case rds::SlotId::kImpSub:       return IM_COL32(196, 121, 30, 255);
+        default:                         break;
+    }
+    return ReasonColour(reason);
+}
+
 /// dB to a 0..1 bar height. The references' usable span is about 35 dB, so the
 /// timeline shows that span rather than a full 60 - otherwise every cue in a
 /// well-tuned mix draws at the same height.
 float BarHeight(float gainDb) {
     return std::clamp((gainDb + 40.0f) / 40.0f, 0.03f, 1.0f);
+}
+
+/// "12.9k" rather than "12873". A realtime factor is read for its order of
+/// magnitude - whether the engine is a hundred or ten thousand times faster
+/// than the fall it is replaying - and five significant figures of it are five
+/// characters of noise.
+std::string Compact(double value) {
+    if (value >= 1e6) return std::format("{:.1f}M", value / 1e6);
+    if (value >= 1e3) return std::format("{:.1f}k", value / 1e3);
+    return std::format("{:.0f}", value);
 }
 
 void Tip(std::string_view text) {
@@ -107,6 +153,61 @@ void Tip(std::string_view text) {
         ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
+}
+
+/// Where a row's number sits against the rest of the ones on screen.
+///
+/// Both listings carry a column that is the reason a row is interesting - how
+/// hard the limb hit, how loud the cue came out - and reading it means reading
+/// it against its neighbours. The scale is the visible set rather than a fixed
+/// one because "hard" is a property of the take, and of the region when a
+/// region is selected: a stumble and a fall down a staircase do not share a
+/// loudest hit.
+struct Spread {
+    double lo{};
+    double mid{};
+    double hi{};
+
+    /// Sorts a copy, which is the whole cost of this: a few thousand doubles
+    /// once a frame, against a table that walks the same set anyway.
+    [[nodiscard]] static Spread Of(std::vector<double> values) {
+        Spread s;
+        if (values.empty()) return s;
+        std::sort(values.begin(), values.end());
+        s.lo = values.front();
+        s.mid = values[values.size() / 2];
+        s.hi = values.back();
+        return s;
+    }
+
+    /// -1 at the smallest value, 0 at the median, +1 at the largest.
+    ///
+    /// Each half is scaled by its own reach rather than both halves by one
+    /// lo..hi range. That puts the median on exactly neutral whichever way the
+    /// distribution leans, and it stops one enormous hit from washing every
+    /// ordinary one green: the outlier eats the top of its own half and leaves
+    /// the bottom half to be read on its own terms.
+    [[nodiscard]] double At(double value) const {
+        if (value > mid) return hi > mid ? (value - mid) / (hi - mid) : 0.0;
+        if (value < mid) return lo < mid ? -(mid - value) / (mid - lo) : 0.0;
+        return 0.0;
+    }
+};
+
+/// The row wash for a `Spread::At` reading: muted green at the bottom, red at
+/// the top, and nothing at all through the middle, so an average row keeps the
+/// striping it has always had.
+///
+/// Alpha carries the strength and the hue only says which end. That is what
+/// lets this sit under the playhead highlight rather than fight it, and it is
+/// why a table of near-identical numbers stays quiet instead of splitting
+/// itself into a red half and a green one. Returns a transparent 0 for the
+/// flat middle so the caller can skip the call into ImGui entirely.
+[[nodiscard]] ImU32 IntensityTint(double t) {
+    const double magnitude = std::clamp(std::fabs(t), 0.0, 1.0);
+    if (magnitude < 0.05) return 0;
+    const auto alpha = static_cast<int>(magnitude * 72.0);
+    return t > 0.0 ? IM_COL32(196, 66, 54, alpha) : IM_COL32(86, 140, 96, alpha);
 }
 
 }  // namespace
@@ -143,6 +244,9 @@ bool App::Init(const Paths& paths) {
 
     if (!m_player.Start(48000)) m_startupError = m_player.LastError();
     m_player.SetLoop(m_autoLoop);
+    // After LoadUiPrefs, which is what makes it the volume this machine was
+    // last listening at rather than the default.
+    m_player.SetPreviewGainDb(m_sfxPreviewGainDb);
 
     for (ConfigSide& s : m_side) {
         s.cfg = rds::AlgorithmConfig{};
@@ -197,13 +301,35 @@ std::vector<std::pair<std::string_view, bool*>> App::UiPrefFields() {
         {"bShowTrace", &m_showTrace},
         {"bShowContacts", &m_showContacts},
         {"bSnapOnPlay", &m_zoomRegion},
+        {"bLimitToCues", &m_limitToCues},
+        {"bSkipCueless", &m_skipCueless},
         {"bFollowImpacts", &m_followImpacts},
+        {"bHideSelfImpacts", &m_hideSelfImpacts},
         {"bFollowCues", &m_followCues},
         {"bSaveAsIteration", &m_saveAsIteration},
+        {"bExportConfigs", &m_exportConfigs},
         {"bPushToGame", &m_pushToGame},
         {"bVideoSync", &m_videoSync},
         {"bSplitAB", &m_split},
         {"bAutoLoop", &m_autoLoop},
+        {"bDiffOnly", &m_diffOnly},
+        {"bCompareShowSame", &m_compareShowSame},
+    };
+}
+
+std::vector<App::FracPref> App::UiPrefFracFields() {
+    // The bounds are the ones the matching Splitter call drags between. Repeated
+    // here rather than shared because the splitter needs them at the call site
+    // anyway, and a load that clamped to a wider range than the bar can reach is a
+    // panel you cannot drag back.
+    return {
+        {"fLeftSplit", &m_leftFrac, 0.25f, 0.8f},
+        {"fVideoSplit", &m_videoFrac, 0.12f, 0.75f},
+        {"fTableSplit", &m_tableFrac, 0.2f, 0.8f},
+        {"fConfigSplit", &m_configFrac, 0.2f, 0.85f},
+        // Not a fraction, but the same handling: a float with bounds, clamped
+        // on the way in. The bounds are the sfx library slider's own.
+        {"fSfxPreviewGain", &m_sfxPreviewGainDb, -36.0f, 12.0f},
     };
 }
 
@@ -211,15 +337,31 @@ void App::LoadUiPrefs() {
     m_uiPrefsFile = m_paths.frameCache / "ui-state.ini";
 
     const auto fields = UiPrefFields();
+    const auto fracs = UiPrefFracFields();
     for (const std::string& line : rds::ini::ReadLines(m_uiPrefsFile)) {
         std::string_view key;
         std::string_view value;
         if (!rds::ini::SplitAssignment(line, key, value)) continue;
+        bool matched = false;
         for (const auto& [name, member] : fields) {
             if (rds::ini::EqualsIgnoreCase(name, key)) {
                 *member = value != "0";
+                matched = true;
                 break;
             }
+        }
+        if (matched) continue;
+        for (const FracPref& f : fracs) {
+            if (!rds::ini::EqualsIgnoreCase(f.key, key)) continue;
+            // Clamped, and ignored outright when it will not parse. A file meant to
+            // be deletable is a file that gets hand-edited, and a layout read off a
+            // typo must not be one you have to quit to escape.
+            float parsed = 0.0f;
+            const char* first = value.data();
+            if (std::from_chars(first, first + value.size(), parsed).ec == std::errc{}) {
+                *f.member = std::clamp(parsed, f.lo, f.hi);
+            }
+            break;
         }
     }
 
@@ -233,11 +375,20 @@ void App::LoadUiPrefs() {
 void App::SaveUiPrefs() {
     if (m_uiPrefsFile.empty()) return;
 
+    // Not while the button is down. A splitter fraction changes every frame of a
+    // drag, and rewriting the file sixty times a second to record a bar that is
+    // still moving is fifty-nine writes saying what the last one says. Nothing is
+    // lost by waiting: a checkbox settles on release too.
+    if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) return;
+
     std::string text =
         "; Physical Ragdoll Sounds testbench - the UI switches, remembered between launches.\n"
         "; Nothing here changes what the mod does. Delete the file to go back to defaults.\n";
     for (const auto& [key, member] : UiPrefFields()) {
         text += std::format("{}={}\n", key, *member ? 1 : 0);
+    }
+    for (const FracPref& f : UiPrefFracFields()) {
+        text += std::format("{}={:.4f}\n", f.key, *f.member);
     }
     if (text == m_uiPrefsWritten) return;
 
@@ -312,6 +463,8 @@ void App::SelectRecording(int index) {
     index = std::clamp(index, 0, static_cast<int>(m_takes.size()) - 1);
     m_take = index;
     m_selectedCue = -1;
+    // A different take knows nothing about which slots the last one used.
+    m_slotSeen.fill(false);
     m_recordingError.clear();
 
     m_recording = std::make_unique<rds::Recording>();
@@ -424,6 +577,51 @@ void App::SaveConfigFile(int side) {
         if (m_configFiles[i] == file) m_configIndex = static_cast<int>(i);
 }
 
+void App::LoadCompareFile(int side, const fs::path& file) {
+    ConfigSide& s = m_side[side];
+    s.compareCfg = rds::AlgorithmConfig{};
+    rds::ConfigManager::LoadInto(file, &s.compareCfg, rds::AlgorithmParams());
+    // The seed is this machine's, not the file's: every side is forced onto
+    // m_seed so an A/B is the same shuffle twice, and a diff whose first line
+    // was "rngSeed differs" would be reporting the testbench to itself.
+    s.compareCfg.slots.rngSeed = m_seed;
+    s.compareName = file.stem().string();
+}
+
+void App::ClearCompare(int side) {
+    m_side[side].compareName.clear();
+    m_side[side].compareCfg = rds::AlgorithmConfig{};
+}
+
+bool App::ParamDiffers(const rds::AlgorithmConfig& a, const rds::AlgorithmConfig& b,
+                       const rds::ParamDesc& p) {
+    if (p.type == rds::ParamType::kString)
+        return rds::GetParamString(&a, p) != rds::GetParamString(&b, p);
+    return rds::FormatParam(p, rds::GetParam(&a, p)) != rds::FormatParam(p, rds::GetParam(&b, p));
+}
+
+void App::CompareCounts(int side, int& differing, int& same) const {
+    differing = 0;
+    same = 0;
+    const ConfigSide& s = m_side[side];
+    if (s.compareName.empty()) return;
+    for (const rds::ParamDesc& p : rds::AlgorithmParams()) {
+        if (ParamDiffers(s.cfg, s.compareCfg, p))
+            ++differing;
+        else
+            ++same;
+    }
+}
+
+std::vector<const rds::ParamDesc*> App::CompareDeltas(int side) const {
+    std::vector<const rds::ParamDesc*> out;
+    const ConfigSide& s = m_side[side];
+    if (s.compareName.empty()) return out;
+    for (const rds::ParamDesc& p : rds::AlgorithmParams())
+        if (ParamDiffers(s.cfg, s.compareCfg, p)) out.push_back(&p);
+    return out;
+}
+
 bool App::AnythingUnsaved() const {
     if (!(m_sfx == m_sfxSaved)) return true;
     if (m_browser.Dirty()) return true;
@@ -482,6 +680,16 @@ void App::Rerun(int side) {
     m_recording->Rewind();
     s.result = rds::RunOffline(*m_recording, s.cfg, m_bank, opt);
 
+    // Unioned, never pruned - see m_slotSeen. A slot that fired under some
+    // config for this take belongs with the slots this take uses, whether or
+    // not it is firing under the config being listened to right now.
+    for (const rds::Cue& cue : s.result.cues) {
+        const auto index = static_cast<std::size_t>(cue.slot);
+        if (index < m_slotSeen.size()) {
+            m_slotSeen[index] = true;
+        }
+    }
+
     s.audio = std::make_shared<MixedAudio>(MixCues(s.result.cues, s.result.audioDurationMs,
                                                    m_recording->Listener(), m_sources, 48000, m_monitorDb,
                                                    m_limiter));
@@ -494,6 +702,64 @@ void App::Rerun(int side) {
 void App::RerunDirty() {
     for (int side = 0; side < 2; ++side)
         if (m_side[side].dirty) Rerun(side);
+}
+
+void App::RunBenchmark() {
+    if (!m_recording) return;
+
+    // Pause first, and for a reason beyond tidiness: the audio callback is the
+    // one other thread in this program with real work to do, and a device that
+    // is mixing a take while the measurement runs puts its block boundaries
+    // into every sample. Silence is part of the instrument.
+    m_player.Pause();
+
+    for (BenchResult& r : m_bench) r.valid = false;
+
+    BenchOptions opt;
+    opt.seed = m_seed;
+    opt.trace = false;
+    opt.budgetMs = static_cast<double>(m_benchBudgetSec) * 1000.0;
+
+    // Both sides while split, otherwise only the one being listened to. Two
+    // configs measured back to back on a machine whose state has not changed in
+    // between is the whole design of this: an absolute figure off a debug build
+    // means very little, and the difference between two of them means a lot.
+    for (int side = 0; side < 2; ++side) {
+        if (!m_split && side != m_focusSide) continue;
+        m_bench[side] = RunBench(*m_recording, m_side[side].cfg, m_bank, opt);
+        m_bench[side].label = m_side[side].name;
+
+        const BenchResult& r = m_bench[side];
+        if (!r.valid) continue;
+        spdlog::info(
+            "bench {} [{}] on {}: best {:.3f} ms, median {:.3f}, {} runs | {:.0f}x realtime, "
+            "{:.2f} us/tick over {} ticks | {} contacts -> {} cues",
+            static_cast<char>('A' + side), r.label, m_recording->Info().stem, r.bestMs, r.medianMs,
+            r.runs, r.RealtimeFactor(), r.UsPerTick(), r.ticks, r.contactsIn, r.emittedCues);
+    }
+}
+
+bool App::SyncSfxAudition() {
+    const SfxBrowser::Audition want = m_browser.InTakeAudition();
+    const int slot = want.active ? static_cast<int>(want.slot) : -1;
+    if (slot == m_auditionSlot && want.file == m_auditionFile) {
+        return false;
+    }
+    m_auditionSlot = slot;
+    m_auditionFile = want.file;
+
+    if (slot < 0) {
+        m_sources.ClearAudition();
+    } else {
+        m_sources.SetAudition(want.slot, m_library.PathOf(want.file).string());
+    }
+    // Both sides, and through the same path a slider takes: the cue list has not
+    // moved, only what one slot of it sounds like, and the swap lands at the
+    // current play position so an auditioned take does not restart under you.
+    for (ConfigSide& side : m_side) {
+        side.dirty = true;
+    }
+    return true;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -675,6 +941,10 @@ void App::CollapseOnto(int side) {
     m_player.SetActiveSide(0);
 }
 
+bool App::OffsetMeasured() const {
+    return m_take >= 0 && m_offsets.Has(m_takes[static_cast<std::size_t>(m_take)].stem);
+}
+
 double App::VideoTimeMs(double takeMs) const {
     // The slope is the fit's contribution - the two clocks drift over a take and
     // a single number cannot follow that. The offset is the cut point, which is
@@ -717,23 +987,40 @@ void App::Draw() {
     // carries the measured per-take numbers that actually line up. Anything in
     // that file wins over this.
     //
-    // All of which assumes the take *is* a cut clip. Vayne_impacts_log_2 is not:
-    // it is 103 s of uncut OBS output carrying seventeen knockdowns, and the pad
-    // guess put it two seconds out. A clip is longer than its take by twice the
-    // pad; an uncut recording is not, so the video being no longer than the take
-    // is the tell. There the sync CSV means what it says and its own intercept is
-    // the right starting point - measured against the first knockdown, that lands
-    // within ~200 ms where the pad guess is 2000 ms out.
+    // All of which assumes the take *is* a cut clip. A devbench take is not: this
+    // program drove the recording, so the mp4 is OBS's whole output and its
+    // sidecar says as much (RecordingInfo::videoIsWholeOutput). There the sync
+    // track's intercept is the offset outright, and a pad that was never applied
+    // would be two seconds of pure invention.
+    //
+    // Vayne_impacts_log_2 is the same case arrived at the other way: 103 s of
+    // uncut OBS output carrying seventeen knockdowns, from before anything wrote
+    // that down. A clip is longer than its take by twice the pad and an uncut
+    // recording is not, so the video being no longer than the take still stands
+    // as the tell for a take that says nothing about itself.
     constexpr double kClipPadMs = 2000.0;
     if (!m_videoOffsetKnown && m_video.HasVideo() && m_video.Ready() && m_video.FrameCount() > 0 &&
         m_take >= 0) {
         const double takeMs = m_recording ? m_recording->Info().durationMs : 0.0;
-        const bool looksCut = m_video.DurationMs() > takeMs + kClipPadMs;
-        m_videoOffsetMs = looksCut || !m_sync.valid ? kClipPadMs : m_sync.intercept;
+        const bool wholeOutput = m_recording && m_recording->Info().videoIsWholeOutput;
+        const bool looksCut = !wholeOutput && m_video.DurationMs() > takeMs + kClipPadMs;
+        const char* how = nullptr;
+        if (looksCut) {
+            m_videoOffsetMs = kClipPadMs;
+            how = "a cut clip";
+        } else if (m_sync.valid) {
+            m_videoOffsetMs = m_sync.intercept;
+            how = wholeOutput ? "this take's own recording" : "uncut";
+        } else {
+            // No fit to lean on. Zero for a take whose video it owns - the file
+            // starts where the recording started, and a nudge from zero is a
+            // small one; the pad only for the clips it was measured off.
+            m_videoOffsetMs = wholeOutput ? 0.0 : kClipPadMs;
+            how = wholeOutput ? "this take's own recording, unsynced" : "a cut clip, unsynced";
+        }
         spdlog::info("{}: video {:.0f} ms against take {:.0f} ms - treating as {}, offset {:+.0f} ms",
                      m_take >= 0 ? m_takes[static_cast<std::size_t>(m_take)].stem : std::string(),
-                     m_video.DurationMs(), takeMs, looksCut ? "a cut clip" : "uncut",
-                     m_videoOffsetMs);
+                     m_video.DurationMs(), takeMs, how, m_videoOffsetMs);
         m_videoOffsetKnown = true;  // not persisted: the user's first nudge is what saves it
     }
 
@@ -788,15 +1075,48 @@ void App::Draw() {
 
     DrawOptions();
     DrawRecordingManager();
+    // Side B stops existing when the split is collapsed, so a report left open
+    // on it follows the config that survived rather than reading a panel that
+    // is no longer on screen.
+    if (!m_split) m_compareSide = 0;
+    DrawCompareReport(m_compareSide);
 
     // Outside the main window: it is a real floating window, so it can be moved
     // off the app and left open beside it while a slot is auditioned.
     const SfxBrowser::Pick pick = m_browser.Draw();
+
+    // Before the pick is applied, not after: Draw() has already closed the
+    // window if something was chosen, so this drops the audition first and the
+    // take is mixed once - with the file in its real place rather than in the
+    // override that was standing in for it.
+    const bool auditionMoved = SyncSfxAudition();
+
+    // Before the rebuild below, so the bank is loaded from assignments that no
+    // longer name anything that has gone.
+    const std::vector<std::string> deleted = m_browser.TakeDeleted();
+    if (!deleted.empty()) {
+        const rds::SfxAssignments before = m_sfx;
+        std::size_t slots = 0;
+        for (const std::string& file : deleted) {
+            slots += m_sfx.Forget(file);
+        }
+        if (slots != 0) {
+            PushSfxEdit(before, std::format("delete {} / off {} slot(s)",
+                                            deleted.size() == 1 ? deleted.front()
+                                                                : std::format("{} sfx", deleted.size()),
+                                            slots));
+        }
+    }
+
     if (m_browser.TakeLibraryChanged()) {
         // New files in the library. If nothing is assigned yet this is the
         // adopt, and the names it just brought in are the assignment - so seed
         // from them rather than leaving a full library and an empty panel.
-        if (m_sfx.Empty()) {
+        //
+        // Never after a deletion: an empty table there is one somebody just
+        // emptied, and seeding it would put back from filenames exactly what
+        // they were taking off.
+        if (m_sfx.Empty() && deleted.empty()) {
             m_sfx.SeedFromNames(m_library);
             m_sfxSaved = rds::SfxAssignments{};  // seeded is not saved
         }
@@ -807,12 +1127,20 @@ void App::Draw() {
         rds::SlotAssignment& assignment = m_sfx.For(pick.slot);
         const std::string_view name = rds::Slot(pick.slot).name;
         if (pick.variant >= 0 && pick.variant < static_cast<int>(assignment.files.size())) {
+            // The mute went with the sound that was here, not with the position.
+            assignment.Unmute(assignment.files[static_cast<std::size_t>(pick.variant)]);
             assignment.files[static_cast<std::size_t>(pick.variant)] = pick.file;
             PushSfxEdit(before, std::string(name) + " / change");
         } else {
             assignment.files.push_back(pick.file);
             PushSfxEdit(before, std::string(name) + " / add");
         }
+    }
+    // Last, and unconditional: everything above that re-runs has already cleared
+    // the dirty flags, so this is a no-op except on the frames where the
+    // highlight moved and nothing else did.
+    if (auditionMoved) {
+        RerunDirty();
     }
 
     // Last thing in the frame, so it sees every switch after every widget that
@@ -837,6 +1165,7 @@ void App::DrawTopBar() {
             std::string item = t.stem;
             if (!t.videoPath.empty()) item += "  [video]";
             if (!t.complete) item += "  [incomplete]";
+            if (!t.hasBodySamples) item += "  [no pose]";
             if (ImGui::Selectable(item.c_str(), i == m_take)) SelectRecording(i);
             Tip(t.note);
         }
@@ -880,6 +1209,24 @@ void App::DrawTopBar() {
                             t.durationMs, t.impacts, t.dropped ? "  DROPPED EVENTS" : "");
         Tip(t.note.empty() ? "no note in the sidecar"
                            : "recording.note - the take's intent, not a description of it:\n" + t.note);
+        // Not a failure - the take replays exactly as it always did - but air
+        // time then has no measurement behind it, and a rule tuned against this
+        // take is being tuned against an inference.
+        ImGui::SameLine();
+        if (!t.hasBodySamples) {
+            ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.45f, 1.0f), "| no pose data");
+            Tip("Captured before the pose sidecar existed, so there is no <stem>_pose.bin\n"
+                "beside it and no per-tick limb positions.\n\n"
+                "It still replays and still makes cues. What it cannot do is measure air\n"
+                "time: the engine falls back to inferring flight from the gaps between\n"
+                "contacts, which reads a body that has merely stopped touching anything as\n"
+                "airborne. Re-capture the take to tune anything that depends on it.");
+        } else {
+            ImGui::TextDisabled("| %zu pose frames", t.poseFrames);
+            Tip("Per-tick limb positions and velocities, from <stem>_pose.bin.\n"
+                "Air time, ground clearance and body speed are measured on this take\n"
+                "rather than inferred from the gaps between contacts.");
+        }
     }
 
     ImGui::SameLine();
@@ -930,6 +1277,15 @@ void App::DrawTopBar() {
               "merged into one timeline, so \"why is there a sound here\" is answered\n"
               "by reading the line at that time. Written next to the saved configs.\n"
               "Drag a loop region on the timeline and this exports just that region.");
+    ImGui::SameLine();
+    ImGui::Checkbox("include configs", &m_exportConfigs);
+    Tip("Write the whole config into the export as an ini, every key with the comment\n"
+        "that says what it changes - exactly as it stands in memory, saved or not.\n\n"
+        "It goes at the end, after everything else, and it is what makes the report\n"
+        "readable six saves later: without it the file names a config, and the file of\n"
+        "that name is a different config by then. Paste the block into\n"
+        "RagdollSounds_Algorithm.ini and the mod plays what the report is about.");
+
     if (!m_exportNote.empty()) {
         ImGui::SameLine();
         ImGui::TextDisabled("%s", m_exportNote.c_str());
@@ -969,12 +1325,18 @@ std::filesystem::path App::ExportState(std::string& error) {
     req.sync = &m_sync;
     req.video = &m_video;
     req.configName = side.name;
+    req.configUnsaved = side.unsaved;
+    req.includeConfigs = m_exportConfigs;
     req.videoOffsetMs = m_videoOffsetMs;
     req.playheadMs = m_player.PositionMs();
     req.seed = m_seed;
     req.limiter = m_limiter;
     req.side = m_focusSide;
-    req.offsetMeasured = m_videoOffsetKnown;
+    // Measured, not merely known: the clip-pad guess sets m_videoOffsetKnown on
+    // the first frame, so reading that would have every export claim its offset
+    // came out of video-offsets.ini. The note under it flips from a caveat to a
+    // statement of fact on this flag, and a guess is not a fact.
+    req.offsetMeasured = OffsetMeasured();
     // Whatever is on screen is what gets written. With a loop region set the
     // export is that region - its contacts, its cues, its arbitration decisions
     // and the video times to look at - because when a region is set, that
@@ -1077,13 +1439,25 @@ void App::DrawImpactsTable() {
     WindowMs(lo, hi);
     std::vector<int> index;
     index.reserve(events.size());
+    std::size_t hiddenSelf = 0;
     for (int i = 0; i < static_cast<int>(events.size()); ++i) {
         const rds::FeedEvent& e = events[static_cast<std::size_t>(i)];
-        if (e.kind == rds::EventKind::kImpact && e.timeMs >= lo && e.timeMs <= hi) {
-            index.push_back(i);
+        if (e.kind != rds::EventKind::kImpact || e.timeMs < lo || e.timeMs > hi) {
+            continue;
         }
+        if (e.otherLayer == rds::ColLayer::kDeadBip) {
+            ++hiddenSelf;
+            if (m_hideSelfImpacts) {
+                continue;
+            }
+        }
+        index.push_back(i);
     }
     ImGui::Text("impacts  %zu", index.size());
+    Tip("Rows are washed by closing speed read against the rest of the list: red at the\n"
+        "hard end of what is on screen, muted green at the soft end, and nothing through\n"
+        "the middle. The scale is the visible rows, so narrowing to a region re-reads\n"
+        "every row against that region rather than against the whole take.");
     ImGui::SameLine();
     if (WindowIsRegion()) {
         ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1.0f), "in %.0f-%.0f ms", lo, hi);
@@ -1095,6 +1469,18 @@ void App::DrawImpactsTable() {
     Tip("Scroll to the row nearest the playhead while it is playing. Only in ascending\n"
         "time order: in any other order \"the row nearest now\" is not a place, so\n"
         "sorting by another column parks it until you sort by t again.");
+
+    ImGui::SameLine();
+    ImGui::Checkbox("hide self##impacts", &m_hideSelfImpacts);
+    Tip("Drop the limb-on-limb contacts - the \"self\" rows - and leave what the body hit\n"
+        "the world with. A ragdoll hits itself constantly and those rows are most of a\n"
+        "fall while being almost none of what you are listening for.\n\n"
+        "They are only hidden from this table. The engine still sees every one of them,\n"
+        "and the contacts lane on the timeline still draws them.");
+    if (m_hideSelfImpacts && hiddenSelf != 0) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%zu self)", hiddenSelf);
+    }
 
     constexpr auto kFlags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                             ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_ScrollY |
@@ -1141,6 +1527,14 @@ void App::DrawImpactsTable() {
         FollowPlayhead(times);
     }
 
+    // Off the filtered set, so the wash answers "hard for this list" - which is what
+    // the list is for. Closing speed is the metric because it is the one the engine
+    // decides on: the other three columns describe the hit, this one causes it.
+    std::vector<double> speeds;
+    speeds.reserve(index.size());
+    for (const int i : index) speeds.push_back(events[static_cast<std::size_t>(i)].impactSpeed);
+    const Spread heat = Spread::Of(std::move(speeds));
+
     const double nowMs = m_player.PositionMs();
     const rds::ActorProfile* profile = nullptr;
     ImGuiListClipper clipper;
@@ -1153,6 +1547,11 @@ void App::DrawImpactsTable() {
             const rds::LimbInfo* limb = profile ? profile->Limb(e.limbIndex) : nullptr;
 
             ImGui::TableNextRow();
+            // RowBg1, not RowBg0: the playhead owns RowBg0 a few lines down and the
+            // wash is faint enough to read the blue through.
+            if (const ImU32 tint = IntensityTint(heat.At(e.impactSpeed))) {
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, tint);
+            }
             ImGui::TableNextColumn();
             // Seeking on click is the point of the table: sort by closing speed,
             // click the top row, and the video is at the hardest hit of the take.
@@ -1201,6 +1600,12 @@ void App::DrawCuesTable() {
         }
     }
     ImGui::Text("cues  %zu", index.size());
+    Tip("Rows are washed by gain read against the rest of the list: red at the loudest\n"
+        "end of what is on screen, muted green at the quietest, and nothing through the\n"
+        "middle. Gain rather than intensity because gain is what you hear - intensity is\n"
+        "one of the things that set it, and it is in the column beside it.\n\n"
+        "A gain followed by a bracketed figure is a cue its class's compressor held down,\n"
+        "and the bracket is how many dB it lost.");
     ImGui::SameLine();
     ImGui::TextDisabled("(side %c)", 'A' + m_player.ActiveSide());
     if (WindowIsRegion()) {
@@ -1216,12 +1621,17 @@ void App::DrawCuesTable() {
     constexpr auto kFlags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                             ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_ScrollY |
                             ImGuiTableFlags_Sortable | ImGuiTableFlags_Resizable;
-    if (!ImGui::BeginTable("cuetbl", 8, kFlags)) {
+    if (!ImGui::BeginTable("cuetbl", 9, kFlags)) {
         return;
     }
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableSetupColumn("t", ImGuiTableColumnFlags_DefaultSort, 0, 0);
     ImGui::TableSetupColumn("slot", ImGuiTableColumnFlags_None, 0, 1);
+    // Which of the slot's files this cue actually chose. The slot column names
+    // the role and the variant behind it is a shuffle bag, a stable token or a
+    // pin depending on the config, so "imp_body" on its own does not say what
+    // was heard - and "that one sounded wrong" is always about a file.
+    ImGui::TableSetupColumn("sfx", ImGuiTableColumnFlags_None, 0, 8);
     ImGui::TableSetupColumn("gain", ImGuiTableColumnFlags_PreferSortDescending, 0, 2);
     ImGui::TableSetupColumn("pitch", ImGuiTableColumnFlags_None, 0, 3);
     ImGui::TableSetupColumn("int", ImGuiTableColumnFlags_PreferSortDescending, 0, 4);
@@ -1239,7 +1649,11 @@ void App::DrawCuesTable() {
             case 3: return c.pitch;
             case 4: return c.intensity;
             case 5: return static_cast<double>(c.reason);
-            case 6: return static_cast<double>(c.phase);
+            case 6: return static_cast<double>(c.motion) * 2.0 + static_cast<double>(c.moment);
+            // Slot first, then variant inside it: sorting by the file is
+            // sorting the take into "every cue that played this wav", which is
+            // the question that column exists for.
+            case 8: return static_cast<double>(c.slot) * 256.0 + c.variant;
             default: return static_cast<double>(c.sourceSeq);
         }
     });
@@ -1256,6 +1670,11 @@ void App::DrawCuesTable() {
         FollowPlayhead(times);
     }
 
+    std::vector<double> gains;
+    gains.reserve(index.size());
+    for (const int i : index) gains.push_back(cues[static_cast<std::size_t>(i)].gainDb);
+    const Spread heat = Spread::Of(std::move(gains));
+
     const double nowMs = m_player.PositionMs();
     ImGuiListClipper clipper;
     clipper.Begin(static_cast<int>(index.size()));
@@ -1265,9 +1684,12 @@ void App::DrawCuesTable() {
             const rds::Cue& c = cues[static_cast<std::size_t>(i)];
             const std::string_view slot = rds::ToString(c.slot);
             const std::string_view reason = rds::ToString(c.reason);
-            const std::string_view phase = rds::ToString(c.phase);
+            const std::string_view phase = rds::ToString(c.motion, c.moment);
 
             ImGui::TableNextRow();
+            if (const ImU32 tint = IntensityTint(heat.At(c.gainDb))) {
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, tint);
+            }
             ImGui::TableNextColumn();
             char label[32];
             std::snprintf(label, sizeof(label), "%.0f##c%d", c.timeMs, i);
@@ -1282,10 +1704,49 @@ void App::DrawCuesTable() {
                 m_player.SeekMs(c.timeMs);
             }
             ImGui::TableNextColumn();
-            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(ReasonColour(c.reason)), "%.*s",
+            const ImU32 cap = SurfaceCapColour(c.slot);
+            const ImU32 nameCol = cap != 0 ? cap : CueColour(c.slot, c.reason);
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(nameCol), "%.*s",
                                static_cast<int>(slot.size()), slot.data());
+
             ImGui::TableNextColumn();
-            ImGui::Text("%.1f", c.gainDb);
+            const CueSound snd = SoundOf(c);
+            if (snd.procedural) {
+                ImGui::TextDisabled("%s", snd.label.c_str());
+            } else if (snd.forced) {
+                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.45f, 1.0f), "%s", snd.label.c_str());
+            } else {
+                ImGui::TextUnformatted(snd.label.c_str());
+            }
+            Tip(snd.file.empty()
+                    ? std::string("No file behind this slot, so the engine synthesised the sound "
+                                  "from the slot's own brief. A stand-in is a quieter mod rather "
+                                  "than a broken one, but it is not what will ship.")
+                    : std::format("{}\nvariant {} of {}{}\n\n{}", snd.file, snd.variant + 1,
+                                  snd.variantCount,
+                                  snd.forced ? ", pinned - the slot is not picking" : "",
+                                  snd.variantCount > 1 && !snd.forced
+                                      ? "One of several. Which one a cue gets is the shuffle bag, "
+                                        "or the contact's own token with stable variants on."
+                                      : "The only file this slot has."));
+
+            ImGui::TableNextColumn();
+            if (c.compressCutDb < 0.0f) {
+                // The number in this cell is what plays; the bracket is what the
+                // compressor took, which is the difference between a cue that is
+                // quiet and a cue that is being held quiet.
+                ImGui::TextColored(ImVec4(1.0f, 0.80f, 0.51f, 1.0f), "%.1f (-%.1f)", c.gainDb,
+                                   -c.compressCutDb);
+                Tip(std::format("The {} threshold is {:.1f} dB and this moment came in over it, "
+                                "so the {:.0f}:1 ratio took {:.1f} dB off: it would have played "
+                                "at {:.1f} dB and is playing at {:.1f}.",
+                                rds::ToString(c.reason),
+                                rds::CompressThresholdDb(s.cfg.compress, c.reason),
+                                s.cfg.compress.ratio, -c.compressCutDb,
+                                c.gainDb - c.compressCutDb, c.gainDb));
+            } else {
+                ImGui::Text("%.1f", c.gainDb);
+            }
             ImGui::TableNextColumn();
             ImGui::TextDisabled("%.2f", c.pitch);
             ImGui::TableNextColumn();
@@ -1305,15 +1766,18 @@ void App::DrawVideo(float height) {
     ImGui::BeginChild("video", ImVec2(0, height), ImGuiChildFlags_Borders);
 
     // An unbuilt take - an mp4 with no frame cache behind it - gets a header
-    // saying so and the button that fixes it. The picture underneath is real,
-    // but it is *not synced*: the sync fit and the per-take nudge are both
-    // measured against a built cache, and pretending otherwise would put a hit
-    // on the wrong side of the picture and look like a bug in the engine.
+    // saying so and the button that fixes it. What it does *not* get is a
+    // different clock. Direct mode seeks index/30 s into the mp4 and the cache
+    // is that same mp4 decoded at 30 fps from zero, so the two index the same
+    // timeline and a nudge measured through one is a nudge measured through the
+    // other. Previewing unbuilt takes at raw take time threw the whole per-take
+    // offset away - 3044-3683 ms on the clipped takes - and left the nudge
+    // slider visibly doing nothing while every export still applied it.
     if (m_video.Unbuilt()) {
-        ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.45f, 1.0f), "unbuilt take - preview is NOT synced");
-        Tip("The video is here and the events are here, but nothing has lined the two up\n"
-            "yet. Build the frame cache and the offset, the drift fit and every export\n"
-            "start meaning something.");
+        ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.45f, 1.0f), "unbuilt take - one seek per frame");
+        Tip("The picture is pulled straight out of the mp4, a frame at a time, so scrubbing\n"
+            "shows the last frame it managed until the new one lands. It is lined up the\n"
+            "same way a built take is; it simply arrives slower.");
         ImGui::SameLine();
         if (ImGui::SmallButton("Generate frames")) BuildFrameCacheNow();
         Tip("Decode the clip to frames, then delete the mp4 - the whole point of the cache\n"
@@ -1329,6 +1793,17 @@ void App::DrawVideo(float height) {
         }
     }
 
+    // Whether the picture is lined up is a different question from whether it
+    // was decoded, and it is this one. Until a take has a line in
+    // video-offsets.ini its offset is the clip-pad guess, which is 1-1.7 s out
+    // on the takes where it has been measured.
+    if (m_video.HasVideo() && !OffsetMeasured()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.45f, 1.0f), "video offset is a guess");
+        Tip("Nobody recorded where this clip was cut out of the longer OBS recording, so\n"
+            "the offset under the timeline started at a guess. Nudge it until a landing\n"
+            "lands on the frame it lands on and it is written down for good.");
+    }
+
     if (!m_video.HasVideo() && m_video.FrameCount() == 0) {
         const ImVec2 avail = ImGui::GetContentRegionAvail();
         ImGui::SetCursorPos(ImVec2(avail.x * 0.5f - 90.0f, avail.y * 0.5f - 8.0f));
@@ -1336,10 +1811,9 @@ void App::DrawVideo(float height) {
     } else if (!m_video.Ready()) {
         ImGui::TextDisabled("%s", m_video.Status());
     } else {
-        // An unbuilt take is scrubbed by its own clock: there is no measured
-        // offset to apply, and applying the guess would be a claim this take
-        // cannot support.
-        const double vt = m_video.Unbuilt() ? m_player.PositionMs() : VideoTimeMs(m_player.PositionMs());
+        // The same mapping the exports and both video cuts use. One clock, so
+        // what you select against is what you get.
+        const double vt = VideoTimeMs(m_player.PositionMs());
         const unsigned tex = m_video.TextureAt(vt);
         if (tex) {
             const ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -1412,17 +1886,30 @@ void App::DrawTransport() {
         "the one thing the testbench does that Skyrim cannot. Turn it off to hear what the mix "
         "really does when a burst stacks.");
 
+    UpdateCueWindow();
+    DrawBenchmarkRow();
+
     if (m_video.HasVideo()) {
         float nudge = static_cast<float>(m_videoOffsetMs);
         ImGui::SetNextItemWidth(260.0f);
-        if (ImGui::SliderFloat("video offset ms", &nudge, -6000.0f, 6000.0f, "%.0f")) {
+        // Up the whole clip, not a flat six seconds. A cut clip's offset is a
+        // keyframe interval or two, but a take that owns its recording carries
+        // however long the Record button was down before anybody fell over -
+        // fifteen seconds is ordinary, and a slider that cannot reach it is a
+        // slider that cannot line the take up at all.
+        const float reach =
+            std::max(6000.0f, static_cast<float>(m_video.Ready() ? m_video.DurationMs() : 0.0));
+        if (ImGui::SliderFloat("video offset ms", &nudge, -6000.0f, reach, "%.0f")) {
             m_videoOffsetMs = nudge;
             if (m_take >= 0) m_offsets.Set(m_takes[static_cast<std::size_t>(m_take)].stem, m_videoOffsetMs);
         }
         Tip("video_time_ms = slope * t_ms + offset.\n"
-            "The slope comes from fitting the low-rtt rows of the take's _sync.csv.\n"
-            "The offset is the clip's cut point inside the longer OBS recording, which\n"
-            "is recorded nowhere - so it is yours to set, and it persists per take.");
+            "Both come from fitting the low-rtt rows of the take's _sync.csv.\n\n"
+            "On a take the devbench recorded, the mp4 is OBS's own output and the fit's\n"
+            "intercept is the offset outright - there should be nothing left to nudge.\n\n"
+            "On the takes in Research/, the mp4 was cut out of a longer recording whose\n"
+            "cut point is recorded nowhere, so only the slope is usable and the offset is\n"
+            "yours to set. Either way it persists per take once you touch it.");
         ImGui::SameLine();
         if (ImGui::SmallButton("centre") && m_video.Ready() && m_take >= 0) {
             // Assume the clip brackets the take evenly. A starting point, not a
@@ -1433,12 +1920,206 @@ void App::DrawTransport() {
         }
         Tip("Assume the clip brackets the take evenly. A starting point, not a measurement.");
         ImGui::SameLine();
+        const bool wholeOutput = m_recording && m_recording->Info().videoIsWholeOutput;
         if (m_sync.valid)
-            ImGui::TextDisabled("sync: %d/%d rows, min rtt %.0f ms, drift %+.2f ms/s | clip %.0f ms | %s",
+            ImGui::TextDisabled("sync: %d/%d rows, min rtt %.0f ms, drift %+.2f ms/s | %s %.0f ms | %s",
                                 m_sync.rowsUsed, m_sync.rowsTotal, m_sync.minRttMs, m_sync.driftMsPerSec,
+                                wholeOutput ? "recording" : "clip",
                                 m_video.Ready() ? m_video.DurationMs() : 0.0, m_video.Status());
+        else if (wholeOutput)
+            // Not a complaint: OBS started and stopped for this take, so its
+            // video begins where the take does and the offset near zero is
+            // right. Only the drift is missing.
+            ImGui::TextDisabled("no _sync.csv - this take's own recording, so zero is the offset | %s",
+                                m_video.Status());
         else
             ImGui::TextDisabled("no _sync.csv - the offset is the whole story here | %s", m_video.Status());
+    }
+}
+
+// ── the cue window ────────────────────────────────────────────────────────
+//
+// Two switches on one measurement: where this take's cues actually are.
+//
+// A take is a recording of a fall, not a piece of music. It starts when the
+// ragdoll does and ends whenever the capture was stopped, and the interesting
+// part is a second and a half somewhere in the middle. Tuning is a loop of
+// "move a slider, listen again", so silence at either end is paid for on every
+// pass over it.
+//
+// Both switches keep a pad on either side of every cue. Landing exactly on the
+// first sample of a cue is worse than useless: an impact with no run-up does
+// not read as an impact, and the sub arrives 65 ms after the transient, so a
+// cut that lands mid-stack takes the weight off the very thing being judged.
+
+namespace {
+/// Silence kept either side of a cue. Enough to hear one coming and to let the
+/// late sub finish, short enough not to be the wait it is removing.
+constexpr double kCuePadMs = 500.0;
+
+/// A gap has to be this long before it is worth jumping. Under it the skip
+/// would save less than the pads it has to leave, and a transport that lurches
+/// to save 200 ms is a transport you stop trusting about where you are.
+constexpr double kCuelessGapMs = 2000.0;
+}  // namespace
+
+void App::UpdateCueWindow() {
+    const std::vector<rds::Cue>& cues = m_side[m_player.ActiveSide()].result.cues;
+
+    // Cleared rather than left stale when the switch is off or the take has
+    // nothing in it. Bounds that outlived their reason would trim a take with
+    // no cues down to a window computed from the last take that had some.
+    if (!m_limitToCues || cues.empty()) {
+        m_player.SetPlayBounds(0.0, 0.0);
+    } else {
+        double first = cues.front().timeMs;
+        double last = cues.front().timeMs;
+        for (const rds::Cue& c : cues) {
+            first = std::min(first, c.timeMs);
+            last = std::max(last, c.timeMs);
+        }
+        m_player.SetPlayBounds(std::max(0.0, first - kCuePadMs),
+                               std::min(m_player.DurationMs(), last + kCuePadMs));
+    }
+
+    if (!m_skipCueless || !m_player.Playing() || cues.empty()) {
+        return;
+    }
+
+    // Inside a drawn region the region is the answer, so a skip may only move
+    // within it. Without that, selecting one impact and pressing play would
+    // jump straight out of the thing that was selected.
+    double lo = 0.0;
+    double hi = std::max(1.0, m_player.DurationMs());
+    if (m_player.HasRegion()) {
+        lo = m_player.LoopStartMs();
+        hi = m_player.LoopEndMs();
+    } else if (m_player.HasPlayBounds()) {
+        lo = m_player.PlayStartMs();
+        hi = m_player.PlayEndMs();
+    }
+
+    const double now = m_player.PositionMs();
+    if (now < lo || now > hi) {
+        return;
+    }
+
+    // The cue behind and the cue ahead. Scanned rather than assumed sorted:
+    // the list is built in time order today, and a skip that trusted that and
+    // was wrong would jump backwards - the one failure that would be read as a
+    // bug in the audio rather than in the transport.
+    double behind = -1e18;
+    double ahead = 1e18;
+    for (const rds::Cue& c : cues) {
+        if (c.timeMs < lo || c.timeMs > hi) continue;
+        if (c.timeMs <= now)
+            behind = std::max(behind, c.timeMs);
+        else
+            ahead = std::min(ahead, c.timeMs);
+    }
+    if (ahead > 1e17) {
+        return;  // nothing left ahead - the tail is the loop's business
+    }
+
+    // Measured from the window edge when nothing is behind yet, so the run-in
+    // to the first cue is jumped on the same rule as every gap after it.
+    const double from = behind < -1e17 ? lo : behind;
+    const double target = ahead - kCuePadMs;
+    if (ahead - from <= kCuelessGapMs || now < from + kCuePadMs || now >= target) {
+        return;
+    }
+    m_player.SeekMs(target);
+}
+
+// ── the benchmark ────────────────────────────────────────────────────────────
+//
+// Under the transport because it is a transport control: it stops playback and
+// then replays the same take the scrub bar is sitting in, which is the same
+// thing the Play button does with a different clock. Its answer belongs where
+// the thing it measured is.
+
+void App::DrawBenchmarkRow() {
+    ImGui::BeginDisabled(!m_recording);
+    if (ImGui::Button("benchmark", ImVec2(110, 0))) RunBenchmark();
+    ImGui::EndDisabled();
+    Tip("Pauses playback and replays this take through the backend as fast as it will go, "
+        "reporting the fastest run.\n\n"
+        "Tracing is off for it - the game never traces, and the testbench's own "
+        "\"RunOffline + mix\" figure beside the stats is mostly the cost of filling the "
+        "timeline. So this number is lower than that one on purpose, and it is the one that "
+        "says something about the mod.\n\n"
+        "The window freezes while it runs. That is deliberate: measuring against a UI that is "
+        "drawing at the same time measures the UI.");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(120.0f);
+    ImGui::SliderFloat("##benchbudget", &m_benchBudgetSec, 0.1f, 5.0f, "%.1f s each");
+    Tip("How long to spend measuring, per config. Longer is a tighter number and a longer "
+        "freeze. While split A/B, both sides are measured, so the freeze is twice this.");
+    ImGui::SameLine();
+    if (m_split)
+        ImGui::TextDisabled("| A and B, back to back");
+    else
+        ImGui::TextDisabled("| side %c only - turn on split A/B to compare two configs",
+                            'A' + m_focusSide);
+
+    // The cue window, beside the benchmark because both are about the same
+    // thing: how long you wait to hear the answer to a change you just made.
+    ImGui::SameLine();
+    ImGui::TextDisabled("|");
+    ImGui::SameLine();
+    ImGui::Checkbox("limit playback to cues", &m_limitToCues);
+    Tip("Play from 500 ms before the first cue to 500 ms after the last one, instead of\n"
+        "the whole recording. Most takes are mostly silence - the ragdoll starts when the\n"
+        "capture does and the body lies still long after the last sound - and on a tuning\n"
+        "loop that silence is paid for on every pass.\n\n"
+        "A drawn loop region still wins: it is the more specific answer to the same\n"
+        "question, and it is the one you asked for by hand.");
+    ImGui::SameLine();
+    ImGui::Checkbox("skip cueless sections", &m_skipCueless);
+    Tip("Jump the gaps inside a take as well as the ones at its ends. A stretch with more\n"
+        "than 2 s of nothing in it is skipped from 500 ms after the last cue to 500 ms\n"
+        "before the next one.\n\n"
+        "The pads are the point. Landing on the first sample of an impact is worse than\n"
+        "useless - a hit with no run-up does not read as a hit, and the sub arrives 65 ms\n"
+        "after the transient, so a cut that lands mid-stack takes the weight off exactly\n"
+        "what you were listening for.\n\n"
+        "Inside a loop region it only ever moves within that region.");
+
+    for (int side = 0; side < 2; ++side) {
+        const BenchResult& r = m_bench[side];
+        if (!r.valid) continue;
+
+        ImGui::TextDisabled(
+            "  %c %s: %.3f ms/run  |  %sx realtime  |  %.2f us/tick over %u ticks  |  %u "
+            "contacts -> %u cues  |  best of %d, median %.3f",
+            'A' + side, r.label.c_str(), r.bestMs, Compact(r.RealtimeFactor()).c_str(),
+            r.UsPerTick(), r.ticks, r.contactsIn, r.emittedCues, r.runs, r.medianMs);
+        Tip(std::format(
+            "best {:.3f} ms, median {:.3f}, mean {:.3f}, worst {:.3f} over {} runs in {:.0f} ms.\n\n"
+            "A tick is one game frame, so {:.2f} us/tick is what a frame of this fall would cost "
+            "the mod - the per-run figure carries this take's own length in it and does not "
+            "transfer.\n\n"
+            "median/best is {:.2f}. Much over 1.15 and something else was running on the machine, "
+            "which means the two sides were not measured under the same conditions - run it again "
+            "before believing a small difference.",
+            r.bestMs, r.medianMs, r.meanMs, r.worstMs, r.runs, r.wallMs, r.UsPerTick(), r.Spread()));
+
+        // The delta, which is the entire point. Against A because A is the side
+        // that was there first; the sign says which way, so it reads the same
+        // whichever one you were editing.
+        if (side == 1 && m_bench[0].valid && m_bench[0].bestMs > 0.0) {
+            const double pct = (r.bestMs / m_bench[0].bestMs - 1.0) * 100.0;
+            ImGui::SameLine();
+            // Under a percent is inside the noise of a best-of on a machine
+            // that is also running Skyrim, and colouring it would be claiming a
+            // difference that is not there.
+            const ImVec4 col = std::fabs(pct) < 1.0   ? ImVec4(0.6f, 0.6f, 0.6f, 1.0f)
+                               : pct > 0.0            ? ImVec4(1.0f, 0.6f, 0.35f, 1.0f)
+                                                      : ImVec4(0.5f, 0.9f, 0.5f, 1.0f);
+            ImGui::TextColored(col, "  B is %+.1f%% vs A", pct);
+            Tip("Cost, not quality. A config that is cheaper because arbitration threw more "
+                "away is cheaper for a reason you can hear.");
+        }
     }
 }
 
@@ -1476,8 +2157,17 @@ void App::DrawTimeline(float height) {
     const bool zoomed = viewSpan < dur - 0.5;
 
     ImGui::TextDisabled(
-        "timeline - colour is CueReason, height is gain. Wheel zooms, middle drags, left drags a "
-        "selection, bottom strip drags a loop region");
+        "timeline - colour is the slot (the impact stack shares a hue and separates by "
+        "lightness; a surface skin is grey with its material on top), height is gain, a ghost "
+        "tick above a bar is the height "
+        "it would have had before its class was compressed, a translucent ramp behind everything "
+        "is a loop's envelope. Along the foot of the lane: a pale blue bar brackets one "
+        "burst (cues closer together than Arbitration:fBurstMinGapMs), gold above it is a "
+        "hero moment with a light tick where it re-anchored, lavender above that is "
+        "measured flight, and teal above that is a slide - its end cap coloured by how the "
+        "slide ended, lavender for launched, red for struck, grey for come to rest. Wheel "
+        "zooms, middle drags, left drags a selection, bottom strip drags a loop region - by an "
+        "edge to resize, from inside to move");
     ImGui::SameLine();
     ImGui::Checkbox("trace", &m_showTrace);
     ImGui::SameLine();
@@ -1549,6 +2239,104 @@ void App::DrawTimeline(float height) {
         dl->AddLine(ImVec2(b, cueTop), ImVec2(b, stripTop), IM_COL32(240, 200, 110, 200), 1.5f);
     }
 
+    // With a slot's widget hovered in the sfx panel, that slot's cues are drawn
+    // full height and everything else is dimmed - which answers "what does this
+    // slot actually do in this take" by pointing at it rather than by reading a
+    // count. Read by the envelopes below as well as by the cue bars, so a
+    // hovered scrape loop lights up its ramp and not only its three bars.
+    const bool highlighting = m_hoverSlot >= 0;
+
+    // ── the loop envelopes ───────────────────────────────────────────────────
+    //
+    // A loop is not an event, and drawing it as a row of bars was the lane
+    // telling a small lie about the biggest thing in a slide. What the engine
+    // actually emits is a start, a handful of updates whenever the level moves
+    // more than 0.75 dB, and a stop - and as bars those read as five unrelated
+    // impacts with a gap in the middle. What they *are* is one voice fading in,
+    // tracking the slide, and fading out: a ramp. So it is drawn as one.
+    //
+    // Underneath everything else and translucent, because the one-shots riding
+    // on top of a slide are the thing being tuned and the envelope is the
+    // context they are being read against. The top edge is drawn straight
+    // between updates rather than as a staircase: the voice does step, but the
+    // steps are a 0.75 dB quantisation of a level that is genuinely continuous,
+    // and the shape is the honest half of that.
+    {
+        struct LoopRun {
+            std::uint32_t voice{};
+            rds::CueReason reason{};
+            rds::SlotId slot{};
+            float startFadeMs{};
+            float stopFadeMs{};
+            double stopMs{-1.0};
+            std::vector<ImVec2> pts;  ///< x is time in ms, y is gain in dB
+        };
+        std::vector<LoopRun> runs;
+        for (const rds::Cue& c : s.result.cues) {
+            if (c.op == rds::CueOp::kPlayOneShot) continue;
+            auto it = std::ranges::find_if(runs,
+                                           [&](const LoopRun& r) { return r.voice == c.voiceId; });
+            if (it == runs.end()) {
+                runs.push_back(LoopRun{c.voiceId, c.reason, c.slot, c.fadeMs});
+                it = runs.end() - 1;
+            }
+            // A stop cue carries no gain - there is nothing left to set - so its
+            // level is whatever the trims add up to, which on this lane draws as
+            // a full-height bar at the end of the slide. The envelope ends at
+            // the floor over the stop's own fade instead, which is what the
+            // voice does.
+            if (c.op == rds::CueOp::kStopLoop) {
+                it->stopMs = c.timeMs;
+                it->stopFadeMs = c.fadeMs;
+            } else {
+                it->pts.push_back(ImVec2(static_cast<float>(c.timeMs), c.gainDb));
+            }
+        }
+
+        const float base = cueBot;
+        for (const LoopRun& run : runs) {
+            if (run.pts.empty()) continue;
+            const bool lit = highlighting && static_cast<int>(run.slot) == m_hoverSlot;
+            const ImU32 rgb = CueColour(run.slot, run.reason) & 0x00FFFFFFu;
+            const ImU32 fill =
+                rgb | (static_cast<ImU32>(highlighting && !lit ? 14 : 46) << IM_COL32_A_SHIFT);
+            const ImU32 edge =
+                rgb | (static_cast<ImU32>(highlighting && !lit ? 40 : 150) << IM_COL32_A_SHIFT);
+
+            // The fade in, the updates, then the fade out - or a hold to the end
+            // of the take for a loop that never stopped, which is a slide the
+            // recording was cut in the middle of rather than one with no end.
+            std::vector<ImVec2> top;
+            top.reserve(run.pts.size() + 3);
+            top.push_back(ImVec2(X(run.pts.front().x), base));
+            for (std::size_t i = 0; i < run.pts.size(); ++i) {
+                // The first point is where the fade in *ends*: the start cue
+                // asks for a level and a fade to reach it over, and drawing it
+                // as an instant step would put a wall at the front of every
+                // slide that the engine went to some trouble not to have.
+                const double atMs =
+                    run.pts[i].x + (i == 0 ? static_cast<double>(run.startFadeMs) : 0.0);
+                top.push_back(ImVec2(X(atMs), base - BarHeight(run.pts[i].y) * (cueH - 6.0f)));
+            }
+            const double endMs = run.stopMs >= 0.0 ? run.stopMs : dur;
+            top.push_back(ImVec2(X(endMs), top.back().y));
+            if (run.stopMs >= 0.0) {
+                top.push_back(ImVec2(X(run.stopMs + run.stopFadeMs), base));
+            }
+
+            for (std::size_t i = 1; i < top.size(); ++i) {
+                const ImVec2& a = top[i - 1];
+                const ImVec2& b = top[i];
+                if (b.x <= a.x) continue;
+                // One quad per segment rather than one polygon: the envelope is
+                // not convex and AddConvexPolyFilled would fold it inside out.
+                dl->AddQuadFilled(a, b, ImVec2(b.x, base), ImVec2(a.x, base), fill);
+            }
+            dl->AddPolyline(top.data(), static_cast<int>(top.size()), edge, ImDrawFlags_None,
+                            1.5f);
+        }
+    }
+
     // burst brackets: cues separated by less than the config's burst gap are one
     // burst, which is the rhythm the whole design is aiming at.
     const double burstGap = s.cfg.arb.burstMinGapMs;
@@ -1573,19 +2361,159 @@ void App::DrawTimeline(float height) {
     }
     flushBurst();
 
-    // the cues
+    // ── the state lanes ────────────────────────────────────────────────
     //
-    // With a slot's widget hovered in the sfx panel, that slot's cues are drawn
-    // full height and everything else is dimmed - which answers "what does this
-    // slot actually do in this take" by pointing at it rather than by reading a
-    // count.
-    const bool highlighting = m_hoverSlot >= 0;
+    // Two stripes along the foot of the cue lane, above the burst brackets:
+    // when the mix was in a hero moment, and when the body was off the ground.
+    //
+    // Both are read off the sampled engine state rather than inferred from the
+    // cues, because neither can be inferred from the cues. A hero window is a
+    // decision about the actor and not a property of any one of them - the
+    // loudest cue in a take is regularly not inside one - and flight is a
+    // measurement that leaves no cue at all. They are also the two things the
+    // Stage 2 rewrite turns on, so being able to see where they actually land
+    // is most of being able to say whether it worked.
+    //
+    // End caps on every span, because the question is where one starts and
+    // stops and a plain bar reads as shading rather than as an interval.
+    {
+        // One drawing routine, two lanes: what differs between them is which
+        // field opens a span, and that belongs in the loop rather than in a
+        // second copy of the geometry.
+        const auto lane = [&](float bottom, ImU32 colour, ImU32 tickColour, auto&& openIn,
+                              auto&& startOf, auto&& markerOf) {
+            const float top = bottom - 3.0f;
+            double spanStart = -1.0;
+            double spanEnd = -1.0;
+            std::uint32_t spanMark = 0;
+            std::vector<double> ticks;
+            const auto flush = [&] {
+                if (spanStart < 0.0) return;
+                // A span that opened and closed inside one tick still gets a
+                // mark: it happened, and a lane that dropped it would be
+                // quietly arguing that it did not.
+                const float a = X(spanStart);
+                const float b = std::max(X(spanEnd), a + 2.0f);
+                dl->AddRectFilled(ImVec2(a, top), ImVec2(b, bottom), colour);
+                dl->AddLine(ImVec2(a, top - 3.0f), ImVec2(a, bottom + 1.0f), colour, 1.5f);
+                dl->AddLine(ImVec2(b, top - 3.0f), ImVec2(b, bottom + 1.0f), colour, 1.5f);
+                for (const double at : ticks) {
+                    dl->AddLine(ImVec2(X(at), top - 2.0f), ImVec2(X(at), bottom), tickColour,
+                                1.0f);
+                }
+                ticks.clear();
+                spanStart = spanEnd = -1.0;
+            };
+            for (const rds::BodySample& b : s.result.body) {
+                if (!openIn(b)) {
+                    flush();
+                    continue;
+                }
+                const double began = startOf(b) > 0.0 ? startOf(b) : b.timeMs;
+                if (spanStart < 0.0) {
+                    spanStart = began;
+                    spanMark = markerOf(b);
+                } else if (markerOf(b) != spanMark) {
+                    ticks.push_back(began);
+                    spanMark = markerOf(b);
+                }
+                spanEnd = b.timeMs;
+            }
+            flush();
+        };
+
+        // Hero in gold - the mix axis, and the thing the design is loudest
+        // about. A tick inside a span is a re-anchor: the window stayed open
+        // and found a bigger contact to sit on, so it is one moment with peers
+        // rather than two moments running together.
+        lane(
+            cueBot - 4.0f, IM_COL32(255, 205, 70, 210), IM_COL32(255, 245, 200, 230),
+            [](const rds::BodySample& b) { return b.moment == rds::Moment::kHero; },
+            [](const rds::BodySample& b) { return b.heroSinceMs; },
+            [](const rds::BodySample& b) { return b.heroSeq; });
+
+        // Flight in lavender, echoing air_whoosh, which is the one cue this
+        // lane is the cause of. Empty on a take with no pose sidecar - there is
+        // no measurement to draw, and a flat "never airborne" would be a claim
+        // rather than an absence. No re-anchor equivalent: a flight is one
+        // continuous stretch by construction, so the marker never changes.
+        lane(
+            cueBot - 8.0f, IM_COL32(175, 160, 255, 205), IM_COL32(175, 160, 255, 205),
+            [](const rds::BodySample& b) { return b.airborne && b.haveBodySamples; },
+            [](const rds::BodySample& b) { return b.airborneSinceMs; },
+            [](const rds::BodySample&) { return 0u; });
+
+        // Slide in teal, and its own loop for one reason: how a slide *ended* is
+        // most of what there is to know about it, and the generic lane above can
+        // only draw a span. A slide leaves the state three ways - the body came
+        // to rest, the body left the ground, or something stopped it - and they
+        // sound nothing like each other. A lane that drew only the bar would be
+        // showing the least interesting half.
+        //
+        // The exit is read off the first sample *after* the span, because that
+        // is where it is written: `LeaveSlide` sets it on the same tick the
+        // motion state changes, so no sample inside the span can carry it.
+        {
+            const float bottom = cueBot - 12.0f;
+            const float top = bottom - 3.0f;
+            constexpr ImU32 kSlideBody = IM_COL32(110, 205, 190, 200);
+            const auto capOf = [](rds::SlideExit exit) -> ImU32 {
+                switch (exit) {
+                    // The flight lane's own lavender, because that is where the
+                    // body went and the two marks line up on screen.
+                    case rds::SlideExit::kLaunched: return IM_COL32(175, 160, 255, 240);
+                    // The one exit that makes a sound of its own.
+                    case rds::SlideExit::kStruck: return IM_COL32(255, 130, 110, 245);
+                    case rds::SlideExit::kRested: return IM_COL32(150, 165, 185, 225);
+                    case rds::SlideExit::kNone: break;
+                }
+                return kSlideBody;
+            };
+
+            double spanStart = -1.0;
+            double spanEnd = -1.0;
+            const auto flush = [&](rds::SlideExit exit) {
+                if (spanStart < 0.0) return;
+                const float a = X(spanStart);
+                const float b = std::max(X(spanEnd), a + 2.0f);
+                dl->AddRectFilled(ImVec2(a, top), ImVec2(b, bottom), kSlideBody);
+                dl->AddLine(ImVec2(a, top - 3.0f), ImVec2(a, bottom + 1.0f), kSlideBody, 1.5f);
+                // The closing cap is drawn thicker and taller than the opening
+                // one: the two ends of a slide are not equally interesting, and
+                // this is the one the rework is about.
+                dl->AddLine(ImVec2(b, top - 5.0f), ImVec2(b, bottom + 1.0f), capOf(exit), 2.5f);
+                spanStart = spanEnd = -1.0;
+            };
+            for (const rds::BodySample& b : s.result.body) {
+                if (b.motion == rds::Motion::kSlide) {
+                    if (spanStart < 0.0) {
+                        spanStart = b.motionEnteredMs > 0.0 ? b.motionEnteredMs : b.timeMs;
+                    }
+                    spanEnd = b.timeMs;
+                } else {
+                    flush(b.slideExit);
+                }
+            }
+            // A slide the recording was cut in the middle of has no exit to draw,
+            // which is not the same as one that ended and is marked as neither.
+            flush(rds::SlideExit::kNone);
+        }
+    }
+
+    // the cues
     for (int i = 0; i < static_cast<int>(s.result.cues.size()); ++i) {
         const rds::Cue& c = s.result.cues[static_cast<std::size_t>(i)];
         const float x = X(c.timeMs);
-        const float h = BarHeight(c.gainDb) * (cueH - 6.0f);
+        // A stop cue has no gain of its own - there is nothing left to set - so
+        // its level is whatever the trims happen to add up to, which drew as a
+        // full-height bar at the end of every slide. It is a marker, not a
+        // level, so it is drawn as one: a stub on the baseline, at the point
+        // where the envelope behind it has already reached the floor.
+        const float h = c.op == rds::CueOp::kStopLoop
+                            ? 5.0f
+                            : BarHeight(c.gainDb) * (cueH - 6.0f);
         const bool lit = highlighting && static_cast<int>(c.slot) == m_hoverSlot;
-        ImU32 col = ReasonColour(c.reason);
+        ImU32 col = CueColour(c.slot, c.reason);
         if (highlighting && !lit) {
             // Dimmed in place rather than hidden: the rhythm of the take is the
             // context that makes one slot's placement mean anything.
@@ -1594,9 +2522,32 @@ void App::DrawTimeline(float height) {
         const bool sel = i == m_selectedCue;
         const float halfWidth = lit ? 2.5f : (sel ? 2.0f : 1.0f);
         dl->AddRectFilled(ImVec2(x - halfWidth, cueBot - h), ImVec2(x + halfWidth, cueBot), col);
+        if (const ImU32 cap = SurfaceCapColour(c.slot); cap != 0) {
+            // A grey bar with the floor on top of it. The skins are one role
+            // and read as one lane of grey; the cap is the only thing that
+            // differs between them, so it is the only thing given a hue.
+            const float capH = std::min(4.0f, std::max(2.0f, h * 0.35f));
+            const ImU32 tinted = (cap & 0x00FFFFFFu) | (col & IM_COL32_A_MASK);
+            dl->AddRectFilled(ImVec2(x - halfWidth, cueBot - h),
+                              ImVec2(x + halfWidth, cueBot - h + capH), tinted);
+        }
         if (lit) {
             dl->AddLine(ImVec2(x, cueTop), ImVec2(x, cueBot), col, 1.0f);
             dl->AddCircleFilled(ImVec2(x, cueTop + 4.0f), 2.5f, col);
+        }
+        if (c.compressCutDb < 0.0f) {
+            // Where the bar would have reached, and a hairline down to where it
+            // actually does. Height is gain everywhere else on this lane, so a
+            // held cue is drawn at a height that is not its own and the lane
+            // would quietly lie about the top of the range; the gap is the
+            // compression, which is the one thing a number in a table cannot
+            // show you across a whole take at once.
+            const float top = cueBot - h;
+            const float ghost = cueBot - BarHeight(c.gainDb - c.compressCutDb) * (cueH - 6.0f);
+            const int alpha = highlighting && !lit ? 55 : 200;
+            dl->AddLine(ImVec2(x - halfWidth - 2.5f, ghost), ImVec2(x + halfWidth + 2.5f, ghost),
+                        IM_COL32(255, 205, 130, alpha), 1.5f);
+            dl->AddLine(ImVec2(x, ghost), ImVec2(x, top), IM_COL32(255, 205, 130, alpha / 2), 1.0f);
         }
         if (c.op == rds::CueOp::kStartLoop)
             dl->AddCircleFilled(ImVec2(x, cueBot - h - 4.0f), 3.0f, col);
@@ -1632,8 +2583,17 @@ void App::DrawTimeline(float height) {
     dl->AddRectFilled(ImVec2(origin.x, stripTop), ImVec2(origin.x + width, stripTop + regionStripH),
                       IM_COL32(40, 44, 54, 255));
     if (m_player.HasRegion()) {
-        dl->AddRectFilled(ImVec2(X(m_player.LoopStartMs()), stripTop), ImVec2(X(m_player.LoopEndMs()), stripTop + regionStripH),
+        const float ra = X(m_player.LoopStartMs());
+        const float rb = X(m_player.LoopEndMs());
+        dl->AddRectFilled(ImVec2(ra, stripTop), ImVec2(rb, stripTop + regionStripH),
                           IM_COL32(90, 140, 220, 190));
+        // Two grips, because the edges are draggable and nothing else about the
+        // strip says so. Drawn inward so a region a few pixels wide still shows
+        // both rather than one bar of the wrong colour.
+        dl->AddRectFilled(ImVec2(ra, stripTop), ImVec2(ra + 2.0f, stripTop + regionStripH),
+                          IM_COL32(200, 225, 255, 230));
+        dl->AddRectFilled(ImVec2(rb - 2.0f, stripTop), ImVec2(rb, stripTop + regionStripH),
+                          IM_COL32(200, 225, 255, 230));
     }
     // A scale bar under the strip when zoomed, so "how far in am I" is a picture
     // rather than two numbers in the header.
@@ -1661,6 +2621,56 @@ void App::DrawTimeline(float height) {
     const double mouseMs =
         std::clamp(viewStart + static_cast<double>(mouse.x - origin.x) / width * viewSpan, 0.0, dur);
 
+    // What the cursor is over.
+    //
+    // A cue is a bar two pixels wide and cannot carry a label, so "what is that
+    // one" has to be a hover. It answers with the same three things the cue
+    // table's row does - the level, the file it resolved to, and whether the
+    // ceiling held it - because the lane and the table disagreeing about one cue
+    // is worse than neither of them saying anything.
+    if (hovered && !m_selecting && !m_maybeSelecting && !m_regionDragging && mouse.y < traceTop) {
+        int nearest = -1;
+        double nearestDx = 1e18;
+        for (int i = 0; i < static_cast<int>(s.result.cues.size()); ++i) {
+            const double dx =
+                std::fabs(s.result.cues[static_cast<std::size_t>(i)].timeMs - mouseMs);
+            if (dx < nearestDx) {
+                nearestDx = dx;
+                nearest = i;
+            }
+        }
+        // The same six pixels the region grips use, so pointing at something is
+        // the same gesture at every zoom.
+        if (nearest >= 0 && nearestDx / viewSpan * width < 6.0) {
+            const rds::Cue& c = s.result.cues[static_cast<std::size_t>(nearest)];
+            const CueSound snd = SoundOf(c);
+            const std::string_view slotName = rds::ToString(c.slot);
+            const std::string_view reasonName = rds::ToString(c.reason);
+            ImGui::BeginTooltip();
+            ImGui::Text("%.0f ms   %.*s   %.1f dB   pitch %.2f", c.timeMs,
+                        static_cast<int>(slotName.size()), slotName.data(), c.gainDb, c.pitch);
+            if (snd.variantCount > 1) {
+                ImGui::Text("%s   (variant %d of %d%s)", snd.label.c_str(), snd.variant + 1,
+                            snd.variantCount, snd.forced ? ", forced" : "");
+            } else {
+                ImGui::Text("%s%s", snd.label.c_str(), snd.forced ? "   (forced)" : "");
+            }
+            if (c.compressCutDb < 0.0f) {
+                ImGui::TextColored(ImVec4(1.0f, 0.80f, 0.51f, 1.0f),
+                                   "compressed %.1f dB at %.0f:1 - the %.*s threshold is %.1f and "
+                                   "this moment was over it, so it plays at %.1f instead of %.1f",
+                                   -c.compressCutDb, s.cfg.compress.ratio,
+                                   static_cast<int>(reasonName.size()), reasonName.data(),
+                                   rds::CompressThresholdDb(s.cfg.compress, c.reason), c.gainDb,
+                                   c.gainDb - c.compressCutDb);
+            }
+            ImGui::TextDisabled("%.*s   intensity %.2f   seq %u",
+                                static_cast<int>(reasonName.size()), reasonName.data(), c.intensity,
+                                c.sourceSeq);
+            ImGui::EndTooltip();
+        }
+    }
+
     // Wheel zooms about the cursor. About the cursor and not about the centre,
     // because the thing you point at is the thing you want to keep looking at -
     // centre-anchored zoom means chasing the target across the lane.
@@ -1679,6 +2689,33 @@ void App::DrawTimeline(float height) {
             dur - viewSpan);
     }
 
+    // Six pixels either side of an edge, in milliseconds, so the grab is the same
+    // size on screen at every zoom - it is a target for a mouse, not a stretch of
+    // the take.
+    const double grabMs = 6.0 / static_cast<double>(std::max(1.0f, width)) * viewSpan;
+
+    // Which gesture a press at `atMs` on the strip is. A lambda rather than a
+    // function because both the press and the hover cursor have to agree about it.
+    const auto RegionDragAt = [&](double atMs, double slack) {
+        if (!m_player.HasRegion()) return RegionDrag::kNew;
+        const double lo = m_player.LoopStartMs();
+        const double hi = m_player.LoopEndMs();
+        if (std::fabs(atMs - lo) <= slack || std::fabs(atMs - hi) <= slack) {
+            return RegionDrag::kEdge;
+        }
+        return atMs > lo && atMs < hi ? RegionDrag::kMove : RegionDrag::kNew;
+    };
+
+    // The cursor is the whole of the affordance: the strip looks the same
+    // everywhere, so what a press is about to do has to be said before it lands.
+    if (hovered && mouse.y >= stripTop && !m_regionDragging) {
+        switch (RegionDragAt(mouseMs, grabMs)) {
+            case RegionDrag::kEdge: ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW); break;
+            case RegionDrag::kMove: ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll); break;
+            case RegionDrag::kNew: break;
+        }
+    }
+
     if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         if (mouse.y >= stripTop) {
             // Freeze the window for the gesture, and remember the region we are
@@ -1688,8 +2725,29 @@ void App::DrawTimeline(float height) {
             m_dragPrevStartMs = m_player.LoopStartMs();
             m_dragPrevEndMs = m_player.LoopEndMs();
             m_regionDragging = true;
-            m_regionAnchorMs = mouseMs;
-            m_player.SetLoopRegion(mouseMs, mouseMs);
+            m_regionDragKind = RegionDragAt(mouseMs, grabMs);
+
+            switch (m_regionDragKind) {
+                case RegionDrag::kEdge:
+                    // Anchored on the edge that is not moving, so the rest of the
+                    // gesture is the same code a fresh drag runs.
+                    m_regionAnchorMs = std::fabs(mouseMs - m_dragPrevStartMs) <=
+                                               std::fabs(mouseMs - m_dragPrevEndMs)
+                                           ? m_dragPrevEndMs
+                                           : m_dragPrevStartMs;
+                    break;
+                case RegionDrag::kMove:
+                    m_regionGrabOffsetMs = mouseMs - m_dragPrevStartMs;
+                    m_regionGrabSpanMs = m_dragPrevEndMs - m_dragPrevStartMs;
+                    break;
+                case RegionDrag::kNew:
+                    // Only this one collapses the region on the press. The other
+                    // two are adjusting what is there and it has to stay on
+                    // screen while they do.
+                    m_regionAnchorMs = mouseMs;
+                    m_player.SetLoopRegion(mouseMs, mouseMs);
+                    break;
+            }
         } else {
             // Not a seek yet. A press on the body is either a click - seek and
             // pick the nearest cue - or the start of a selection drag, and which
@@ -1733,26 +2791,43 @@ void App::DrawTimeline(float height) {
     }
 
     if (m_regionDragging) {
+        // Where the region is this frame. Moving slides a fixed span under the
+        // cursor and clamps as a whole, so dragging it off either end parks it
+        // against that end at its own length instead of squashing it.
+        double lo = 0.0;
+        double hi = 0.0;
+        if (m_regionDragKind == RegionDrag::kMove) {
+            lo = std::clamp(mouseMs - m_regionGrabOffsetMs, 0.0,
+                            std::max(0.0, dur - m_regionGrabSpanMs));
+            hi = lo + m_regionGrabSpanMs;
+        } else {
+            lo = std::min(m_regionAnchorMs, mouseMs);
+            hi = std::max(m_regionAnchorMs, mouseMs);
+        }
+
         // The region tracks the mouse the whole way - you watch the selection
         // grow - but WindowMs() reports the pre-drag window until the button
         // comes up, so every table below holds still until you are done.
         if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-            m_player.SetLoopRegion(std::min(m_regionAnchorMs, mouseMs),
-                                   std::max(m_regionAnchorMs, mouseMs));
+            m_player.SetLoopRegion(lo, hi);
         } else {
             m_regionDragging = false;
-            const double lo = std::min(m_regionAnchorMs, mouseMs);
-            const double hi = std::max(m_regionAnchorMs, mouseMs);
             // A press and release in one spot is a click, not a zero-width
             // region: it clears. The strip is where you go to change the
-            // region, so it is also where you go to stop having one.
-            const bool click = (hi - lo) <= 20.0;
+            // region, so it is also where you go to stop having one - but only
+            // when the press was drawing a new one. Tapping an edge or the
+            // middle of a region you already have is a gesture that changed its
+            // mind, and losing the region for it would be the opposite of what
+            // grabbing it was for.
+            const bool click = m_regionDragKind == RegionDrag::kNew && (hi - lo) <= 20.0;
             // Put the pre-drag region back first, so SetRegion records the step
             // against what was there before the gesture rather than against the
             // half-finished selection the drag left behind.
             m_player.SetLoopRegion(m_dragPrevStartMs, m_dragPrevEndMs);
-            SetRegion(click ? 0.0 : lo, click ? 0.0 : hi,
-                      click ? "clear region" : "loop region");
+            const char* label = m_regionDragKind == RegionDrag::kMove  ? "move region"
+                                : m_regionDragKind == RegionDrag::kEdge ? "resize region"
+                                                                        : "loop region";
+            SetRegion(click ? 0.0 : lo, click ? 0.0 : hi, click ? "clear region" : label);
         }
     }
 
@@ -1767,6 +2842,97 @@ void App::DrawTimeline(float height) {
 
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Right) && !m_hasSelection) {
         SetRegion(0.0, 0.0, "clear region");
+    }
+
+    DrawBodyReadout(s);
+}
+
+// ── the measured body ────────────────────────────────────────────────────
+//
+// Under the timeline rather than in the stats panel, because it is read while
+// looking at the timeline: a cue is selected, and the question is what the body
+// was doing when it fired. In the stats panel that is a glance away and a
+// number that has to be held in the head on the way back.
+//
+// It follows the playhead, which is also the selection - clicking a cue on the
+// timeline or in the table seeks to it - so "the selected frame" and "where the
+// playhead is" are one place and need only one readout.
+
+void App::DrawBodyReadout(const ConfigSide& side) {
+    if (side.result.body.empty()) {
+        ImGui::TextDisabled("body - no run yet");
+        return;
+    }
+
+    // The last sample at or before the playhead, not the nearest. A tick is a
+    // frame of state that held until the next one, so the value in force at
+    // 100 ms is the one sampled at 96 ms - and rounding forward would show a
+    // measurement taken after the cue being looked at.
+    const double now = m_player.PositionMs();
+    const rds::BodySample* found = nullptr;
+    for (const rds::BodySample& b : side.result.body) {
+        if (b.timeMs > now) break;
+        found = &b;
+    }
+    if (found == nullptr) {
+        found = &side.result.body.front();
+    }
+
+    if (!found->haveBodySamples) {
+        ImGui::TextDisabled("body - this take has no pose data, so there is nothing to "
+                            "measure");
+        Tip("Every field here comes from the <take>_pose.bin sidecar. Takes captured before\n"
+            "it existed still replay - the engine falls back on every rule that reads the\n"
+            "body - but the measurement itself is simply not in the file.");
+        return;
+    }
+
+    ImGui::TextDisabled("body");
+    ImGui::SameLine();
+    // The speed in white and everything else dimmed: one of these is the number
+    // being looked for and the rest is the context that makes it mean something.
+    ImGui::TextColored(ImVec4(0.90f, 0.93f, 1.0f, 1.0f), "%.0f u/s", found->speed);
+    Tip("The magnitude of the ragdoll's mass-weighted centre-of-mass velocity at this\n"
+        "frame, read off the engine's own state rather than recomputed here - so it is\n"
+        "the same number the rules were reading when they fired.");
+    ImGui::SameLine();
+    ImGui::TextDisabled("| vert %+.0f u/s  accel %+.0f u/s2  | z %.0f", found->verticalSpeed,
+                        found->verticalAccel, found->comPosition.z);
+    Tip("Vertical speed, its rate of change, and the height of the centre of mass.\n\n"
+        "The acceleration is what the free-fall gate reads: in free flight it sits near\n"
+        "-686 u/s2 (9.8 m/s2 x 69.99 u/m), and anything holding the body up pulls it\n"
+        "toward zero. That is why nothing here needs a ground reference, and why it\n"
+        "survives a staircase.");
+    ImGui::SameLine();
+    if (found->airborne) {
+        ImGui::TextColored(ImVec4(0.60f, 0.85f, 1.0f, 1.0f), "| airborne, dropped %.0f",
+                           found->fallDropUnits);
+        Tip("Nothing is holding the body up at this frame. The drop is measured from where\n"
+            "the flight began, so it is relative and a staircase does not confuse it.");
+    } else {
+        ImGui::TextDisabled("| supported");
+        Tip("Something is holding the body up at this frame - the floor, a step, a wall.");
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("| %.*s / %.*s @ %.0f ms",
+                        static_cast<int>(rds::ToString(found->motion).size()),
+                        rds::ToString(found->motion).data(),
+                        static_cast<int>(rds::ToString(found->moment).size()),
+                        rds::ToString(found->moment).data(), found->timeMs);
+    Tip("Stage 2's two axes at this frame, and the tick the numbers were sampled on.\n"
+        "Motion is what the body is doing and physics owns it; Moment is what the mix is\n"
+        "doing and design owns it. A quiet-looking contact inside a hero moment comes out\n"
+        "loud, and this is the line that says so.");
+    if (found->slideExit != rds::SlideExit::kNone) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("| last slide %.*s",
+                            static_cast<int>(rds::ToString(found->slideExit).size()),
+                            rds::ToString(found->slideExit).data());
+        Tip("How the last slide ended, which is the only part of one the motion state\n"
+            "cannot say. Coming to rest and going airborne are measured; struck is what is\n"
+            "left when neither happened, and it is the exit that places an impact of its\n"
+            "own - and a hero moment with it if the body was still travelling faster than\n"
+            "Hero:fSlideEndFrac of the loud anchor.");
     }
 }
 
@@ -1913,12 +3079,32 @@ void App::DrawSelectedCue() {
     }
     const rds::Cue& c = s.result.cues[static_cast<std::size_t>(m_selectedCue)];
     const std::string_view slot = rds::ToString(c.slot);
+    const CueSound snd = SoundOf(c);
     ImGui::Text("cue %d @ %.0f ms   %.*s v%u   %.1f dB   pitch %.3f", m_selectedCue, c.timeMs,
                 static_cast<int>(slot.size()), slot.data(), c.variant, c.gainDb, c.pitch);
+    ImGui::SameLine();
+    ImGui::TextDisabled("| %s%s", snd.label.c_str(), snd.forced ? " (forced)" : "");
+    Tip(snd.file.empty() ? std::string("A procedural stand-in - this slot has no file behind it.")
+                         : std::format("{}  -  variant {} of {}", snd.file, snd.variant + 1,
+                                       snd.variantCount));
+    if (c.compressCutDb < 0.0f) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.80f, 0.51f, 1.0f), "| compressed -%.1f dB",
+                           -c.compressCutDb);
+        Tip(std::format("Compress:{} is {:.1f} dB and this moment's level was over it, so the "
+                        "{:.0f}:1 ratio took {:.1f} dB. The whole stack came down by the same "
+                        "amount, so the composite keeps its layer balance and loses only its "
+                        "level.\n\nThe threshold is measured before any trim, on the scale where "
+                        "0 dB is the loudest contact the engine can hear - so turning the master "
+                        "gain up moves this cue and the point it starts being held together.",
+                        rds::ToString(c.reason),
+                        rds::CompressThresholdDb(s.cfg.compress, c.reason), s.cfg.compress.ratio,
+                        -c.compressCutDb));
+    }
     const std::string_view reason = rds::ToString(c.reason);
     const std::string_view site = rds::ToString(c.site);
     const std::string_view surf = rds::ToString(c.surface);
-    const std::string_view phase = rds::ToString(c.phase);
+    const std::string_view phase = rds::ToString(c.motion, c.moment);
     ImGui::TextDisabled("actor %08X  limb %u (%.*s)  surface %.*s  reason %.*s  phase %.*s  intensity %.3f  seq %u",
                         c.actorId, c.limbIndex, static_cast<int>(site.size()), site.data(),
                         static_cast<int>(surf.size()), surf.data(), static_cast<int>(reason.size()), reason.data(),
@@ -1954,6 +3140,32 @@ void App::DrawRight(int side, float height, bool split) {
         if (m_configFiles.empty()) ImGui::TextDisabled("(none saved yet)");
         ImGui::EndCombo();
     }
+    Tip("Which config this side is playing. Loading one starts a fresh undo history.");
+
+    // the config it is being read against
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(150.0f);
+    const std::string comparePreview =
+        s.compareName.empty() ? std::string("vs ...") : "vs " + s.compareName;
+    if (ImGui::BeginCombo("##compare", comparePreview.c_str())) {
+        if (ImGui::Selectable("(none)", s.compareName.empty())) ClearCompare(side);
+        for (const fs::path& file : m_configFiles) {
+            const std::string item = file.stem().string();
+            if (ImGui::Selectable(item.c_str(), item == s.compareName)) {
+                LoadCompareFile(side, file);
+                m_compareSide = side;
+            }
+        }
+        if (m_configFiles.empty()) ImGui::TextDisabled("(none saved yet)");
+        ImGui::EndCombo();
+    }
+    Tip("A second config to read this one against. It is never played and never edited -\n"
+        "picking it only marks up the panel below:\n\n"
+        "  *   this parameter is written differently in the two files\n"
+        "  =   the two agree on it\n\n"
+        "\"the same as config_22_08_17 but with the ramp pulled in\" is a sentence about\n"
+        "two files, and this is the only place the program can say it. Turn on \"diff\n"
+        "only\" under the filter box to see nothing but the parameters that moved.");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(160.0f);
     ImGui::InputText("##savename", s.saveName, sizeof(s.saveName));
@@ -2017,6 +3229,35 @@ void App::DrawRight(int side, float height, bool split) {
         Tip("Collapses the split onto this config.");
     }
 
+    ImGui::SetNextItemWidth(200.0f);
+    ImGui::InputTextWithHint("##filter", "filter parameters", m_filter, sizeof(m_filter));
+    ImGui::SameLine();
+    ImGui::TextDisabled("%zu cues, %.1f ms", s.result.cues.size(), s.runMs);
+
+    // what the compare config makes of this one
+    if (CompareOn(side)) {
+        int differing = 0;
+        int same = 0;
+        CompareCounts(side, differing, same);
+        ImGui::SameLine();
+        ImGui::Checkbox("diff only", &m_diffOnly);
+        Tip("Hide every parameter the two configs agree on.");
+        ImGui::SameLine();
+        if (differing == 0)
+            ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "identical to %s",
+                               s.compareName.c_str());
+        else
+            ImGui::TextColored(ImVec4(0.45f, 0.8f, 1.0f, 1.0f), "%d differ, %d same", differing,
+                               same);
+        Tip(std::format("Against {}. Click for the list.\n\n{} of {} parameters would be written "
+                        "differently; the other {} are the same in both files.",
+                        s.compareName, differing, differing + same, same));
+        if (ImGui::IsItemClicked()) {
+            m_compareSide = side;
+            m_showCompareReport = true;
+        }
+    }
+
     // the design's own checks, on demand
     ImGui::SameLine();
     if (ImGui::Button("Verify") && m_recording) {
@@ -2047,11 +3288,6 @@ void App::DrawRight(int side, float height, bool split) {
         }
     }
 
-    ImGui::SetNextItemWidth(200.0f);
-    ImGui::InputTextWithHint("##filter", "filter parameters", m_filter, sizeof(m_filter));
-    ImGui::SameLine();
-    ImGui::TextDisabled("%zu cues, %.1f ms", s.result.cues.size(), s.runMs);
-
     ImGui::Separator();
     ImGui::BeginChild("params", ImVec2(0, 0));
     DrawParams(side);
@@ -2065,7 +3301,6 @@ void App::DrawRight(int side, float height, bool split) {
 
 void App::DrawParams(int side) {
     ConfigSide& s = m_side[side];
-    void* root = &s.cfg;
 
     std::string needle = m_filter;
     std::transform(needle.begin(), needle.end(), needle.begin(),
@@ -2073,6 +3308,19 @@ void App::DrawParams(int side) {
 
     std::string_view openGroup;
     bool groupVisible = false;
+
+    /// Whether this group has put a row on screen yet - what a rule needs above
+    /// it before it is worth drawing.
+    bool groupDrew = false;
+
+    // Two columns, and only where the schema asked for one: the row that opens a
+    // pair leaves this set, and the next row that actually gets drawn takes it.
+    // "The next row that gets drawn" rather than "the next row" because the
+    // filter can hide either half, and a lone widget parked in the right-hand
+    // column with nothing to its left reads as a bug.
+    bool pairOpen = false;
+    float columnWidth = 0.0f;
+    constexpr float kColumnGap = 12.0f;
 
     for (const rds::ParamDesc& p : rds::AlgorithmParams()) {
         if (!needle.empty()) {
@@ -2082,109 +3330,287 @@ void App::DrawParams(int side) {
             if (hay.find(needle) == std::string::npos) continue;
         }
 
+        // Hidden before the group header rather than after it, so a stage the
+        // two configs agree on top to bottom disappears entirely instead of
+        // leaving an empty heading behind - same as the text filter above.
+        if (m_diffOnly && CompareOn(side) && !ParamDiffers(s.cfg, s.compareCfg, p)) continue;
+
         if (p.group != openGroup) {
             openGroup = p.group;
+            pairOpen = false;
+            groupDrew = false;
+            // Scoped to the run's first desc, not the header text: a group name
+            // that comes back after another one has interrupted it - a schema
+            // ordering slip - otherwise gives two headers one id, and ImGui
+            // says so in a dialog across the panel.
+            ImGui::PushID(static_cast<const void*>(&p));
             groupVisible = ImGui::CollapsingHeader(std::string(p.group).c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+            ImGui::PopID();
         }
         if (!groupVisible) continue;
 
-        // The desc's own address, not the key text: several sections carry a key
-        // spelled the same way (fGainDb), and two widgets sharing an ImGui id
-        // fight over which one is active.
-        ImGui::PushID(static_cast<const void*>(&p));
-
-        double value = rds::GetParam(root, p);
-        const bool moved = std::fabs(value - p.defaultValue) > 1e-9;
-
-        std::string tip = std::string(p.tooltip);
-        tip += "\n\n" + rds::QualifiedKey(p) + "   default " + rds::FormatParam(p, p.defaultValue);
-
-        // The name gets a column of its own. Letting the widget carry its label
-        // pushes the text off the right edge of the panel, which turns a tuning
-        // surface into a hundred anonymous numbers.
-        if (moved) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.45f, 1.0f));
-        ImGui::TextUnformatted(p.label.data(), p.label.data() + p.label.size());
-        if (moved) ImGui::PopStyleColor();
-        Tip(tip);
-
-        const float nameEnd = ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x;
-        ImGui::SameLine(std::max(190.0f, nameEnd + 12.0f));
-        ImGui::SetNextItemWidth(-4.0f);
-
-        const std::string id = "##" + std::string(p.key);
-        bool changed = false;
-
-        switch (p.type) {
-            case rds::ParamType::kBool: {
-                bool b = value != 0.0;
-                if (ImGui::Checkbox(id.c_str(), &b)) {
-                    value = b ? 1.0 : 0.0;
-                    changed = true;
-                }
-                break;
-            }
-            case rds::ParamType::kInt: {
-                int v = static_cast<int>(std::lround(value));
-                if (ImGui::SliderInt(id.c_str(), &v, static_cast<int>(p.minValue),
-                                     static_cast<int>(p.maxValue))) {
-                    value = v;
-                    changed = true;
-                }
-                break;
-            }
-            case rds::ParamType::kEnum: {
-                int v = static_cast<int>(std::lround(value));
-                // Through std::string: a string_view in the schema is not promised
-                // to be null-terminated and ImGui wants a C string.
-                const std::string preview = (v >= 0 && v < static_cast<int>(p.enumNames.size()))
-                                                ? std::string(p.enumNames[static_cast<std::size_t>(v)])
-                                                : std::string("?");
-                if (ImGui::BeginCombo(id.c_str(), preview.c_str())) {
-                    for (int i = 0; i < static_cast<int>(p.enumNames.size()); ++i) {
-                        const std::string n(p.enumNames[static_cast<std::size_t>(i)]);
-                        if (ImGui::Selectable(n.c_str(), i == v)) {
-                            value = i;
-                            changed = true;
-                        }
-                    }
-                    ImGui::EndCombo();
-                }
-                break;
-            }
-            case rds::ParamType::kFloat: {
-                float v = static_cast<float>(value);
-                const char* fmt = (p.maxValue - p.minValue) > 50.0 ? "%.1f" : "%.3f";
-                if (ImGui::SliderFloat(id.c_str(), &v, static_cast<float>(p.minValue),
-                                       static_cast<float>(p.maxValue), fmt)) {
-                    value = v;
-                    changed = true;
-                }
-                break;
-            }
-        }
-        Tip(tip);
-
-        if (changed) {
-            // Snapshot before the first write of this gesture. The step is not
-            // pushed until the widget is released, below.
-            BeginEdit(side, std::string(p.group) + " / " + std::string(p.label));
-            m_focusSide = side;
-
-            if (p.step > 0.0 && p.type == rds::ParamType::kFloat)
-                value = std::round(value / p.step) * p.step;
-            rds::SetParam(root, p, rds::CoerceParam(p, value));
-            s.cfg.slots.rngSeed = m_seed;
-            s.dirty = true;
-            s.verifyRun = false;
+        // A rule where one feature inside the group ends and the next begins.
+        // Only once the group has drawn something, because the filter and the
+        // diff toggle can both take away everything above it, and a rule under
+        // a header separates the header from nothing. `!pairOpen` is a guard
+        // against a schema slip rather than a case: there is no line to break
+        // halfway along a two-column row.
+        if (p.ruleBefore && groupDrew && !pairOpen) {
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
         }
 
-        ImGui::PopID();
+        // Both in the same space ImGui::SameLine takes: measured from the
+        // window's own left edge, not from the cursor, so a right-hand column
+        // and a widget inside it can be placed with one number each.
+        const float left = ImGui::GetCursorPosX();
+        const float right = left + ImGui::GetContentRegionAvail().x;
+        float startX = 0.0f;  ///< 0 means "start the row here", without a SameLine
+        float columnRight = right;
+        if (pairOpen) {
+            startX = left + columnWidth + kColumnGap;
+        } else if (p.pairWithNext) {
+            columnWidth = (right - left - kColumnGap) * 0.5f;
+            columnRight = left + columnWidth;
+        }
+        DrawParam(side, p, startX, columnRight);
+        pairOpen = !pairOpen && p.pairWithNext;
+        groupDrew = true;
     }
 
     // The gesture is over when nothing anywhere is being held: a released
     // slider, a closed combo, a clicked checkbox. Asking the global rather than
     // the widget also closes a step whose widget the filter has since hidden.
     if (s.editOpen && !ImGui::IsAnyItemActive()) CommitEdit(side);
+}
+
+void App::DrawParam(int side, const rds::ParamDesc& p, float startX, float rightX) {
+    ConfigSide& s = m_side[side];
+    void* root = &s.cfg;
+
+    // The desc's own address, not the key text: several sections carry a key
+    // spelled the same way (fGainDb), and two widgets sharing an ImGui id
+    // fight over which one is active.
+    ImGui::PushID(static_cast<const void*>(&p));
+
+    double value = rds::GetParam(root, p);
+    const bool moved = std::fabs(value - p.defaultValue) > 1e-9;
+
+    std::string tip = std::string(p.tooltip);
+    tip += "\n\n" + rds::QualifiedKey(p) + "   default " + rds::FormatParam(p, p.defaultValue);
+
+    // What the compare config, if there is one, has on this row.
+    const bool comparing = !s.compareName.empty();
+    const bool differs = comparing && ParamDiffers(s.cfg, s.compareCfg, p);
+    if (comparing) {
+        const std::string theirs =
+            p.type == rds::ParamType::kString
+                ? std::string(rds::GetParamString(&s.compareCfg, p))
+                : rds::FormatParam(p, rds::GetParam(&s.compareCfg, p));
+        tip += "\n" + s.compareName + " has " + theirs + (differs ? "" : "   - the same");
+    }
+
+    // The right-hand half of a pair goes back up onto the line the left-hand
+    // half just finished.
+    if (startX > 0.0f) ImGui::SameLine(startX);
+    const float left = ImGui::GetCursorPosX();
+
+    // The compare marker, in a column of its own in front of the name. Both
+    // states get a glyph, not just the interesting one: "these two agree" is an
+    // answer to the same question as "these two differ", and a row with nothing
+    // in front of it reads as a row the comparison never looked at.
+    if (comparing) {
+        if (differs)
+            ImGui::TextColored(ImVec4(0.45f, 0.8f, 1.0f, 1.0f), "*");
+        else
+            ImGui::TextDisabled("=");
+        Tip(differs ? "Written differently in " + s.compareName + "."
+                    : s.compareName + " has the same value.");
+        ImGui::SameLine(0.0f, 4.0f);
+    }
+
+    // The name gets a column of its own. Letting the widget carry its label
+    // pushes the text off the right edge of the panel, which turns a tuning
+    // surface into a hundred anonymous numbers.
+    if (moved) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.45f, 1.0f));
+    ImGui::TextUnformatted(p.label.data(), p.label.data() + p.label.size());
+    if (moved) ImGui::PopStyleColor();
+    Tip(tip);
+
+    // Half as wide means half the room for a name, so the widget column starts
+    // at whichever is further right: the 190 the full-width rows line up on, or
+    // whatever this name actually needed.
+    const float nameEnd = ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x;
+    const float indent = std::min(190.0f, (rightX - left) * 0.5f);
+    const float widgetX = std::max(left + indent, nameEnd + 12.0f);
+    ImGui::SameLine(widgetX);
+    ImGui::SetNextItemWidth(std::max(60.0f, rightX - widgetX - 4.0f));
+
+    const std::string id = "##" + std::string(p.key);
+    bool changed = false;
+
+    switch (p.type) {
+        case rds::ParamType::kBool: {
+            bool b = value != 0.0;
+            if (ImGui::Checkbox(id.c_str(), &b)) {
+                value = b ? 1.0 : 0.0;
+                changed = true;
+            }
+            break;
+        }
+        case rds::ParamType::kInt: {
+            int v = static_cast<int>(std::lround(value));
+            if (ImGui::SliderInt(id.c_str(), &v, static_cast<int>(p.minValue),
+                                 static_cast<int>(p.maxValue))) {
+                value = v;
+                changed = true;
+            }
+            break;
+        }
+        case rds::ParamType::kEnum: {
+            int v = static_cast<int>(std::lround(value));
+            // Through std::string: a string_view in the schema is not promised
+            // to be null-terminated and ImGui wants a C string.
+            const std::string preview = (v >= 0 && v < static_cast<int>(p.enumNames.size()))
+                                            ? std::string(p.enumNames[static_cast<std::size_t>(v)])
+                                            : std::string("?");
+            if (ImGui::BeginCombo(id.c_str(), preview.c_str())) {
+                for (int i = 0; i < static_cast<int>(p.enumNames.size()); ++i) {
+                    const std::string n(p.enumNames[static_cast<std::size_t>(i)]);
+                    if (ImGui::Selectable(n.c_str(), i == v)) {
+                        value = i;
+                        changed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            break;
+        }
+        case rds::ParamType::kFloat: {
+            float v = static_cast<float>(value);
+            const char* fmt = (p.maxValue - p.minValue) > 50.0 ? "%.1f" : "%.3f";
+            if (ImGui::SliderFloat(id.c_str(), &v, static_cast<float>(p.minValue),
+                                   static_cast<float>(p.maxValue), fmt)) {
+                value = v;
+                changed = true;
+            }
+            break;
+        }
+    }
+    Tip(tip);
+
+    if (changed) {
+        // Snapshot before the first write of this gesture. The step is not
+        // pushed until the widget is released, in DrawParams.
+        BeginEdit(side, std::string(p.group) + " / " + std::string(p.label));
+        m_focusSide = side;
+
+        if (p.step > 0.0 && p.type == rds::ParamType::kFloat)
+            value = std::round(value / p.step) * p.step;
+        rds::SetParam(root, p, rds::CoerceParam(p, value));
+        s.cfg.slots.rngSeed = m_seed;
+        s.dirty = true;
+        s.verifyRun = false;
+    }
+
+    ImGui::PopID();
+}
+
+void App::DrawCompareReport(int side) {
+    if (!m_showCompareReport) return;
+    ConfigSide& s = m_side[side];
+    if (s.compareName.empty()) {  // the combo was set back to (none)
+        m_showCompareReport = false;
+        return;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(720.0f, 420.0f), ImGuiCond_FirstUseEver);
+    const std::string title =
+        std::format("{} vs {}###compare", s.name, s.compareName);
+    if (!ImGui::Begin(title.c_str(), &m_showCompareReport)) {
+        ImGui::End();
+        return;
+    }
+
+    int differing = 0;
+    int same = 0;
+    CompareCounts(side, differing, same);
+    ImGui::Text("%d of %d parameters differ", differing, differing + same);
+    ImGui::SameLine();
+    ImGui::TextDisabled("- the other %d are identical in both", same);
+    if (s.unsaved) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.45f, 1.0f), "(side %c has unsaved edits)",
+                           'A' + side);
+        Tip("This is the config as it stands in the panel, not as its file was written.");
+    }
+
+    ImGui::Checkbox("show identical too", &m_compareShowSame);
+    Tip("List every parameter, with the ones both files agree on dimmed.");
+    ImGui::SameLine();
+    if (ImGui::Button("Copy")) {
+        // One line per differing parameter, in the ini's own spelling, so it
+        // pastes into a note or a changelog and still means something a week
+        // later.
+        std::string text = std::format("{} vs {}\n", s.name, s.compareName);
+        for (const rds::ParamDesc* p : CompareDeltas(side))
+            text += std::format("{} = {}   ({} = {})\n", rds::QualifiedKey(*p),
+                                rds::FormatParam(*p, rds::GetParam(&s.cfg, *p)), s.compareName,
+                                rds::FormatParam(*p, rds::GetParam(&s.compareCfg, *p)));
+        ImGui::SetClipboardText(text.c_str());
+    }
+    Tip("The differing parameters as text, on the clipboard.");
+
+    ImGui::Separator();
+
+    if (ImGui::BeginTable("comparerows", 4,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders |
+                              ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("parameter", ImGuiTableColumnFlags_WidthStretch, 2.2f);
+        ImGui::TableSetupColumn("group", ImGuiTableColumnFlags_WidthStretch, 1.4f);
+        ImGui::TableSetupColumn(s.name.c_str(), ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn(s.compareName.c_str(), ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableHeadersRow();
+
+        for (const rds::ParamDesc& p : rds::AlgorithmParams()) {
+            const bool rowDiffers = ParamDiffers(s.cfg, s.compareCfg, p);
+            if (!rowDiffers && !m_compareShowSame) continue;
+
+            const std::string mine = p.type == rds::ParamType::kString
+                                         ? std::string(rds::GetParamString(&s.cfg, p))
+                                         : rds::FormatParam(p, rds::GetParam(&s.cfg, p));
+            const std::string theirs = p.type == rds::ParamType::kString
+                                           ? std::string(rds::GetParamString(&s.compareCfg, p))
+                                           : rds::FormatParam(p, rds::GetParam(&s.compareCfg, p));
+
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            if (rowDiffers)
+                ImGui::TextUnformatted(p.label.data(), p.label.data() + p.label.size());
+            else
+                ImGui::TextDisabled("%.*s", static_cast<int>(p.label.size()), p.label.data());
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s\n\n%.*s", rds::QualifiedKey(p).c_str(),
+                                  static_cast<int>(p.tooltip.size()), p.tooltip.data());
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("%.*s", static_cast<int>(p.group.size()), p.group.data());
+            ImGui::TableNextColumn();
+            if (rowDiffers)
+                ImGui::TextColored(ImVec4(0.45f, 0.8f, 1.0f, 1.0f), "%s", mine.c_str());
+            else
+                ImGui::TextDisabled("%s", mine.c_str());
+            ImGui::TableNextColumn();
+            if (rowDiffers)
+                ImGui::TextUnformatted(theirs.c_str());
+            else
+                ImGui::TextDisabled("%s", theirs.c_str());
+        }
+        ImGui::EndTable();
+    }
+
+    ImGui::End();
 }
 
 void App::HandleKeys() {

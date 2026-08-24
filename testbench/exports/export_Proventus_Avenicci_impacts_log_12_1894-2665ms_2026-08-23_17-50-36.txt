@@ -1,0 +1,160 @@
+TAKE
+  stem            Proventus_Avenicci_impacts_log_12
+  note            requested-capture heavy-armour (12/13): heavy armour with gauntlets and boots - forearms and calves covered
+  actor           Proventus Avenicci
+  cell            Dragonsreach
+  duration        6851 ms
+  impacts         103 (dropped 0, complete yes)
+  playhead        1588 ms
+  seed            1
+  config          config_22_08_17 - EDITED, not what that file holds (side 0)
+
+WINDOW - this export covers the loop region only
+  region          1894 - 2665 ms  (771 ms of 6851)
+  phase at start  ragdoll (knock_explode, set at 888 ms)
+  NOTE  TIMELINE, CUES and DECISIONS below are cut to this window. SOUND BANK
+        and FUNNEL are the whole take - the funnel counters are accumulated
+        over the run and cannot be re-cut after the fact.
+
+VIDEO
+  file            Proventus_Avenicci_impacts_log_12.mp4
+  clip length     10833 ms at 30.00 fps, decoded
+  offset in use   +3105 ms   (video position = take time + offset)
+  window in video 4999 - 5770 ms  (5.00 - 5.77 s)
+  window frames   150 - 173 at 30.00 fps
+  sync fit        slope 1.000730, intercept 164080 ms, drift +0.73 ms/s, min rtt 0 ms
+  NOTE  `offset in use` is the measured value from framecache/video-offsets.ini,
+        which overrides the fit above.
+
+CONFIG - values differing from default
+  GlancingImpact:bEnabled=1 (default 0)
+  GlancingImpact:fNoTransferFrac=0 (default 0.55)
+  GlancingImpact:fMaxIntensityScale=0 (default 0.35)
+  GlancingImpact:fMaxGainCutDb=-13.5 (default 0)
+  GlancingImpact:fMaxTrimCutDb=-7.5 (default 0)
+  Phase:fSettleEnergyFloor=80 (default 45)
+  Phase:fSettleQuietMs=0 (default 300)
+  Slide:bTapsEnabled=1 (default 0)
+  Arbitration:fRateCapMs=43 (default 46)
+  Arbitration:fRateCapOverrideDb=16 (default 6)
+  Arbitration:fBurstWindowMs=110 (default 300)
+  Intensity:fSpeedRefHigh=510 (default 960)
+  Intensity:fDynamicRangeDb=15 (default 35)
+  Intensity:fCurveExponent=1.2 (default 0.75)
+  Intensity:fSoftClipKnee=0.25 (default 0.85)
+  Intensity:fMassWeight=0.9 (default 0.35)
+  Intensity:fObliterateFrac=2.7451 (default 1.46)
+  PostIntensity:fExtraRangeDb=-7.5 (default 0)
+  PostIntensity:fCurveExponent=2.4 (default 1)
+  Limbs:bMassDeterminesLoudness=1 (default 0)
+  Limbs:fBodyMass=3.5 (default 5)
+  Limbs:fRotationRefRatio=1.1 (default 1)
+  ImpactComposite:fSubGainAtMaxDb=-6 (default 0)
+  HeadImpact:fGateFrac=0.24 (default 0.31)
+  HeadImpact:fGainDb=-12.5 (default -2)
+  HeadImpact:fHeadDownBonus=0 (default 0.25)
+  HeadImpact:bCompanyEnabled=1 (default 0)
+  HeadImpact:bRefundEnabled=1 (default 0)
+  HeadImpact:fRefundGateFrac=1.6 (default 1.5)
+  HeadImpact:fRefundBurstGapFrac=0.95 (default 1)
+  AirTime:bHeadEnabled=1 (default 0)
+  AirTime:fHeadClearMs=350 (default 250)
+  AirTime:fHeadHandGraceMs=220 (default 200)
+  AirTime:fHeadGateBonus=0.55 (default 0.45)
+  AirTime:fHeadGainDb=9.5 (default 9)
+  AirTime:fHeadCrunchGateFrac=1.38 (default 0.55)
+  CrunchGore:fCrunchGateFrac=0.9804 (default 0.52)
+  CrunchGore:fCrunchCertainFrac=1.37 (default 0.73)
+  CrunchGore:fCrunchHysteresisFrac=0.1373 (default 0.08)
+  CrunchGore:fGoreGateFrac=0.6863 (default 1.46)
+  CrunchGore:fCrunchGainDb=-35.5 (default -4)
+  ScrapeLoop:bEnabled=0 (default 1)
+  ScrapeLoop:fMinTangentSpeed=660 (default 120)
+  ScrapeLoop:fStartFadeMs=310 (default 60)
+  ScrapeLoop:fStopFadeMs=840 (default 140)
+  ScrapeLoop:fMinDurationMs=100 (default 120)
+  ScrapeLoop:fGainDb=-18.5 (default -20)
+  SettleClose:bEnabled=0 (default 1)
+  SettleClose:fGainDb=-27 (default -16)
+  SettleClose:fDelayMs=70 (default 120)
+  Mix:fMasterGainDb=2 (default 0)
+  Mix:fVoiceFloorDb=-100 (default -48)
+  Player:fSubTrimDb=0 (default -9)
+  Slots:iRngSeed=1 (default 0)
+  Layers:bFoleyCloth=0 (default 1)
+  Layers:bAirWhoosh=0 (default 1)
+
+SOUND BANK
+  imp_transient  4/3 files, wav, 120 ms
+  imp_body       3/3 files, wav, 240 ms
+  imp_sub        2/2 files, wav, 300 ms
+  surf_wood      2/2 files, wav, 190 ms
+  surf_stone     2/2 files, wav, 124 ms
+  surf_soft      2/2 files, wav, 250 ms
+  limb_tap       4/4 files, wav, 74 ms
+  crunch_gran    2/2 files, wav, 400 ms
+  gore_wet       2/2 files, wav, 400 ms
+  scrape_loop    1/1 files, wav, 3000 ms
+  foley_cloth    1/1 files, wav, 3000 ms
+  air_whoosh     1/1 files, wav, 2000 ms
+  head_impact    2/2 files, wav, 300 ms
+  settle_rest    2/2 files, wav, 400 ms
+  grunt_impact   declared and unfilled
+  scream_big     declared and unfilled
+
+FUNNEL - contacts in, cues out (WHOLE TAKE, not the window)
+  events read           564
+  contacts              60
+    rejected below floor 29
+    rejected blow-up     1
+    mirrored self-hit    10
+    manifold collapsed   3
+    routed to foley bed  10
+  proposed cues         78
+    dropped rate cap     12
+    dropped chain merge  3
+    dropped masking      3
+    dropped burst cap    28
+    dropped voice cap    0
+    muted by layer       27
+    compressed by class  0
+    head budget refunds  1
+    air-time resets      0
+  emitted               14 in 3 bursts
+  first cue             1339 ms
+  last cue              2435 ms
+  peak contact          398.1 u/s
+
+AUDIO
+  5506 ms at 48000 Hz, 264301 frames
+  peak 0.406 heard, 0.425 before the limiter (limiter on)
+
+CUES BY SLOT IN THE WINDOW - 2 cues
+  limb_tap       1
+  foley_cloth    1
+
+TIMELINE - state, contacts and cues in one column
+  (a cue's `seq` is the contact row that produced it)
+
+   1918.2 ms    contact  NPC L Forearm [LLar]       8.6 u/s  tan   49.5  body   49.6  ang    0.7  Static  seq 389
+   1936.4 ms    contact  NPC L UpperArm [LUar]      7.3 u/s  tan   50.7  body   47.2  ang    1.3  Static  seq 393
+   2279.4 ms    contact  NPC L Foot [Lft ]         14.3 u/s  tan   31.9  body   41.2  ang    6.5  Static  seq 413
+   2434.8 ms    contact  NPC R Hand [RHnd]         79.2 u/s  tan   33.2  body   97.9  ang    7.5  Static  seq 420
+   2434.8 ms      CUE    limb_tap       play   -24.5 dB  pitch 1.19  tap              Settle       int 0.03  seq 420
+   2488.1 ms    contact  NPC R Forearm [RLar]      38.4 u/s  tan   28.3  body   21.4  ang    5.3  Static  seq 423
+   2488.1 ms    contact  NPC R Forearm [RLar]      38.4 u/s  tan   26.2  body   21.4  ang    5.3  Static  seq 424
+   2506.3 ms    contact  NPC R Hand [RHnd]         30.8 u/s  tan   75.4  body   64.6  ang   13.3  Static  seq 427
+   2506.3 ms      CUE    foley_cloth    loop- -140.0 dB  pitch 1.00  bed              Settle       int 0.00  seq 0
+   2619.3 ms    contact  NPC R Foot [Rft ]         18.3 u/s  tan   39.9  body   44.0  ang    6.9  Static  seq 432
+
+CUES
+  (`sfx` is the file this cue resolved to; `held` is how many dB its class's compressor took off it)
+
+     time  slot           sfx                    op       gain  held  pitch  reason           phase          int   limb     site  seq
+   2434.8  limb_tap       limb_tap_01            play    -24.5         1.19  tap              Settle        0.03     17     hand  420
+   2506.3  foley_cloth    foley_cloth_01         loop-  -140.0         1.00  bed              Settle        0.00      0  unknown    0
+
+DECISIONS - every contact that reached arbitration, and what became of it
+   2488.1 ms  seq   423  limb 15     38.4 u/s  int 0.01  Settle       chain merge
+   2488.1 ms  seq   424  limb 15     38.4 u/s  int 0.01  Settle       chain merge
+   2506.3 ms  seq   427  limb 17     30.8 u/s  int 0.00  Settle       burst full

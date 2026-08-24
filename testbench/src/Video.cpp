@@ -556,8 +556,16 @@ unsigned VideoTake::TextureAt(double videoTimeMs) {
     if (!m_direct) {
         if (m_frames.empty()) return 0;
         index = std::clamp(index, 0, static_cast<int>(m_frames.size()) - 1);
-    } else if (index < 0) {
-        return 0;
+    } else {
+        // The same clamp the cache path gets, and for the same reason: a take
+        // whose offset is negative asks for video time before the clip starts,
+        // and the first frame is a better answer there than a black rectangle.
+        // Only reachable since the preview started applying the offset in this
+        // mode too - before that, direct mode never saw a time it had not got.
+        const int last = m_durationMs > 0.0
+                             ? static_cast<int>(m_durationMs * 0.001 * m_fps) - 1
+                             : index;
+        index = std::clamp(index, 0, std::max(0, last));
     }
 
     ++m_clock;

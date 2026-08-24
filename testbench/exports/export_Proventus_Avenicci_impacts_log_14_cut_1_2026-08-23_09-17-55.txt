@@ -1,0 +1,268 @@
+TAKE
+  stem            Proventus_Avenicci_impacts_log_14_cut_1
+  note            cut from Proventus_Avenicci_impacts_log_14 at 5583-7613 ms
+  actor           Proventus Avenicci
+  cell            Dragonsreach
+  duration        1603 ms
+  impacts         108 (dropped 0, complete yes)
+  playhead        1230 ms
+  seed            1
+  config          config_22_08_7 (side 0)
+
+VIDEO
+  (this take has no video)
+
+CONFIG - values differing from default
+  Phase:fSettleEnergyFloor=80 (default 45)
+  Phase:fSettleQuietMs=0 (default 300)
+  Arbitration:fRateCapMs=43 (default 46)
+  Arbitration:fRateCapOverrideDb=16 (default 6)
+  Arbitration:fBurstWindowMs=110 (default 300)
+  Arbitration:iVoiceCapPerActor=8 (default 12)
+  Arbitration:iVoiceCapGlobal=16 (default 24)
+  Intensity:fSpeedRefHigh=510 (default 960)
+  Intensity:fDynamicRangeDb=15 (default 35)
+  Intensity:fCurveExponent=1.2 (default 0.75)
+  Intensity:fSoftClipKnee=0.25 (default 0.85)
+  Intensity:fMassWeight=0.9 (default 0.35)
+  Intensity:fObliterateFrac=2.7451 (default 1.46)
+  Limbs:bMassDeterminesLoudness=1 (default 0)
+  Limbs:fBodyMass=3.5 (default 5)
+  Limbs:fRotationRefRatio=1.1 (default 1)
+  ImpactComposite:fSubGainAtMaxDb=-6 (default 0)
+  HeadImpact:fGateFrac=0.5882 (default 0.31)
+  HeadImpact:fGainDb=-27.5 (default -2)
+  CrunchGore:fCrunchGateFrac=0.9804 (default 0.52)
+  CrunchGore:fCrunchCertainFrac=1.6667 (default 0.73)
+  CrunchGore:fCrunchHysteresisFrac=0.1373 (default 0.08)
+  CrunchGore:fGoreGateFrac=0.6863 (default 1.46)
+  CrunchGore:fCrunchGainDb=-33.5 (default -4)
+  ScrapeLoop:bEnabled=0 (default 1)
+  ScrapeLoop:fMinTangentSpeed=660 (default 120)
+  ScrapeLoop:fStartFadeMs=310 (default 60)
+  ScrapeLoop:fStopFadeMs=840 (default 140)
+  ScrapeLoop:fMinDurationMs=100 (default 120)
+  ScrapeLoop:fGainDb=-18.5 (default -20)
+  SettleClose:bEnabled=0 (default 1)
+  SettleClose:fGainDb=-27 (default -16)
+  SettleClose:fDelayMs=70 (default 120)
+  Mix:fMasterGainDb=2 (default 0)
+  Mix:fVoiceFloorDb=-100 (default -48)
+  Player:fSubTrimDb=0 (default -9)
+  Slots:iRngSeed=1 (default 0)
+  Layers:bFoleyCloth=0 (default 1)
+  Layers:bAirWhoosh=0 (default 1)
+
+SOUND BANK
+  imp_transient  3/3 files, wav, 120 ms
+  imp_body       3/3 files, wav, 240 ms
+  imp_sub        2/2 files, wav, 300 ms
+  surf_wood      2/2 files, wav, 190 ms
+  surf_stone     2/2 files, wav, 124 ms
+  surf_soft      2/2 files, wav, 250 ms
+  limb_tap       4/4 files, wav, 74 ms
+  crunch_gran    2/2 files, wav, 400 ms
+  gore_wet       2/2 files, wav, 400 ms
+  scrape_loop    1/1 files, wav, 3000 ms
+  foley_cloth    1/1 files, wav, 3000 ms
+  air_whoosh     1/1 files, wav, 2000 ms
+  head_impact    2/2 files, wav, 300 ms
+  settle_rest    2/2 files, wav, 400 ms
+  grunt_impact   declared and unfilled
+  scream_big     declared and unfilled
+
+FUNNEL - contacts in, cues out
+  events read           402
+  contacts              65
+    rejected below floor 17
+    rejected blow-up     14
+    mirrored self-hit    0
+    manifold collapsed   0
+    routed to foley bed  36
+  proposed cues         54
+    dropped rate cap     10
+    dropped chain merge  0
+    dropped masking      0
+    dropped burst cap    14
+    dropped voice cap    1
+    muted by layer       25
+  emitted               10 in 3 bursts
+  first cue             135 ms
+  last cue              1095 ms
+  peak contact          329.0 u/s
+
+AUDIO
+  2295 ms at 48000 Hz, 110174 frames
+  peak 0.218 heard, 0.221 before the limiter (limiter on)
+
+CUES BY SLOT - 10 cues
+  limb_tap       3
+  imp_transient  2
+  surf_wood      2
+  imp_body       2
+  imp_sub        1
+
+TIMELINE - state, contacts and cues in one column
+  (a cue's `seq` is the contact row that produced it)
+
+    100.2 ms    contact  ?                         15.4 u/s  tan   21.8  body   38.7  ang    1.0  Static  seq 28
+    100.2 ms    contact  ?                         15.0 u/s  tan   38.7  body   17.6  ang    6.4  Static  seq 29
+    100.3 ms    contact  ?                         40.7 u/s  tan   20.5  body   44.2  ang    1.6  Static  seq 30
+    100.7 ms    contact  ?                         11.7 u/s  tan   22.4  body   40.8  ang    3.0  DeadBip  seq 31
+    100.7 ms    contact  ?                         11.7 u/s  tan   22.4  body   68.0  ang    0.6  DeadBip  seq 32
+    100.7 ms    contact  ?                          6.3 u/s  tan   73.1  body   28.3  ang    9.6  DeadBip  seq 33
+    100.7 ms    contact  ?                          6.3 u/s  tan   73.1  body    3.5  ang    9.7  DeadBip  seq 34
+    100.7 ms    contact  ?                         10.4 u/s  tan  149.2  body   42.6  ang   16.0  DeadBip  seq 35
+    100.7 ms    contact  ?                         10.4 u/s  tan  149.2  body    3.5  ang    9.7  DeadBip  seq 36
+    100.7 ms    contact  ?                         10.2 u/s  tan  124.0  body   42.6  ang   16.0  DeadBip  seq 37
+    100.7 ms    contact  ?                         10.2 u/s  tan  124.0  body   20.3  ang    1.2  DeadBip  seq 38
+    100.8 ms    contact  ?                         37.5 u/s  tan   16.8  body   15.0  ang    3.3  Static  seq 39
+    107.2 ms  STATE     ragdoll_start          phase=ragdoll
+    107.2 ms  STATE     knock_explode          phase=ragdoll
+    119.5 ms    contact  ?                          8.7 u/s  tan   23.6  body   31.2  ang    1.1  Static  seq 66
+    119.5 ms    contact  ?                         54.0 u/s  tan   22.3  body   26.6  ang    4.9  Static  seq 73
+    119.6 ms    contact  ?                         10.2 u/s  tan   18.0  body   27.4  ang    3.9  Static  seq 74
+    134.3 ms    contact  ?                         34.3 u/s  tan   67.9  body   19.6  ang   12.2  Static  seq 79
+    134.8 ms    contact  ?                         26.1 u/s  tan  474.6  body   14.3  ang   50.2  DeadBip  seq 80
+    134.8 ms    contact  ?                         26.1 u/s  tan  474.6  body   94.4  ang    9.5  DeadBip  seq 81
+    134.8 ms    contact  ?                         34.7 u/s  tan  303.7  body   21.5  ang   42.5  DeadBip  seq 82
+    134.8 ms    contact  ?                         34.7 u/s  tan  303.7  body   94.4  ang    9.5  DeadBip  seq 83
+    134.9 ms    contact  ?                         16.3 u/s  tan   51.9  body   44.9  ang    4.2  Static  seq 86
+    134.9 ms    contact  ?                         23.4 u/s  tan   65.0  body   37.8  ang    8.3  Static  seq 87
+    134.9 ms    contact  ?                         24.2 u/s  tan   28.8  body   38.5  ang    1.3  Static  seq 88
+    134.9 ms      CUE    limb_tap       play   -24.0 dB  pitch 0.84  tap              Launch       int 0.00  seq 88
+    135.4 ms    contact  ?                         20.8 u/s  tan   50.5  body   35.6  ang    4.5  Static  seq 91
+    154.9 ms    contact  ?                         34.9 u/s  tan  122.8  body   32.7  ang   21.2  Static  seq 93
+    155.6 ms    contact  ?                          7.2 u/s  tan  101.7  body   24.6  ang    5.4  Static  seq 94
+    155.7 ms    contact  ?                         33.8 u/s  tan   47.6  body   43.8  ang    1.5  Static  seq 95
+    155.7 ms    contact  ?                         27.5 u/s  tan   36.1  body   31.8  ang    5.0  Static  seq 96
+    172.4 ms    contact  ?                         31.0 u/s  tan  113.5  body   42.1  ang   22.0  Static  seq 97
+    173.1 ms    contact  ?                         33.5 u/s  tan   37.6  body   42.7  ang    2.5  Static  seq 98
+    186.2 ms    contact  ?                         20.9 u/s  tan  106.1  body   43.1  ang   19.5  Static  seq 102
+    186.8 ms    contact  ?                         30.9 u/s  tan  204.9  body   58.9  ang   17.6  DeadBip  seq 103
+    186.8 ms    contact  ?                         30.9 u/s  tan  204.9  body   22.4  ang    5.9  DeadBip  seq 104
+    186.9 ms    contact  ?                         21.9 u/s  tan   42.7  body   45.4  ang    3.7  Static  seq 107
+    202.3 ms    contact  ?                         18.0 u/s  tan  101.8  body   42.7  ang   17.0  Static  seq 108
+    203.1 ms    contact  ?                         31.7 u/s  tan   58.2  body   46.8  ang    4.9  Static  seq 111
+    217.8 ms    contact  ?                         31.8 u/s  tan   90.7  body   47.2  ang   12.6  Static  seq 113
+    217.8 ms      CUE    limb_tap       play   -23.8 dB  pitch 1.10  tap              Launch       int 0.01  seq 113
+    218.6 ms    contact  ?                         61.4 u/s  tan   72.9  body   54.4  ang    4.4  Static  seq 114
+    234.0 ms    contact  ?                         37.7 u/s  tan  149.5  body   82.3  ang   18.1  Static  seq 117
+    234.7 ms    contact  ?                         24.0 u/s  tan  276.2  body  117.2  ang   25.7  DeadBip  seq 118
+    234.7 ms    contact  ?                         24.0 u/s  tan  276.2  body  241.5  ang    6.8  DeadBip  seq 119
+    267.8 ms    contact  ?                         22.5 u/s  tan  188.9  body  125.3  ang   14.9  Static  seq 123
+    268.5 ms    contact  ?                         11.5 u/s  tan  149.8  body  106.2  ang   15.0  Static  seq 124
+    269.2 ms    contact  ?                         18.4 u/s  tan  153.1  body  125.5  ang    7.2  Static  seq 127
+    269.2 ms    contact  ?                         19.2 u/s  tan  153.0  body  125.5  ang    7.2  Static  seq 128
+    285.8 ms    contact  ?                         66.9 u/s  tan  124.5  body  162.4  ang   12.6  DeadBip  seq 134
+    285.8 ms    contact  ?                         66.9 u/s  tan  124.5  body  113.8  ang    8.2  DeadBip  seq 135
+    285.8 ms    contact  ?                         48.6 u/s  tan  139.2  body  162.4  ang   12.6  DeadBip  seq 136
+    285.8 ms    contact  ?                         48.6 u/s  tan  139.2  body   63.7  ang    6.4  DeadBip  seq 137
+    286.4 ms    contact  ?                         26.3 u/s  tan   57.0  body  155.7  ang    6.7  DeadBip  seq 140
+    286.4 ms    contact  ?                         26.3 u/s  tan   57.0  body  117.2  ang    3.2  DeadBip  seq 141
+    321.7 ms    contact  ?                         24.7 u/s  tan  100.1  body  137.1  ang   15.4  DeadBip  seq 148
+    321.7 ms    contact  ?                         24.7 u/s  tan  100.1  body  210.3  ang    5.2  DeadBip  seq 149
+    561.8 ms    contact  ?                         57.2 u/s  tan   31.5  body  317.0  ang    6.2  DeadBip  seq 169
+    561.8 ms    contact  ?                         57.2 u/s  tan   31.5  body  298.2  ang    5.9  DeadBip  seq 170
+    625.7 ms    contact  ?                         60.3 u/s  tan   31.0  body  363.5  ang    4.8  DeadBip  seq 184
+    625.7 ms    contact  ?                         60.3 u/s  tan   31.0  body  369.7  ang    4.6  DeadBip  seq 185
+    625.7 ms    contact  ?                         52.2 u/s  tan   35.8  body  408.6  ang    4.6  DeadBip  seq 186
+    625.7 ms    contact  ?                         52.2 u/s  tan   35.8  body  343.5  ang    5.2  DeadBip  seq 187
+    625.7 ms    contact  ?                        329.0 u/s  tan  338.8  body  468.6  ang    4.2  Static  seq 188
+    626.2 ms    contact  ?                         88.8 u/s  tan   70.7  body  416.7  ang    4.7  DeadBip  seq 196
+    626.2 ms    contact  ?                         88.8 u/s  tan   70.7  body  373.4  ang    5.4  DeadBip  seq 197
+    626.2 ms    contact  ?                        261.5 u/s  tan  334.2  body  416.6  ang    2.5  Static  seq 198
+    626.2 ms    contact  ?                        283.5 u/s  tan  285.7  body  416.6  ang    2.5  Static  seq 199
+    626.2 ms      CUE    imp_transient  play   -16.7 dB  pitch 1.03  composite        PrimaryImpact int 0.66  seq 199
+    633.9 ms      CUE    surf_wood      play   -11.1 dB  pitch 1.03  surface          PrimaryImpact int 0.66  seq 199
+    641.7 ms    contact  ?                        135.8 u/s  tan  233.1  body  394.9  ang   23.3  Static  seq 207
+    641.7 ms    contact  ?                        259.0 u/s  tan  146.1  body  394.9  ang   23.3  Static  seq 208
+    642.2 ms    contact  ?                        115.0 u/s  tan  274.2  body  143.0  ang   11.4  DeadBip  seq 212
+    642.2 ms    contact  ?                        115.0 u/s  tan  274.2  body  346.4  ang   19.5  DeadBip  seq 213
+    647.9 ms      CUE    imp_body       play    -7.1 dB  pitch 1.03  composite        PrimaryImpact int 0.66  seq 199
+    658.6 ms    contact  ?                        164.6 u/s  tan  583.7  body  334.7  ang   22.7  Static  seq 221
+    658.6 ms    contact  ?                         51.0 u/s  tan  498.1  body  307.1  ang   17.3  Static  seq 222
+    658.6 ms    contact  ?                         12.2 u/s  tan  217.8  body  193.8  ang   21.9  DeadBip  seq 223
+    658.6 ms    contact  ?                         12.2 u/s  tan  217.8  body  334.7  ang   22.7  DeadBip  seq 224
+    658.6 ms    contact  ?                         38.5 u/s  tan  249.5  body  192.0  ang   15.0  DeadBip  seq 225
+    658.6 ms    contact  ?                         38.5 u/s  tan  249.5  body  359.9  ang    1.8  DeadBip  seq 226
+    675.2 ms    contact  ?                        117.7 u/s  tan   59.3  body  435.6  ang   15.9  DeadBip  seq 239
+    675.2 ms    contact  ?                        117.7 u/s  tan   59.3  body  200.3  ang   16.8  DeadBip  seq 240
+    675.2 ms    contact  ?                        246.2 u/s  tan  348.0  body  375.7  ang   13.5  Static  seq 241
+    675.2 ms      CUE    imp_transient  play   -17.1 dB  pitch 0.92  composite        PrimaryImpact int 0.44  seq 241
+    675.8 ms    contact  ?                        118.4 u/s  tan  409.2  body  318.5  ang    8.7  Static  seq 248
+    687.1 ms      CUE    surf_wood      play   -15.8 dB  pitch 0.92  surface          PrimaryImpact int 0.44  seq 241
+    688.8 ms      CUE    imp_sub        play   -17.2 dB  pitch 1.03  composite        PrimaryImpact int 0.66  seq 199
+    692.3 ms    contact  ?                         71.5 u/s  tan  156.1  body  304.7  ang   12.8  Static  seq 255
+    697.6 ms      CUE    imp_body       play   -11.8 dB  pitch 0.92  composite        PrimaryImpact int 0.44  seq 241
+    780.5 ms    contact  ?                          6.4 u/s  tan  207.9  body  226.2  ang    3.7  Static  seq 275
+    797.2 ms    contact  ?                         40.2 u/s  tan  184.5  body  385.6  ang   15.5  DeadBip  seq 279
+    797.2 ms    contact  ?                         40.2 u/s  tan  184.5  body  316.0  ang    6.6  DeadBip  seq 280
+    797.7 ms    contact  ?                         74.1 u/s  tan  225.1  body  250.2  ang    2.7  Static  seq 284
+    814.8 ms    contact  ?                         13.8 u/s  tan  115.5  body  232.7  ang    2.2  DeadBip  seq 287
+    814.8 ms    contact  ?                         13.8 u/s  tan  115.5  body  272.1  ang    3.3  DeadBip  seq 288
+    815.4 ms    contact  ?                        100.7 u/s  tan  219.8  body  217.5  ang    2.3  Static  seq 291
+    815.4 ms    contact  ?                        107.8 u/s  tan  180.9  body  285.9  ang    4.4  Static  seq 292
+    831.9 ms    contact  ?                         62.9 u/s  tan  203.0  body  203.0  ang    4.4  Static  seq 295
+    848.5 ms    contact  ?                         43.6 u/s  tan    8.4  body  151.1  ang   14.3  Static  seq 299
+    864.3 ms    contact  ?                         49.1 u/s  tan   58.5  body  137.1  ang    8.7  Static  seq 304
+    896.5 ms    contact  ?                         13.6 u/s  tan  105.0  body  212.2  ang    6.3  Static  seq 317
+    897.3 ms    contact  ?                         22.0 u/s  tan  172.1  body  137.5  ang    6.2  Static  seq 319
+    925.0 ms    contact  ?                         30.1 u/s  tan   40.9  body  103.1  ang    0.8  DeadBip  seq 325
+    925.0 ms    contact  ?                         30.1 u/s  tan   40.9  body  141.2  ang    5.1  DeadBip  seq 326
+    925.7 ms    contact  ?                         33.0 u/s  tan  104.7  body  102.1  ang    3.0  DeadBip  seq 329
+    925.7 ms    contact  ?                         33.0 u/s  tan  104.7  body  102.0  ang    7.3  DeadBip  seq 330
+   1095.3 ms    contact  ?                         48.2 u/s  tan  111.2  body  108.1  ang    2.0  Static  seq 345
+   1095.3 ms      CUE    limb_tap       play   -31.5 dB  pitch 0.94  tap              Settle       int 0.03  seq 345
+   1130.4 ms    contact  ?                         28.4 u/s  tan   88.8  body  102.5  ang    4.1  Static  seq 351
+   1180.9 ms    contact  ?                         78.9 u/s  tan   84.8  body  135.3  ang    2.1  Static  seq 359
+   1247.5 ms    contact  ?                         24.8 u/s  tan   35.5  body   45.9  ang    3.3  Static  seq 366
+   1264.0 ms    contact  ?                         29.6 u/s  tan   45.2  body   45.3  ang    2.5  Static  seq 368
+   1264.0 ms    contact  ?                        123.3 u/s  tan   66.6  body  115.2  ang    6.0  Static  seq 369
+   1264.6 ms    contact  ?                          6.6 u/s  tan   48.7  body   41.7  ang    1.4  DeadBip  seq 372
+   1264.6 ms    contact  ?                          6.6 u/s  tan   48.7  body   12.5  ang    1.7  DeadBip  seq 373
+   1281.2 ms    contact  ?                         48.5 u/s  tan   95.1  body   62.5  ang    3.4  Static  seq 375
+   1362.2 ms    contact  ?                         12.6 u/s  tan   74.6  body   46.3  ang    2.8  Static  seq 386
+   1379.0 ms    contact  ?                        146.3 u/s  tan   84.4  body  151.1  ang    6.0  Static  seq 390
+   1394.7 ms    contact  ?                         40.1 u/s  tan    8.1  body   23.5  ang    1.5  Static  seq 393
+   1403.6 ms  STATE     knock_queued           phase=ragdoll
+   1603.7 ms  STATE     session_stop           phase=unknown
+
+CUES
+     time  slot           op       gain  pitch  reason           phase          int   limb     site  seq
+    134.9  limb_tap       play    -24.0   0.84  tap              Launch        0.00      7  unknown   88
+    217.8  limb_tap       play    -23.8   1.10  tap              Launch        0.01      7  unknown  113
+    626.2  imp_transient  play    -16.7   1.03  composite        PrimaryImpact  0.66      9  unknown  199
+    633.9  surf_wood      play    -11.1   1.03  surface          PrimaryImpact  0.66      9  unknown  199
+    647.9  imp_body       play     -7.1   1.03  composite        PrimaryImpact  0.66      9  unknown  199
+    675.2  imp_transient  play    -17.1   0.92  composite        PrimaryImpact  0.44     16  unknown  241
+    687.1  surf_wood      play    -15.8   0.92  surface          PrimaryImpact  0.44     16  unknown  241
+    688.8  imp_sub        play    -17.2   1.03  composite        PrimaryImpact  0.66      9  unknown  199
+    697.6  imp_body       play    -11.8   0.92  composite        PrimaryImpact  0.44     16  unknown  241
+   1095.3  limb_tap       play    -31.5   0.94  tap              Settle        0.03      1  unknown  345
+
+DECISIONS - every contact that reached arbitration, and what became of it
+    134.9 ms  seq    87  limb  8     23.4 u/s  int 0.00  Launch       rate cap 0<43
+    625.7 ms  seq   188  limb 17    329.0 u/s  int 0.65  PrimaryImpact rate cap 0<43
+    626.2 ms  seq   198  limb  9    261.5 u/s  int 0.60  PrimaryImpact rate cap 0<43
+    641.7 ms  seq   207  limb 13    135.8 u/s  int 0.19  PrimaryImpact rate cap 15<43
+    641.7 ms  seq   208  limb 13    259.0 u/s  int 0.45  PrimaryImpact rate cap 15<43
+    658.6 ms  seq   221  limb  0    164.6 u/s  int 0.24  PrimaryImpact rate cap 32<43
+    658.6 ms  seq   222  limb  3     51.0 u/s  int 0.04  PrimaryImpact rate cap 32<43
+    692.3 ms  seq   255  limb 14     71.5 u/s  int 0.08  PrimaryImpact rate cap 17<43
+    675.8 ms  seq   248  limb  6    118.4 u/s  int 0.18  PrimaryImpact rate cap 1<43
+    797.7 ms  seq   284  limb 15     74.1 u/s  int 0.09  PrimaryImpact burst gap
+    815.4 ms  seq   292  limb  5    107.8 u/s  int 0.17  PrimaryImpact burst gap
+    815.4 ms  seq   291  limb  1    100.7 u/s  int 0.16  PrimaryImpact burst gap
+    831.9 ms  seq   295  limb  0     62.9 u/s  int 0.07  PrimaryImpact burst gap
+    848.5 ms  seq   299  limb  0     43.6 u/s  int 0.03  Tumble       burst gap
+    864.3 ms  seq   304  limb  3     49.1 u/s  int 0.04  Tumble       burst gap
+    897.3 ms  seq   319  limb  0     22.0 u/s  int 0.00  Tumble       burst gap
+   1130.4 ms  seq   351  limb  2     28.4 u/s  int 0.01  Settle       rate cap 35<43
+   1180.9 ms  seq   359  limb  5     78.9 u/s  int 0.11  Settle       burst full
+   1247.5 ms  seq   366  limb  1     24.8 u/s  int 0.00  Settle       burst gap
+   1264.0 ms  seq   368  limb  1     29.6 u/s  int 0.01  Settle       burst gap
+   1281.2 ms  seq   375  limb  1     48.5 u/s  int 0.04  Settle       burst gap
+   1264.0 ms  seq   369  limb  4    123.3 u/s  int 0.16  Settle       burst gap
+   1379.0 ms  seq   390  limb  7    146.3 u/s  int 0.22  Settle       burst gap
+   1394.7 ms  seq   393  limb  2     40.1 u/s  int 0.02  Settle       burst gap

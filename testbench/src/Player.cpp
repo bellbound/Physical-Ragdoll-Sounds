@@ -93,6 +93,17 @@ bool Player::HasRegion() const {
     return m_loopEndMs.load(std::memory_order_relaxed) - m_loopStartMs.load(std::memory_order_relaxed) > 20.0;
 }
 
+void Player::SetPlayBounds(double startMs, double endMs) {
+    m_boundsStartMs.store(std::max(0.0, startMs), std::memory_order_relaxed);
+    m_boundsEndMs.store(std::max(0.0, endMs), std::memory_order_relaxed);
+}
+
+bool Player::HasPlayBounds() const {
+    return m_boundsEndMs.load(std::memory_order_relaxed) -
+               m_boundsStartMs.load(std::memory_order_relaxed) >
+           20.0;
+}
+
 void Player::SetSplit(bool on) {
     m_split.store(on, std::memory_order_relaxed);
     if (!on) m_side.store(0, std::memory_order_relaxed);
@@ -190,6 +201,20 @@ void Player::Render(float* out, unsigned frames) {
     if (explicitRegion) {
         regionStart = static_cast<std::uint64_t>(ls * 0.001 * m_sampleRate);
         regionEnd = std::min<std::uint64_t>(total, static_cast<std::uint64_t>(le * 0.001 * m_sampleRate));
+        if (regionEnd <= regionStart) {
+            regionStart = 0;
+            regionEnd = total;
+        }
+    } else if (HasPlayBounds()) {
+        // Only where a drawn region would otherwise have left the whole take
+        // playing. A selection always wins: it is the more specific answer to
+        // "which part of this do you want to hear", and it is the one that was
+        // asked for by hand.
+        const double bs = m_boundsStartMs.load(std::memory_order_relaxed);
+        const double be = m_boundsEndMs.load(std::memory_order_relaxed);
+        regionStart = static_cast<std::uint64_t>(bs * 0.001 * m_sampleRate);
+        regionEnd =
+            std::min<std::uint64_t>(total, static_cast<std::uint64_t>(be * 0.001 * m_sampleRate));
         if (regionEnd <= regionStart) {
             regionStart = 0;
             regionEnd = total;

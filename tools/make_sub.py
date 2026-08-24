@@ -4,7 +4,7 @@ make_sub.py -- synthesise the imp_sub layer.
 
 No text-to-SFX model gives a clean pitched sweep into 30 Hz, so this layer is built rather
 than prompted. The pitch curve comes straight off the measured sweeps in
-01-Reference-Analysis.md section 1: the sub band of every reference hero hit starts at
+04-Reference-Analysis.md section 1: the sub band of every reference hero hit starts at
 110-185 Hz and falls into 40-65 Hz within 50-80 ms, reaching a 20-30 Hz floor by 180 ms,
 with 8-15 dB of tonality (a pitched element, not filtered noise).
 

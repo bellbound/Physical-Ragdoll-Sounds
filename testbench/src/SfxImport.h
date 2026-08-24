@@ -70,4 +70,21 @@ struct ImportOptions {
 /// The multi-select open dialog. Empty when the user cancelled.
 [[nodiscard]] std::vector<std::filesystem::path> PickAudioFiles();
 
+/// Send files to the recycle bin, as one undoable operation.
+///
+/// The other direction from an import, and here for the same reason the import
+/// is: this is the file that knows how to talk to the shell. Deleting an sfx
+/// takes its audio and its sidecar together, so they go in one call - one
+/// entry in the bin, restored as a pair by one Ctrl+Z in Explorer.
+///
+/// The bin rather than std::filesystem::remove because the browser's delete is
+/// the one button in the window that cannot be undone from inside the app, and
+/// a sound somebody spent an evening auditioning is worth the recoverable
+/// version of that. Missing paths are skipped rather than failed - deleting a
+/// file with no sidecar is the normal case for anything dropped in by hand.
+/// False with `error` set when the shell refused; nothing is assumed about how
+/// much of the list went.
+[[nodiscard]] bool RecycleFiles(const std::vector<std::filesystem::path>& files,
+                                std::string& error);
+
 }  // namespace tb

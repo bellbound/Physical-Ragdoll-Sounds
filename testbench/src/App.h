@@ -7,6 +7,7 @@
 // and "RunOffline again and swap the buffer". That last path is the point of
 // the program and it is three lines long.
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -16,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "Bench.h"
 #include "Capture.h"
 #include "Export.h"
 #include "Link.h"
@@ -26,6 +28,7 @@
 #include "Video.h"
 
 #include "rds/Config.h"
+#include "rds/ConfigSchema.h"
 #include "rds/Offline.h"
 #include "rds/Recording.h"
 #include "rds/Sfx.h"
@@ -73,6 +76,26 @@ struct SfxEdit {
     std::uint64_t seq{};
 };
 
+/// Which file a cue is actually playing.
+///
+/// A cue carries a slot and a variant index, and neither of those is the answer
+/// to "what am I hearing": the variant is a position in a list the assignment
+/// panel re-orders, the slot may be pinned to one file for the session, and a
+/// slot with nothing assigned plays a procedural stand-in rather than anything
+/// on disk. Resolving all three in one place means the timeline, the cue table
+/// and the export cannot give three different answers.
+struct CueSound {
+    std::string label;  ///< what to show: the library name, or "(procedural)" / "(unfilled)"
+    std::string file;   ///< the library filename, empty for a stand-in
+    int variant{};
+    int variantCount{};  ///< how many files the slot has to pick between
+    /// The slot is pinned, so this file was not picked - it was the only one
+    /// allowed. Worth saying, because a pin is invisible from anywhere but the
+    /// slot's own widget and it is what makes the variant column stop moving.
+    bool forced{};
+    bool procedural{};
+};
+
 /// One half of the right-hand panel. In split mode there are two of these and
 /// playback alternates between their buffers on each loop.
 struct ConfigSide {
@@ -104,6 +127,17 @@ struct ConfigSide {
     bool editOpen{};
     rds::AlgorithmConfig editBase{};
     std::string editLabel;
+
+    // ── the config this one is being read against ────────────────────────────
+    //
+    // A second named config, loaded but never played and never edited. It
+    // exists so the panel can say which parameters this side actually moved:
+    // "config_22_08_17 with the ramp pulled in" is a sentence about two files,
+    // and until this was here the only way to get it was two windows and a
+    // scroll. Not a third side - nothing renders it, nothing saves it, and
+    // switching it costs no re-run.
+    std::string compareName;  ///< empty means no comparison is running
+    rds::AlgorithmConfig compareCfg{};
 };
 
 class App {
@@ -156,6 +190,30 @@ private:
     void StepConfig(int delta);
     void LoadConfigFile(int side, const std::filesystem::path& file);
     void SaveConfigFile(int side);
+
+    // ── comparing this side against another named config ─────────────────────
+
+    /// Load a config into this side's compare slot. Nothing re-runs and nothing
+    /// this side plays changes - it only changes what the panel marks.
+    void LoadCompareFile(int side, const std::filesystem::path& file);
+    void ClearCompare(int side);
+    [[nodiscard]] bool CompareOn(int side) const { return !m_side[side].compareName.empty(); }
+    /// True when this parameter would be written differently in the two files.
+    ///
+    /// Compared as the text the ini carries rather than as doubles: the file is
+    /// four decimals, a slider lands on the nearest float, and two configs that
+    /// write the same line are the same config. Bit-for-bit would report half
+    /// the table as changed the moment a value made a round trip through disk.
+    [[nodiscard]] static bool ParamDiffers(const rds::AlgorithmConfig& a,
+                                           const rds::AlgorithmConfig& b, const rds::ParamDesc& p);
+    /// How many parameters differ between this side and its compare config, and
+    /// how many are identical. Walked fresh each frame - it is ~200 doubles and
+    /// a format, and a cached count that went stale after an undo would be worse
+    /// than useless.
+    void CompareCounts(int side, int& differing, int& same) const;
+    /// The differing rows, in schema order, for the report window.
+    [[nodiscard]] std::vector<const rds::ParamDesc*> CompareDeltas(int side) const;
+    void DrawCompareReport(int side);
     /// The first unused `config_<dd>_<mm>_<n>` for today.
     [[nodiscard]] std::string NextConfigName() const;
     /// `config_22_08_4` to `config_22_08_5`, skipping any that exist. Anything
@@ -166,6 +224,18 @@ private:
     [[nodiscard]] bool AnythingUnsaved() const;
     void Rerun(int side);
     void RerunDirty();
+
+    /// Pause, then run the loaded take through the backend as fast as it will
+    /// go and record what that cost. Both sides while split, so the answer is a
+    /// comparison rather than a number - which is the only form the question
+    /// "does this config cost more" has an answer in.
+    void RunBenchmark();
+
+    /// Point the mixer at whatever the picker is highlighting, and say whether
+    /// that changed. The re-mix is the caller's, because on the frame a pick is
+    /// committed the assignment triggers one anyway and two would be a wasted
+    /// pass over the whole take.
+    bool SyncSfxAudition();
 
     // ── undo ─────────────────────────────────────────────────────────────────
     void BeginEdit(int side, std::string_view label);
@@ -206,6 +276,19 @@ private:
     /// the load and the save, so remembering a new checkbox is one line here
     /// and nothing else.
     [[nodiscard]] std::vector<std::pair<std::string_view, bool*>> UiPrefFields();
+
+    /// One remembered splitter: the ini key, the fraction, and the range its own
+    /// bar drags between.
+    struct FracPref {
+        std::string_view key;
+        float* member;
+        float lo;
+        float hi;
+    };
+
+    /// The same idea as UiPrefFields for the layout, in a second list because a
+    /// fraction read off disk needs clamping and a bool does not.
+    [[nodiscard]] std::vector<FracPref> UiPrefFracFields();
     void LoadUiPrefs();
     /// Called once a frame. Writes only when something actually moved, so the
     /// cost of it being unconditional is one string build per frame.
@@ -227,6 +310,20 @@ private:
     void PushSfxEdit(const rds::SfxAssignments& before, std::string_view label);
     void UndoSfx();
     void RedoSfx();
+    /// Push the session's forces and mutes onto the freshly loaded bank, and
+    /// drop the ones whose file is no longer on the slot. Called by ApplySfx,
+    /// which is the only thing that rebuilds the bank.
+    void ApplySfxSession();
+    [[nodiscard]] bool SfxForced(rds::SlotId slot, std::string_view file) const;
+    [[nodiscard]] bool SfxMuted(rds::SlotId slot, std::string_view file) const;
+    /// Pin this file on this slot, or unpin it when it is already pinned. One
+    /// slot has at most one pin, so pinning a second file moves it.
+    void ToggleSfxForce(rds::SlotId slot, std::string_view file);
+    void ToggleSfxMute(rds::SlotId slot, std::string_view file);
+    [[nodiscard]] int SfxForceCount() const;
+    [[nodiscard]] int SfxMuteCount() const;
+    void ClearSfxForces();
+    void ClearSfxMutes();
     void DrawSfxPanel(float height);
     void DrawSlotWidget(rds::SlotId slot);
     /// Slots in the order the panel lists them: the ones this take actually
@@ -234,6 +331,10 @@ private:
     [[nodiscard]] std::vector<rds::SlotId> SlotOrder() const;
     /// True when the current side's cue list contains this slot.
     [[nodiscard]] bool SlotInTimeline(rds::SlotId slot) const;
+    /// Which file this cue plays. A pure lookup through the bank - never
+    /// `Resolve`, which would advance the shuffle bag and answer with a
+    /// different file than the one the cue list was built from.
+    [[nodiscard]] CueSound SoundOf(const rds::Cue& cue) const;
 
     [[nodiscard]] double VideoTimeMs(double takeMs) const;
 
@@ -267,6 +368,18 @@ private:
     void OnVideoArmed(bool started);
     /// Everything has landed: write the CSV, move the video beside it, rescan.
     void FinishLiveRecording(const std::string& videoPath);
+    /// Pair OBS's output clock with the game's and keep the row, so the take can
+    /// be lined up with its video afterwards. See the sync notes in Capture.h.
+    ///
+    /// `force` takes one now; without it the interval decides. Nothing happens
+    /// when there is no video on this take or no heartbeat to read a game clock
+    /// off, which is a take that simply has no sync track - not an error.
+    void SampleTakeClock(bool force);
+    /// Write the finished take's `_sync.csv` and the `obs:` block of its sidecar,
+    /// rebased onto the clock `WriteTake` landed the take on. A no-op without
+    /// video, which is the only case where neither means anything.
+    void WriteTakeSync(const std::string& stem, const TakeWindow& window,
+                       const std::filesystem::path& video);
 
     // ── acting on a take ─────────────────────────────────────────────────────
 
@@ -286,13 +399,31 @@ private:
 
     /// Which video mode a take should open in, given the options.
     [[nodiscard]] VideoTake::Mode VideoMode() const;
+    /// True when this take's offset came out of video-offsets.ini rather than
+    /// out of the clip-pad guess. Not the same question as m_videoOffsetKnown,
+    /// which the guess also answers yes.
+    [[nodiscard]] bool OffsetMeasured() const;
 
     // ── ui ───────────────────────────────────────────────────────────────────
     void DrawTopBar();
     void DrawLeft(float width);
     void DrawVideo(float height);
     void DrawTransport();
+    /// The benchmark button and its answer. Its own function rather than four
+    /// more inches of DrawTransport, which is already the second longest thing
+    /// in this file.
+    void DrawBenchmarkRow();
+    /// Push the two cue-window switches at the transport, once per frame.
+    ///
+    /// Not part of drawing them: the skip has to happen whether or not the
+    /// benchmark row is on screen, and a transport that only advanced while
+    /// its own checkbox was visible would be a transport with a hiding place.
+    void UpdateCueWindow();
     void DrawTimeline(float height);
+    /// The measured body at the playhead, under the timeline. One line,
+    /// because the question it answers - "how fast was the body going when
+    /// that fired" - is asked while looking at something else.
+    void DrawBodyReadout(const ConfigSide& side);
     /// The timeline selection's right-click menu. Its own function because the
     /// popup body is a list of actions and the timeline is already the longest
     /// function here.
@@ -319,6 +450,13 @@ private:
     void FollowPlayhead(const std::vector<double>& times) const;
     void DrawRight(int side, float height, bool split);
     void DrawParams(int side);
+    /// One parameter: its name, its widget, and the edit history around them.
+    ///
+    /// `startX` and `width` are the column it draws into, both measured from the
+    /// panel's left edge, because a row the schema paired with the one before it
+    /// shares that row's line at the halfway mark. A full-width row is
+    /// `startX == 0`.
+    void DrawParam(int side, const rds::ParamDesc& p, float startX, float width);
     void HandleKeys();
 
     Paths m_paths;
@@ -340,8 +478,30 @@ private:
     /// somebody has to remember to set.
     rds::SfxAssignments m_sfxSaved;
     SfxBrowser m_browser;
+    /// The audition volume, in dB on the player's preview voice. Here rather
+    /// than in the browser because it is a ui preference like every other
+    /// switch in ui-state.ini, and those are written from one list of pointers
+    /// that has to outlive any one window.
+    float m_sfxPreviewGainDb{0.0f};
     std::vector<SfxEdit> m_sfxUndo;
     std::vector<SfxEdit> m_sfxRedo;
+    /// One slot's pin: a file every cue for the slot plays, whatever the
+    /// shuffle bag would have said.
+    ///
+    /// Held here rather than only in the bank because ApplySfx rebuilds the bank
+    /// whenever anything about an assignment changes, and held as a filename
+    /// because a variant index is a position in a list that the same edit can
+    /// renumber. Never saved and never pushed over the link: a pin is a way to
+    /// listen, not a decision about the pack, and it lasts exactly as long as
+    /// the process.
+    ///
+    /// Muting used to live here too and does not any more - a mute is a decision
+    /// about the pack, so it is in `m_sfx` beside the file list and saves with
+    /// it.
+    struct SlotSession {
+        std::string forced;
+    };
+    std::array<SlotSession, static_cast<std::size_t>(rds::SlotId::kCount)> m_sfxSession;
     /// Which slot's widget the mouse is over, for the timeline highlight, and
     /// the answer being built for the next frame. Two fields because the left
     /// column draws the timeline *before* the right column draws the widget
@@ -349,6 +509,11 @@ private:
     /// a hover highlight is not something an eye can see.
     int m_hoverSlot{-1};
     int m_hoverSlotPending{-1};
+    /// What the browser's highlight is currently being heard as, so the take is
+    /// re-mixed on the frame the highlight moves and on no other frame. -1 and
+    /// empty when nothing is being auditioned.
+    int m_auditionSlot{-1};
+    std::string m_auditionFile;
     char m_sfxFilter[64]{};
     SoundSource m_sources;
     Player m_player;
@@ -361,8 +526,9 @@ private:
     bool m_videoOffsetKnown{};
 
     /// Layout, all draggable and all fractions of the window so they survive a
-    /// resize. Persisted nowhere: cheap to set, and a wrong remembered split is
-    /// more annoying than re-dragging one.
+    /// resize - and remembered between launches through UiPrefFracFields. A
+    /// session is spent in one arrangement, so dragging four bars back into place
+    /// at every launch cost more than a wrong remembered split ever did.
     float m_leftFrac{0.55f};    ///< left column against the config panel
     float m_videoFrac{0.42f};   ///< video against everything under it
     float m_tableFrac{0.5f};    ///< impacts against cues
@@ -374,6 +540,15 @@ private:
 
     int m_selectedCue{-1};
     char m_filter[64]{};
+    /// While a compare config is loaded, hide every parameter the two agree on.
+    /// The panel is ~200 rows and a tuning session moves a dozen; this is the
+    /// difference between "what did I change" and scrolling for it.
+    bool m_diffOnly{};
+    /// The compare report window, and whether it lists the identical rows too.
+    bool m_showCompareReport{};
+    bool m_compareShowSame{};
+    /// Which side the report window is reading. Only meaningful while split.
+    int m_compareSide{};
     float m_monitorDb{-3.0f};
     /// The one thing the testbench does that the game cannot. On by default so a
     /// stacked burst does not wrap, but the flag and the pre-limiter peak are
@@ -388,6 +563,35 @@ private:
     /// next frame would put it back. Playback is the one moment where "show me
     /// the bit I selected" is unambiguous, so that is the only time it happens.
     bool m_zoomRegion{true};
+
+    /// Play from just before the first cue to just after the last one.
+    ///
+    /// Most takes are mostly silence - the ragdoll starts when the recording
+    /// does and the body lies still long after the last sound - and listening
+    /// to a mix change means hearing the change, not waiting for it. A drawn
+    /// region still wins, being the more specific answer to the same question.
+    /// Which slots this take has produced a cue for, since it was loaded.
+    ///
+    /// Sticky, and that is the point. The sfx panel sorts the slots this take
+    /// uses above the ones it does not, and asking the live cue list which
+    /// those are made the list rearrange itself under the cursor: muting a
+    /// slot removes its cues, so the widget just clicked would drop below the
+    /// "not in this take" divider and the next click landed on its neighbour.
+    ///
+    /// A muted slot is still in the take - the cues were chosen and paid for
+    /// and then silenced at render, which is the whole reason a mute is an
+    /// honest A/B. So presence is remembered per take rather than recomputed
+    /// per frame, and it is cleared when a different take is loaded, where it
+    /// would be a claim about the wrong recording.
+    std::array<bool, static_cast<std::size_t>(rds::SlotId::kCount)> m_slotSeen{};
+
+    bool m_limitToCues{};
+
+    /// Jump the gaps inside a take as well, on the same reasoning.
+    ///
+    /// A knockdown that lands, goes quiet for four seconds and then slides is
+    /// two things worth hearing with a wait in between.
+    bool m_skipCueless{};
 
     // ── the timeline view ────────────────────────────────────────────────────
     //
@@ -422,7 +626,25 @@ private:
     /// drag moved the timeline out from under the cursor, so the region you let
     /// go on was never the one you were aiming at.
     bool m_regionDragging{};
+    /// The fixed end of the drag: the point the region grows from. A fresh drag
+    /// anchors where the press landed, dragging an edge anchors on the *other*
+    /// edge, which is what makes grabbing an edge adjust the region rather than
+    /// start a new one.
     double m_regionAnchorMs{};
+    /// How the drag on the strip started, decided once on the press.
+    ///
+    /// The strip carries a region that is usually the thing being adjusted, not
+    /// the thing being replaced: you draw one roughly, listen, and then want its
+    /// left edge fifty milliseconds earlier. Deciding this from where the press
+    /// landed is what turns that into a drag rather than into drawing the whole
+    /// region again.
+    enum class RegionDrag { kNew, kEdge, kMove };
+    RegionDrag m_regionDragKind{RegionDrag::kNew};
+    /// For a move: where in the region the grab was, so it slides under the
+    /// cursor instead of jumping its start to it, and how long it is - the
+    /// length is held for the gesture so clamping at either end cannot shrink it.
+    double m_regionGrabOffsetMs{};
+    double m_regionGrabSpanMs{};
     /// The window as it stood when the drag began, held for the whole gesture.
     /// Without it a drag inside an existing region would fall back to the whole
     /// take on the first frame - the timeline would jump out to full scale under
@@ -444,11 +666,41 @@ private:
     /// while the other keeps up with the video.
     bool m_followImpacts{true};
     bool m_followCues{true};
+    /// Drop limb-on-limb contacts from the impacts table.
+    ///
+    /// A ragdoll hits itself constantly - an arm against a thigh, a shin against
+    /// the other shin - and those rows are the great majority of a fall while
+    /// being almost none of what anybody is listening for. On by default: the
+    /// question the table is nearly always being asked is "what did this body
+    /// hit the world with", and reading that off a list where four rows in five
+    /// are the body hitting itself is the reason the box exists.
+    bool m_hideSelfImpacts{true};
     /// Mirrors Player::Loop(). The transport owns the flag, but the preference
     /// file needs somewhere to land before the player exists.
     bool m_autoLoop{true};
     std::uint32_t m_seed{1};
+
+    // ── the benchmark ────────────────────────────────────────────────────────
+    //
+    // Per side, and kept until the next click rather than cleared when a slider
+    // moves: a stale number next to a changed config is exactly what you want
+    // on screen while you make the change, because the comparison being made is
+    // against what it used to cost.
+    BenchResult m_bench[2];
+    /// How long the run is allowed to take, per side. The window is frozen for
+    /// it (Bench.h says why), so it is on screen and adjustable rather than a
+    /// constant somebody has to guess at.
+    float m_benchBudgetSec{0.5f};
+
     std::string m_exportNote;  ///< what the last export did, shown beside the button
+    /// Write the whole config, with every description, into the export.
+    ///
+    /// On, because the failure it prevents is silent: a report that names
+    /// `config_22_08_5` and nothing else is unreadable the moment that file is
+    /// saved over, and the whole point of an export is that it can be read
+    /// later by somebody who was not there. Off when the report is going into a
+    /// message and four hundred lines of ini are in the way.
+    bool m_exportConfigs{true};
     std::string m_saveNote;    ///< what the last Ctrl+S wrote
     /// A save writes the next iteration of the loaded config rather than over
     /// it - `config_22_08_4` becomes `config_22_08_5`. On by default, because
@@ -470,6 +722,19 @@ private:
     /// a take can be recorded against what the mod's own inis say rather than
     /// against whatever is on the sliders.
     bool m_pushToGame{true};
+    /// On, the connected game puts vanilla's own body impacts back and plays
+    /// nothing of ours - the A/B switch for judging the mix against what it
+    /// replaces, inside one session rather than across two launches.
+    ///
+    /// Deliberately not remembered between launches: it is a thing done for the
+    /// length of a comparison, and a testbench that started with the mod muted
+    /// would be a morning spent wondering why the game went quiet.
+    bool m_useVanillaAudio{};
+    /// Whether the game has been told the above since it connected. Its own flag
+    /// rather than m_pushedValid's, because the switch travels even when the
+    /// sliders are not being pushed.
+    bool m_pushedAudioMode{};
+    bool m_pushedVanillaAudio{};
     /// What was last sent, so a push is a difference and not a flood. Invalid
     /// until the first push of a connection, which is what makes a reconnect
     /// send everything again.
@@ -497,6 +762,10 @@ private:
     /// True while OBS is recording for us, so the finish knows whether to expect
     /// a file.
     bool m_recordHasVideo{};
+    /// The take's sync track as it accumulates, on the game's clock. Rebased onto
+    /// the take's own clock and written out beside the CSV when it is written.
+    std::vector<SyncSample> m_recordSync;
+    std::chrono::steady_clock::time_point m_lastClockSample{};
 
     // ── windows and notes ────────────────────────────────────────────────────
 

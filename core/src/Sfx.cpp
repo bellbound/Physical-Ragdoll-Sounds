@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <charconv>
 #include <cctype>
+#include <chrono>
+#include <ctime>
 #include <format>
 
 #include "rds/Ini.h"
@@ -44,6 +46,24 @@ namespace {
     return result.ec == std::errc{} ? value : fallback;
 }
 
+[[nodiscard]] std::int64_t ToInt64(std::string_view text, std::int64_t fallback = 0) {
+    std::int64_t value = fallback;
+    const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+    return result.ec == std::errc{} ? value : fallback;
+}
+
+/// A file's last-write time in seconds since the unix epoch, or 0 when it cannot
+/// be read. What an entry with no recorded import date falls back to.
+[[nodiscard]] std::int64_t FileTimeSeconds(const fs::path& file) {
+    std::error_code ec;
+    const auto stamp = fs::last_write_time(file, ec);
+    if (ec) {
+        return 0;
+    }
+    const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(stamp);
+    return std::chrono::duration_cast<std::chrono::seconds>(sys.time_since_epoch()).count();
+}
+
 [[nodiscard]] bool ToBool(std::string_view text, bool fallback = false) {
     if (text.empty()) {
         return fallback;
@@ -57,9 +77,9 @@ namespace {
     return ToInt(text, fallback ? 1 : 0) != 0;
 }
 
-/// A note, on one line. Newlines become `\n` so the ini stays line-oriented -
-/// a note is a sentence or two and a multi-line ini value is a parser nobody
-/// wants to own.
+/// A value on one line. Newlines become `\n` so the ini stays line-oriented -
+/// these are names and warning sentences, and a multi-line ini value is a parser
+/// nobody wants to own.
 [[nodiscard]] std::string EscapeLine(std::string_view text) {
     std::string out;
     out.reserve(text.size());
@@ -124,6 +144,28 @@ bool SfxEntry::Blocked() const {
 
 std::string SfxEntry::Stem() const { return fs::path(file).stem().string(); }
 
+std::string FormatImportTime(std::int64_t unixSeconds) {
+    if (unixSeconds <= 0) {
+        return {};
+    }
+    const auto stamp = static_cast<std::time_t>(unixSeconds);
+    std::tm local{};
+#ifdef _WIN32
+    if (localtime_s(&local, &stamp) != 0) {
+        return {};
+    }
+#else
+    if (localtime_r(&stamp, &local) == nullptr) {
+        return {};
+    }
+#endif
+    // Local time, because the question it answers is "was this before or after
+    // dinner", and to the minute, because the second an import landed on has
+    // never been the thing anybody wanted to know.
+    return std::format("{:04}-{:02}-{:02} {:02}:{:02}", local.tm_year + 1900, local.tm_mon + 1,
+                       local.tm_mday, local.tm_hour, local.tm_min);
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // SfxLibrary
 // ═════════════════════════════════════════════════════════════════════════════
@@ -176,6 +218,14 @@ void SfxLibrary::Load(const fs::path& directory) {
                                    static_cast<float>(info.sampleRate);
             }
         }
+
+        // A sidecar written before there was an import date, or no sidecar at
+        // all. The file's own modification time is the honest answer: for
+        // anything the importer copied in it *is* the import time, and for a
+        // file dropped into the folder by hand it is when it got here.
+        if (entry.importedAt == 0) {
+            entry.importedAt = FileTimeSeconds(path);
+        }
         m_entries.push_back(std::move(entry));
     }
     if (ec) {
@@ -212,17 +262,35 @@ void SfxLibrary::Upsert(const SfxEntry& entry) {
     SaveMeta(entry);
 }
 
+bool SfxLibrary::Remove(std::string_view file) {
+    const auto it = std::ranges::find_if(
+        m_entries, [&](const SfxEntry& e) { return ini::EqualsIgnoreCase(e.file, file); });
+    if (it == m_entries.end()) {
+        return false;
+    }
+    m_entries.erase(it);
+    return true;
+}
+
 bool SfxLibrary::SaveMeta(const SfxEntry& entry) const {
     std::string out;
     out += "; Physical Ragdoll Sounds - sfx metadata\n";
     out += "; Written by the testbench when this file was imported or edited. Everything under\n";
-    out += "; [Measured] is what the importer measured; Name and Note are yours. Deleting this\n";
-    out += "; file loses the measurements and the note, not the sound.\n\n";
+    out += "; [Measured] is what the importer measured; Name and Disabled are yours.\n";
+    out += "; Deleting this file loses the measurements, the import date and the mute - not\n";
+    out += "; the sound.\n\n";
 
     out += "[Sfx]\n";
     out += std::format("Name = {}\n", EscapeLine(entry.name));
-    out += std::format("Note = {}\n", EscapeLine(entry.note));
-    out += std::format("Loops = {}\n\n", entry.loops ? 1 : 0);
+    // Seconds since the epoch, because that is what sorts. The readable form
+    // goes above it as a comment rather than into a second key: two keys saying
+    // the same thing is two keys that can disagree.
+    if (const std::string when = FormatImportTime(entry.importedAt); !when.empty()) {
+        out += std::format("; imported {}\n", when);
+    }
+    out += std::format("Imported = {}\n", entry.importedAt);
+    out += std::format("Loops = {}\n", entry.loops ? 1 : 0);
+    out += std::format("Disabled = {}\n\n", entry.disabled ? 1 : 0);
 
     out += "[Format]\n";
     out += std::format("SampleRate = {}\n", entry.sampleRate);
@@ -287,8 +355,9 @@ bool SfxLibrary::LoadMeta(const fs::path& wav, SfxEntry& out) {
 
         if (ini::EqualsIgnoreCase(section, "Sfx")) {
             if (ini::EqualsIgnoreCase(key, "Name")) out.name = UnescapeLine(value);
-            else if (ini::EqualsIgnoreCase(key, "Note")) out.note = UnescapeLine(value);
+            else if (ini::EqualsIgnoreCase(key, "Imported")) out.importedAt = ToInt64(value);
             else if (ini::EqualsIgnoreCase(key, "Loops")) out.loops = ToBool(value);
+            else if (ini::EqualsIgnoreCase(key, "Disabled")) out.disabled = ToBool(value);
         } else if (ini::EqualsIgnoreCase(section, "Format")) {
             if (ini::EqualsIgnoreCase(key, "SampleRate")) out.sampleRate = ToInt(value);
             else if (ini::EqualsIgnoreCase(key, "Channels")) out.channels = ToInt(value);
@@ -360,6 +429,16 @@ std::size_t SfxAssignments::AssignedSlots() const {
     return count;
 }
 
+bool SlotAssignment::Muted(std::string_view file) const {
+    return std::ranges::any_of(
+        muted, [&](const std::string& name) { return ini::EqualsIgnoreCase(name, file); });
+}
+
+void SlotAssignment::Unmute(std::string_view file) {
+    std::erase_if(muted,
+                  [&](const std::string& name) { return ini::EqualsIgnoreCase(name, file); });
+}
+
 bool SfxAssignments::IsUsed(std::string_view file) const {
     for (const SlotAssignment& slot : m_slots) {
         for (const std::string& name : slot.files) {
@@ -371,10 +450,40 @@ bool SfxAssignments::IsUsed(std::string_view file) const {
     return false;
 }
 
+std::size_t SfxAssignments::UseCount(std::string_view file) const {
+    std::size_t slots = 0;
+    for (const SlotAssignment& slot : m_slots) {
+        if (std::ranges::any_of(slot.files, [&](const std::string& name) {
+                return ini::EqualsIgnoreCase(name, file);
+            })) {
+            ++slots;
+        }
+    }
+    return slots;
+}
+
+std::size_t SfxAssignments::Forget(std::string_view file) {
+    std::size_t slots = 0;
+    for (SlotAssignment& slot : m_slots) {
+        const std::size_t was = slot.files.size();
+        std::erase_if(slot.files,
+                      [&](const std::string& name) { return ini::EqualsIgnoreCase(name, file); });
+        // The mute goes whether or not the slot named the file: a mute that
+        // outlives its sound is exactly the thing Unmute exists to prevent, and
+        // a slot can only be carrying one here if something already went wrong.
+        slot.Unmute(file);
+        if (slot.files.size() != was) {
+            ++slots;
+        }
+    }
+    return slots;
+}
+
 bool SfxAssignments::operator==(const SfxAssignments& other) const {
     for (std::size_t i = 0; i < Index(SlotId::kCount); ++i) {
         if (m_slots[i].looping != other.m_slots[i].looping ||
-            m_slots[i].files != other.m_slots[i].files) {
+            m_slots[i].files != other.m_slots[i].files ||
+            m_slots[i].muted != other.m_slots[i].muted) {
             return false;
         }
     }
@@ -464,6 +573,8 @@ std::size_t SfxAssignments::Load(const fs::path& file) {
             if (!slot.files.empty()) {
                 ++assigned;
             }
+        } else if (ini::EqualsIgnoreCase(key, "Muted")) {
+            slot.muted = ini::SplitList(value);
         } else if (ini::EqualsIgnoreCase(key, "Looping")) {
             slot.looping = ToBool(value, current->isLoop);
         }
@@ -485,6 +596,12 @@ bool SfxAssignments::Save(const fs::path& file) const {
     out += "; which is what the mod did before this file existed - so deleting a line here\n";
     out += "; goes back to the shipped pack rather than to silence.\n";
     out += ";\n";
+    out += "; `Muted` is a subset of `Sfx` that stays on the slot and never gets picked.\n";
+    out += "; The file keeps its place in the list, so it keeps its variant index and\n";
+    out += "; unmuting puts a recorded take back exactly as it was - which is the whole\n";
+    out += "; difference from deleting it from `Sfx`. A slot with every file muted goes\n";
+    out += "; silent rather than falling back to a stand-in.\n";
+    out += ";\n";
     out += "; `Looping` says the slot's sound is a sustained texture the engine repeats\n";
     out += "; whole rather than an event. Loops are judged as textures: they are never too\n";
     out += "; long, and their seam matters instead of their attack.\n\n";
@@ -496,6 +613,7 @@ bool SfxAssignments::Save(const fs::path& file) const {
                            desc.maxLengthMs, desc.expectedVariants);
         out += std::format("[{}]\n", desc.name);
         out += std::format("Sfx = {}\n", ini::JoinList(slot.files));
+        out += std::format("Muted = {}\n", ini::JoinList(slot.muted));
         out += std::format("Looping = {}\n\n", slot.looping ? 1 : 0);
     }
 

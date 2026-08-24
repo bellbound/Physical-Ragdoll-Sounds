@@ -61,6 +61,39 @@ void Setup(const Options& options) {
     g_installed = true;
 
     spdlog::info("Physical Ragdoll Sounds - log opened at {}", file.string());
+
+    // Say what rotation actually did, because "the log from the session that
+    // crashed has to survive the next one" is a claim this file makes and has
+    // never checked. A session's log went missing between two launches with
+    // rotation switched on and no rotated file anywhere, and there was nothing
+    // in the log to say whether the sink had rotated, failed to rotate, or never
+    // been asked to.
+    if (options.rotate) {
+        std::size_t kept = 0;
+        const auto stem = file.stem().string();
+        for (const auto& entry : std::filesystem::directory_iterator(options.directory, ec)) {
+            if (ec) {
+                break;
+            }
+            const auto& path = entry.path();
+            if (path == file || path.extension() != file.extension()) {
+                continue;
+            }
+            const auto other = path.stem().string();
+            if (other.size() > stem.size() + 1 && other.compare(0, stem.size(), stem) == 0 &&
+                other[stem.size()] == '.') {
+                ++kept;
+            }
+        }
+        spdlog::info("log: rotation is on, keeping {} file(s); {} previous log(s) are on disk "
+                     "beside this one",
+                     options.maxFiles == 0 ? std::string{"every"}
+                                           : std::to_string(options.maxFiles),
+                     kept);
+    } else {
+        spdlog::info("log: rotation is off - this file was truncated, and last session's log is "
+                     "gone");
+    }
 }
 
 void SetLevel(LogLevel level) {
@@ -79,12 +112,14 @@ void Summary(const std::string& actorName, const EngineStats& stats, double dura
     spdlog::info(
         "knockdown [{}] {:.0f} ms: {} contacts in, {} cues out in {} bursts, {:.1f}:1, peak "
         "{:.0f} u/s | dropped rate {} chain {} mask {} burst {} voices {} | rejected blowup {} "
-        "floor {} mirror {} manifold {} | foley {}",
+        "floor {} mirror {} manifold {} | foley {} | heroes {} (+{} re-anchored, {} on head "
+        "relief)",
         actorName, durationMs, stats.contactsIn, stats.emittedCues, stats.bursts,
         static_cast<double>(stats.ReductionRatio()), static_cast<double>(stats.peakSpeed),
         stats.droppedRateCap, stats.droppedChainMerge, stats.droppedMasking, stats.droppedBurstCap,
         stats.droppedVoiceCap, stats.rejectedBlowup, stats.rejectedBelowFloor, stats.droppedMirror,
-        stats.collapsedManifold, stats.routedToFoley);
+        stats.collapsedManifold, stats.routedToFoley, stats.heroes, stats.heroReanchors,
+        stats.heroHeadRelief);
 }
 
 }  // namespace rds::log

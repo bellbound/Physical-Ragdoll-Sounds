@@ -8,6 +8,7 @@
 #include "Mixer.h"
 #include "Video.h"
 
+#include "rds/ConfigManager.h"
 #include "rds/ConfigSchema.h"
 #include "rds/Engine.h"
 
@@ -76,6 +77,22 @@ void AppendContacts(const rds::Recording& rec, std::vector<Row>& rows, double lo
     }
 }
 
+/// The file a cue plays, for the columns that name it.
+///
+/// A pure lookup, never Resolve: the bank has already made this choice and
+/// re-resolving would advance the shuffle bag, so the report would name a
+/// different file than the one the cue list was mixed from.
+std::string CueFile(const rds::SoundBank* bank, const rds::Cue& cue) {
+    rds::ResolvedSound resolved{};
+    if (bank == nullptr || !bank->Get(cue.slot, cue.variant, resolved)) {
+        return "-";
+    }
+    if (resolved.procedural || resolved.path.empty()) {
+        return "(procedural)";
+    }
+    return std::filesystem::path(resolved.path).stem().string();
+}
+
 void AppendCues(const rds::OfflineResult& result, std::vector<Row>& rows, double lo, double hi) {
     for (const auto& c : result.cues) {
         if (c.timeMs < lo || c.timeMs > hi) continue;
@@ -87,7 +104,7 @@ void AppendCues(const rds::OfflineResult& result, std::vector<Row>& rows, double
                         std::format("    CUE    {:<14} {:<5} {:6.1f} dB  pitch {:4.2f}  {:<16} "
                                     "{:<12} int {:4.2f}  seq {}",
                                     rds::ToString(c.slot), op, c.gainDb, c.pitch,
-                                    rds::ToString(c.reason), rds::ToString(c.phase), c.intensity,
+                                    rds::ToString(c.reason), rds::ToString(c.motion, c.moment), c.intensity,
                                     c.sourceSeq)});
     }
 }
@@ -132,7 +149,8 @@ std::filesystem::path WriteExport(const ExportRequest& r, const std::filesystem:
                        r.info->dropped, r.info->complete ? "yes" : "no");
     out << std::format("  playhead        {:.0f} ms\n", r.playheadMs);
     out << std::format("  seed            {}\n", r.seed);
-    out << std::format("  config          {} (side {})\n", r.configName, r.side);
+    out << std::format("  config          {}{} (side {})\n", r.configName,
+                       r.configUnsaved ? " - EDITED, not what that file holds" : "", r.side);
 
     if (r.windowIsRegion) {
         out << "\nWINDOW - this export covers the loop region only\n";
@@ -194,6 +212,10 @@ std::filesystem::path WriteExport(const ExportRequest& r, const std::filesystem:
     }
 
     // ── config ───────────────────────────────────────────────────────────────
+    //
+    // The short form here and the whole ini at the end of the file. This one is
+    // what gets read: ninety keys at their defaults say nothing, and the six
+    // that moved are the answer to "what is this take being heard through".
     out << "\nCONFIG - values differing from default\n";
     const auto deltas = rds::Deltas(r.config, rds::AlgorithmParams());
     if (deltas.empty()) {
@@ -239,6 +261,24 @@ std::filesystem::path WriteExport(const ExportRequest& r, const std::filesystem:
     out << std::format("    dropped burst cap    {}\n", s.droppedBurstCap);
     out << std::format("    dropped voice cap    {}\n", s.droppedVoiceCap);
     out << std::format("    muted by layer       {}\n", s.mutedCues);
+    out << std::format("    compressed by class  {}\n", s.compressedCues);
+    out << std::format("  hero moments          {} (+{} re-anchored)\n", s.heroes,
+                       s.heroReanchors);
+    // What the head's floor relief bought. Zero with the option switched on says the
+    // threshold is out of reach, which the hero count on its own cannot tell you.
+    out << std::format("    on head relief       {}\n", s.heroHeadRelief);
+    out << std::format("    settle in flight     {}\n", s.settleInFlight);
+    // Flights something was pushing. Not a fault on its own - a leashed actor
+    // hauled off a balcony is a legitimate thing to happen - but if this is
+    // non-zero and the landing after it sounded thin, this is the first line to
+    // read.
+    out << std::format("    driven flights       {}\n", s.drivenFlights);
+    // Slides found, and how many of them were interrupted rather than ending in
+    // friction or in flight. A take with slides and no slide impacts is a take
+    // where the body always ran out of speed on its own; the difference is the
+    // collision the contact stream never reported.
+    out << std::format("  slides                {}\n", s.slides);
+    out << std::format("    ended on an impact   {}\n", s.slideImpacts);
     out << std::format("  emitted               {} in {} bursts\n", s.emittedCues, s.bursts);
     out << std::format("  first cue             {:.0f} ms\n", s.firstCueMs);
     out << std::format("  last cue              {:.0f} ms\n", s.lastCueMs);
@@ -304,19 +344,24 @@ std::filesystem::path WriteExport(const ExportRequest& r, const std::filesystem:
 
     // ── cues, in full ────────────────────────────────────────────────────────
     out << "\nCUES\n";
-    out << std::format("{:>9}  {:<14} {:<5} {:>7} {:>6}  {:<16} {:<12} {:>5} {:>6} {:>8} {:>4}\n",
-                       "time", "slot", "op", "gain", "pitch", "reason", "phase", "int", "limb",
-                       "site", "seq");
+    out << "  (`sfx` is the file this cue resolved to; `held` is how many dB its class's "
+           "compressor took off it)\n\n";
+    out << std::format(
+        "{:>9}  {:<14} {:<22} {:<5} {:>7} {:>5} {:>6}  {:<16} {:<12} {:>5} {:>6} {:>8} {:>4}\n",
+        "time", "slot", "sfx", "op", "gain", "held", "pitch", "reason", "phase", "int", "limb",
+        "site", "seq");
     for (const auto& c : r.result->cues) {
         if (c.timeMs < lo || c.timeMs > hi) continue;
         const char* op = c.op == rds::CueOp::kPlayOneShot ? "play"
                          : c.op == rds::CueOp::kStartLoop ? "loop+"
                          : c.op == rds::CueOp::kUpdateLoop ? "loop~"
                                                            : "loop-";
-        out << std::format("{:9.1f}  {:<14} {:<5} {:7.1f} {:6.2f}  {:<16} {:<12} {:5.2f} {:6} "
-                           "{:>8} {:4}\n",
-                           c.timeMs, rds::ToString(c.slot), op, c.gainDb, c.pitch,
-                           rds::ToString(c.reason), rds::ToString(c.phase), c.intensity,
+        out << std::format("{:9.1f}  {:<14} {:<22} {:<5} {:7.1f} {:>5} {:6.2f}  {:<16} {:<12} "
+                           "{:5.2f} {:6} {:>8} {:4}\n",
+                           c.timeMs, rds::ToString(c.slot), CueFile(r.bank, c), op, c.gainDb,
+                           c.compressCutDb < 0.0f ? std::format("-{:.1f}", -c.compressCutDb)
+                                                  : std::string{},
+                           c.pitch, rds::ToString(c.reason), rds::ToString(c.motion, c.moment), c.intensity,
                            c.limbIndex, rds::ToString(c.site), c.sourceSeq);
     }
 
@@ -328,8 +373,29 @@ std::filesystem::path WriteExport(const ExportRequest& r, const std::filesystem:
             out << std::format("{:9.1f} ms  seq {:5}  limb {:2}  {:7.1f} u/s  int {:4.2f}  {:<12} "
                                "{}\n",
                                t.timeMs, t.sourceSeq, t.limbIndex, t.impactSpeed, t.intensity,
-                               rds::ToString(t.phase), t.outcome);
+                               rds::ToString(t.motion, t.moment), t.outcome);
         }
+    }
+
+    // ── the config in full ───────────────────────────────────────────────────
+    //
+    // Last, and only on request. It is four hundred lines, and what somebody
+    // opens this file to find is nearly always in the timeline - but a report
+    // that names a config rather than carrying it is worthless six saves later,
+    // when the file of that name is a different config.
+    if (r.includeConfigs) {
+        out << "\n\nCONFIG INI - the config this export was rendered through, in full\n";
+        out << std::format("  {}{}\n", r.configName,
+                           r.configUnsaved
+                               ? " - as it stands in memory, which is NOT what the file holds"
+                               : " - matches the file of that name");
+        out << "  Paste this block into RagdollSounds_Algorithm.ini and the mod plays what this\n"
+               "  export is a report of. Every key carries what it changes perceptually.\n";
+        out << "\n"
+               "; ----------------------------------------------------------------------------\n";
+        out << rds::ConfigManager::ToIniText(r.config, rds::AlgorithmParams(),
+                                             "RagdollSounds_Algorithm.ini - the sound engine");
+        out << "; ----------------------------------------------------------------------------\n";
     }
 
     out.flush();

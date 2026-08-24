@@ -1,7 +1,7 @@
 # tools/sfx.py
 
 Judge and post-process generated SFX takes. Specs live in `SPEC` at the top of the script and
-come from `02-SFX-Generation-Prompts.md`, which derives them from `01-Reference-Analysis.md`.
+come from `02-SFX-Generation-Prompts.md`, which derives them from `04-Reference-Analysis.md`.
 
 ```
 python tools/sfx.py eval C:/Users/mika/Downloads --suggest
@@ -26,7 +26,7 @@ Verdict is `KEEP`, `KEEP*` (keep, but read the warning) or `RETRY`.
 
 Character is measured **after the slot's high-pass**, because that is what ships. This matters:
 spectral centroid alone cannot tell a bright contact from a bass-led thud — there are simply more
-FFT bins up top, the same trap `01-Reference-Analysis.md` §7 flags for the scrape. Band *tilt* and
+FFT bins up top, the same trap `04-Reference-Analysis.md` §7 flags for the scrape. Band *tilt* and
 `hpfloss` (how much peak level the take gives up to its high-pass) are the honest discriminators.
 
 `--suggest` names any other slot a `RETRY` take would pass as, so a take that missed its prompt's
@@ -59,7 +59,7 @@ Override the cut with `--start MS` / `--len MS` when the detector picks the wron
 routinely return four to nine contacts in one file; each is a usable `limb_tap`, so splitting turns
 one take into several rather than throwing it away.
 
-Onsets must be **46 ms apart** -- the reference rate floor from `01-Reference-Analysis.md` §2, below
+Onsets must be **46 ms apart** -- the reference rate floor from `04-Reference-Analysis.md` §2, below
 which two contacts stop resolving as separate events. Two contacts inside that window are one onset,
 and the louder wins. Pieces keep the generator's prompt prefix in their name so slot inference still
 works, and land in `takes/_split` for `eval --archive` to judge and file.
@@ -67,7 +67,7 @@ works, and land in `takes/_split` for `eval --archive` to judge and file.
 # make_sub.py
 
 Synthesises `imp_sub_01/02`. No text-to-SFX model gives a clean pitched sweep into 30 Hz, so this
-layer is built from the measured curves in `01-Reference-Analysis.md` §1 rather than prompted.
+layer is built from the measured curves in `04-Reference-Analysis.md` §1 rather than prompted.
 Verified against the references: dominant frequency descent, sub-band dominance, 8-14 dB tonality,
 and 16-52 ms to −20 dB.
 

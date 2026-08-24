@@ -244,7 +244,10 @@ void SoundBank::ScanDirectory(const std::string& directory, bool onlyEmptySlots)
     // bag then repeating the same file forever.
     bool mayFill[static_cast<std::size_t>(SlotId::kCount)];
     for (const auto& desc : kSlots) {
-        mayFill[Index(desc.id)] = !onlyEmptySlots || m_slots[Index(desc.id)].variants.empty();
+        // `scannedByName` and not `variants.empty()`: a slot whose named files
+        // are all disabled or all missing ends up empty too, and filling that
+        // one from the folder would answer "mute this" by playing the pack.
+        mayFill[Index(desc.id)] = !onlyEmptySlots || m_slots[Index(desc.id)].scannedByName;
     }
 
     for (const auto& entry : fs::directory_iterator(directory, ec)) {
@@ -343,6 +346,7 @@ void SoundBank::LogContents(const char* source) {
 }
 
 void SoundBank::Load(const std::string& directory) {
+    ClearOverrides();
     for (auto& slot : m_slots) {
         slot.variants.clear();
         slot.bag.clear();
@@ -359,6 +363,9 @@ void SoundBank::Load(const std::string& directory) {
 
 void SoundBank::LoadAssigned(const SfxLibrary& library, const SfxAssignments& assignments,
                              const std::string& fallbackDirectory) {
+    // Before the variants go: a force and a mute name a position in this list,
+    // and the list is about to be rebuilt out from under them.
+    ClearOverrides();
     for (auto& slot : m_slots) {
         slot.variants.clear();
         slot.bag.clear();
@@ -373,7 +380,20 @@ void SoundBank::LoadAssigned(const SfxLibrary& library, const SfxAssignments& as
         const SlotAssignment& want = assignments.For(desc.id);
         slot.looping = want.looping;
 
+        // Decided from the ini and not from what came out of it: this is what
+        // says whether anybody has made a decision about the slot, and a slot
+        // whose every named file is disabled has very much had one made.
+        slot.scannedByName = want.files.empty();
+
         for (const std::string& file : want.files) {
+            const SfxEntry* entry = library.Find(file);
+            if (entry != nullptr && entry->disabled) {
+                // Muted in the library. Still named here, so re-enabling it puts
+                // it straight back on the slot in the same position - which is
+                // the whole difference between disabling a sound and removing it.
+                spdlog::info("bank: {} names '{}', which is disabled - skipped", desc.name, file);
+                continue;
+            }
             const std::filesystem::path path = library.PathOf(file);
             std::error_code ec;
             if (!std::filesystem::exists(path, ec)) {
@@ -389,7 +409,7 @@ void SoundBank::LoadAssigned(const SfxLibrary& library, const SfxAssignments& as
             sound.path = path.string();
             sound.procedural = false;
             sound.lengthMs = 0.0f;
-            if (const SfxEntry* entry = library.Find(file); entry != nullptr) {
+            if (entry != nullptr) {
                 sound.lengthMs = entry->durationMs;
             }
             if (sound.lengthMs <= 0.0f) {
@@ -400,12 +420,19 @@ void SoundBank::LoadAssigned(const SfxLibrary& library, const SfxAssignments& as
                 spdlog::warn("bank: {} is not a wav we can measure; assuming {:.0f} ms", sound.path,
                              sound.lengthMs);
             }
+            // Muted files are added and then suspended, not skipped. The skip is
+            // what `disabled` in the library does, and it renumbers everything
+            // after it; this one has to keep its variant index so unmuting puts
+            // a recorded take back exactly as it was.
+            const auto variant = static_cast<std::uint8_t>(slot.variants.size());
             slot.variants.push_back(std::move(sound));
+            if (want.Muted(file)) {
+                MuteVariant(desc.id, variant, true);
+                spdlog::info("bank: {} names '{}', which is muted on this slot", desc.name, file);
+            }
         }
         if (!slot.variants.empty()) {
             ++assigned;
-        } else {
-            slot.scannedByName = true;
         }
     }
 
@@ -431,9 +458,11 @@ void SoundBank::Seed(std::uint32_t seed) {
     // way of saying "from the clock" - which the caller has already resolved by
     // the time it reaches here.
     m_rng = seed == 0 ? 0x9E3779B97F4A7C15ULL : (0x9E3779B97F4A7C15ULL ^ seed);
+    m_seed = seed == 0 ? 1u : seed;
     for (auto& slot : m_slots) {
         slot.bag.clear();
         slot.bagCursor = 0;
+        slot.lastVariant = 0xFF;
     }
 }
 
@@ -441,10 +470,81 @@ std::size_t SoundBank::FileCount(SlotId slot) const {
     return m_slots[Index(slot)].variants.size();
 }
 
+void SoundBank::ForceVariant(SlotId slot, std::uint8_t variant) {
+    SlotFiles& files = m_slots[Index(slot)];
+    files.forced =
+        (variant != kNoVariant && variant < files.variants.size()) ? variant : kNoVariant;
+}
+
+std::uint8_t SoundBank::ForcedVariant(SlotId slot) const { return m_slots[Index(slot)].forced; }
+
+void SoundBank::MuteVariant(SlotId slot, std::uint8_t variant, bool muted) {
+    SlotFiles& files = m_slots[Index(slot)];
+    if (variant >= files.variants.size()) {
+        return;
+    }
+    if (files.muted.size() < files.variants.size()) {
+        files.muted.resize(files.variants.size(), 0);
+    }
+    const std::uint8_t want = muted ? 1u : 0u;
+    if (files.muted[variant] == want) {
+        return;
+    }
+    files.muted[variant] = want;
+    if (muted) {
+        ++files.mutedCount;
+    } else {
+        --files.mutedCount;
+    }
+    // The bag was dealt out of the old set, so a cursor into it would keep
+    // handing out a variant that is no longer in play.
+    files.bag.clear();
+    files.bagCursor = 0;
+}
+
+bool SoundBank::VariantMuted(SlotId slot, std::uint8_t variant) const {
+    const SlotFiles& files = m_slots[Index(slot)];
+    return variant < files.muted.size() && files.muted[variant] != 0;
+}
+
+void SoundBank::ClearOverrides() {
+    for (SlotFiles& slot : m_slots) {
+        slot.forced = kNoVariant;
+        slot.muted.clear();
+        slot.mutedCount = 0;
+        slot.bag.clear();
+        slot.bagCursor = 0;
+    }
+}
+
+/// Stable per-cue randomness: one avalanche of (seed, token, slot) rather than a
+/// position in a running stream. Same contact and same slot means the same
+/// variant no matter what happened earlier in the take, which is what makes two
+/// exports of the same recording comparable.
+[[nodiscard]] std::uint32_t StableHash(std::uint32_t seed, std::uint32_t token,
+                                       std::uint32_t salt) {
+    std::uint64_t h = 0x9E3779B97F4A7C15ULL ^ (static_cast<std::uint64_t>(seed) << 32) ^
+                      (static_cast<std::uint64_t>(token) << 8) ^ salt;
+    h ^= h >> 33;
+    h *= 0xFF51AFD7ED558CCDULL;
+    h ^= h >> 33;
+    h *= 0xC4CEB9FE1A85EC53ULL;
+    h ^= h >> 33;
+    return static_cast<std::uint32_t>(h);
+}
+
 bool SoundBank::Resolve(SlotId slot, SurfaceClass surface, Coverage coverage, LimbSite site,
-                        ResolvedSound& out) {
+                        ResolvedSound& out, std::uint32_t token) {
     const SlotDesc& desc = Slot(slot);
     SlotFiles& files = m_slots[Index(slot)];
+
+    // A pin is a decision, so it comes before the count, before the mutes and
+    // before either picker: while it is set this slot has exactly one answer,
+    // which is the whole of what auditioning one file against a whole take is.
+    if (files.forced != kNoVariant && files.forced < files.variants.size()) {
+        files.lastVariant = files.forced;
+        return Get(slot, files.forced, out);
+    }
 
     // How many things there are to choose between: the real files if any exist,
     // otherwise the variants the brief says the slot will eventually have, so
@@ -457,20 +557,66 @@ bool SoundBank::Resolve(SlotId slot, SurfaceClass surface, Coverage coverage, Li
         return false;
     }
 
+    // Which of them are in play. Nothing is suspended in the shipping mod and
+    // usually nothing is here either, so that case builds no list and indexes
+    // straight into the variant numbers.
+    std::uint8_t allowed[256];
+    std::size_t allowedCount = count;
+    if (files.mutedCount != 0) {
+        allowedCount = 0;
+        for (std::size_t i = 0; i < count && allowedCount < std::size(allowed); ++i) {
+            if (i >= files.muted.size() || files.muted[i] == 0) {
+                allowed[allowedCount++] = static_cast<std::uint8_t>(i);
+            }
+        }
+        if (allowedCount == 0) {
+            // Every variant suspended. Silence is what the gesture asked for -
+            // falling through to a stand-in would answer "mute this" by
+            // synthesising it.
+            return false;
+        }
+    }
+    const auto variantAt = [&](std::size_t index) {
+        return files.mutedCount == 0 ? static_cast<std::uint8_t>(index) : allowed[index];
+    };
+
+    // Derived from the contact rather than from the bag's position, when the
+    // caller offers an identity to derive from. The bag is stable *in sequence*,
+    // which is exactly what breaks under an A/B: insert one cue early in a take
+    // and every later cue of that slot shifts a place.
+    if (m_stableVariants && token != 0) {
+        const std::uint32_t h = StableHash(m_seed, token, static_cast<std::uint32_t>(slot));
+        const std::size_t index = h % allowedCount;
+        auto pick = variantAt(index);
+        // Keep the one property the bag was for. Rotating by a second slice of
+        // the same hash stays a function of this contact alone, so it does not
+        // reintroduce the coupling the bag had.
+        if (allowedCount > 1 && pick == files.lastVariant) {
+            const auto step = static_cast<std::size_t>(1 + ((h >> 16) % (allowedCount - 1)));
+            pick = variantAt((index + step) % allowedCount);
+        }
+        files.lastVariant = pick;
+        (void)surface;
+        (void)coverage;
+        (void)site;
+        return Get(slot, pick, out);
+    }
+
     // Shuffle bag rather than random: random repeats immediately, and immediate
     // repeats are what people notice. Refilled and reshuffled when it empties.
     if (files.bagCursor >= files.bag.size()) {
-        files.bag.resize(count);
-        for (std::size_t i = 0; i < count; ++i) {
-            files.bag[i] = static_cast<std::uint8_t>(i);
+        files.bag.resize(allowedCount);
+        for (std::size_t i = 0; i < allowedCount; ++i) {
+            files.bag[i] = variantAt(i);
         }
-        for (std::size_t i = count; i > 1; --i) {
+        for (std::size_t i = allowedCount; i > 1; --i) {
             const auto j = static_cast<std::size_t>(NextRandom(m_rng) % i);
             std::swap(files.bag[i - 1], files.bag[j]);
         }
         files.bagCursor = 0;
     }
     const std::uint8_t pick = files.bag[files.bagCursor++];
+    files.lastVariant = pick;
 
     // The axes are timbre only, never physics (07 §11), and until axis-suffixed
     // files exist there is nothing for them to pick between: the surface already

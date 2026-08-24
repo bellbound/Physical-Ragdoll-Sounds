@@ -12,7 +12,7 @@
 //
 //   library/          every sfx that exists, named whatever it is called, each
 //                     with a `<file>.meta.ini` beside it carrying what the
-//                     importer measured and what the user wrote in the note
+//                     importer measured and when it came in
 //   RagdollSounds_SFX.ini
 //                     which library files each slot plays, in order
 //
@@ -55,7 +55,31 @@ struct SfxWarning {
 struct SfxEntry {
     std::string file;  ///< filename inside the library directory, with extension
     std::string name;  ///< display name; starts as the stem, editable
-    std::string note;  ///< the user's own note. Searched, never interpreted
+
+    /// When this file entered the library, in seconds since the unix epoch.
+    ///
+    /// Written once, at import, and never moved after: a re-measure keeps it and
+    /// so does a rename, because both are things done to a file that is already
+    /// here. It is what the browser's newest-first order sorts on, which is the
+    /// order that matters the evening after a download - the twelve sounds that
+    /// just arrived, together, at the top of the list.
+    ///
+    /// Zero only while nothing knows. Anything that predates this field gets the
+    /// audio file's own modification time when the library loads, which for a
+    /// file the importer copied in is the moment it was copied - the same
+    /// instant this would have recorded.
+    std::int64_t importedAt{};
+
+    /// Muted: still in the library, still named by whatever slots name it, and
+    /// not played.
+    ///
+    /// The difference between this and taking the file off a slot is that this
+    /// one is not a decision about the slot. `x` in the panel forgets which slot
+    /// the sound was on; this suspends it everywhere at once and remembers all
+    /// of it, so a sound that turned out to be wrong can be silenced without
+    /// losing the work of having placed it. The bank skips these when it fills a
+    /// slot and the browser sorts them to the bottom of the list.
+    bool disabled{};
 
     // ── what the container says ──────────────────────────────────────────────
     int sampleRate{};
@@ -96,10 +120,15 @@ struct SfxEntry {
     [[nodiscard]] std::string Stem() const;
 };
 
+/// `2026-08-23 19:41` in local time, for an `importedAt`. Empty for 0, which is
+/// what an entry whose import time nothing knows carries - so a caller can print
+/// it and get nothing rather than 1970.
+[[nodiscard]] std::string FormatImportTime(std::int64_t unixSeconds);
+
 /// Every file under the library directory, with its metadata.
 ///
 /// The game loads this once and only reads it. The testbench also writes it -
-/// importing, renaming and note-taking all end in SaveMeta for one entry.
+/// importing, renaming and muting all end in SaveMeta for one entry.
 class SfxLibrary {
 public:
     /// Scan `directory` for playable files and read each one's `.meta.ini`.
@@ -111,7 +140,7 @@ public:
 
     [[nodiscard]] const std::filesystem::path& Directory() const { return m_directory; }
     [[nodiscard]] std::span<const SfxEntry> Entries() const { return m_entries; }
-    /// For the browser, which edits names and notes in place and writes them on
+    /// For the browser, which edits names and mutes in place and writes them on
     /// focus loss. Nothing on the game side has any business here.
     [[nodiscard]] std::span<SfxEntry> MutableEntries() { return m_entries; }
     [[nodiscard]] std::size_t Size() const { return m_entries.size(); }
@@ -128,8 +157,17 @@ public:
     /// by every edit in the browser.
     void Upsert(const SfxEntry& entry);
 
-    /// Write one entry's `.meta.ini`. Called on its own when only the note or
-    /// the name changed and nothing needs re-measuring.
+    /// Drop one entry from the index. False when the library did not hold it.
+    ///
+    /// The index only: nothing on disk is touched. Erasing the audio and its
+    /// sidecar is the caller's, because the two halves want different
+    /// treatment - the game side never removes anything, and the testbench
+    /// sends the files to the recycle bin rather than unlinking them, which is
+    /// a Win32 shell call that has no business in core.
+    bool Remove(std::string_view file);
+
+    /// Write one entry's `.meta.ini`. Called on its own when only the name or
+    /// the mute changed and nothing needs re-measuring.
     bool SaveMeta(const SfxEntry& entry) const;
 
     /// Read one sidecar into `out`, which must already carry `file`. False when
@@ -151,6 +189,23 @@ struct SlotAssignment {
     /// carries, so re-ordering this changes which file a given cue plays.
     std::vector<std::string> files;
 
+    /// Files that are on this slot and must never be picked, by filename.
+    ///
+    /// Kept as names rather than as variant indices on purpose: an index is a
+    /// position in `files`, and re-ordering the list - which is a thing the
+    /// panel does - would silently move the mute onto a different sound.
+    ///
+    /// A muted file keeps its place in `files`, so it keeps its variant index
+    /// and unmuting puts the take back exactly as it was. That is the
+    /// difference from the library's own `SfxEntry::disabled`, which suspends a
+    /// sound *everywhere* and drops it out of the slot's variant list
+    /// altogether: this one is a decision about this slot.
+    ///
+    /// Saved, and read by the game. A slot with every file muted goes silent
+    /// rather than falling back to a procedural stand-in - muting something is
+    /// not a request to synthesise a replacement for it.
+    std::vector<std::string> muted;
+
     /// Whether this slot's sound is a sustained texture the engine repeats.
     ///
     /// Defaults to the manifest's own `isLoop` and is overridable per slot,
@@ -160,6 +215,11 @@ struct SlotAssignment {
     bool looping{};
 
     [[nodiscard]] bool Empty() const { return files.empty(); }
+    [[nodiscard]] bool Muted(std::string_view file) const;
+    /// Drop a name from `muted`. Called whenever a file leaves the slot, so a
+    /// mute cannot outlive the sound it was about and come back to life the day
+    /// somebody assigns that file here again.
+    void Unmute(std::string_view file);
 };
 
 /// The slot-to-file table, as read from and written to RagdollSounds_SFX.ini.
@@ -194,6 +254,19 @@ public:
     /// Every file named by any slot. Used to tell an orphan in the library from
     /// something in use.
     [[nodiscard]] bool IsUsed(std::string_view file) const;
+
+    /// How many slots name `file`. What a "this is used by three slots" warning
+    /// counts, and what Forget returns after the fact.
+    [[nodiscard]] std::size_t UseCount(std::string_view file) const;
+
+    /// Take `file` off every slot that names it, mutes included, and say how
+    /// many slots that was.
+    ///
+    /// For a file that has stopped existing. An assignment naming a missing
+    /// file is not fatal - the bank skips it - but it is a line in the ini
+    /// pointing at nothing, and it comes back to life the day somebody imports
+    /// a different sound under the same name.
+    std::size_t Forget(std::string_view file);
 
     [[nodiscard]] bool operator==(const SfxAssignments& other) const;
 

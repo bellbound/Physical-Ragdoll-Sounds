@@ -76,6 +76,18 @@ public:
     /// cache is keyed on (slot, variant) and that key now means a different file.
     void Invalidate();
 
+    /// Play `path` for every variant of `slot`, whatever the bank holds.
+    ///
+    /// The picker's in-take audition. Every variant and not just the one being
+    /// replaced, because the question is "what does this sound like here" and a
+    /// take where one cue in three is the candidate and the rest are the old
+    /// file answers a different one. Nothing is assigned by it and nothing is
+    /// written: it lives until it is cleared, and the mix is what changes.
+    ///
+    /// Decoded once, here, so the callback-shaped work is not done per cue.
+    void SetAudition(rds::SlotId slot, const std::string& path);
+    void ClearAudition();
+
 private:
     struct Entry {
         std::vector<float> samples;
@@ -84,6 +96,12 @@ private:
     std::map<std::uint32_t, Entry> m_cache;
     const rds::SoundBank* m_bank{};
     int m_sampleRate{48000};
+
+    /// -1 when nothing is being auditioned. Held outside the cache because it is
+    /// not keyed on a variant and must not survive an Invalidate.
+    int m_auditionSlot{-1};
+    std::string m_auditionPath;
+    std::vector<float> m_auditionSamples;
 };
 
 /// Mix a cue list. `listener` positions the stereo image; cues attached to a

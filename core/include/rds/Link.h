@@ -74,6 +74,12 @@ enum class Msg : std::uint16_t {
     kStatus,          ///< game -> bench. StatusPacket, about once a second
     kPing,            ///< either way, empty
     kPong,            ///< either way, empty
+    /// bench -> game. One byte: 1 puts vanilla's body impacts back and silences
+    /// ours, 0 goes back to the mod's own mix. Appended rather than slotted in
+    /// beside kClearOverrides so every value above stays what it was - a DLL and
+    /// a testbench built a day apart still agree about the messages they share,
+    /// and one that predates this simply never sends it.
+    kAudioMode,
 };
 
 [[nodiscard]] std::string_view ToString(Msg type);

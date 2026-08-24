@@ -62,7 +62,7 @@ much each file matters, not a spec. `—` means it was not counted, not that it 
 | `scream_big` | voice | **0** | — | Declared and unfilled by design | Record or licence — generated screams are the worst-sounding thing in this list |
 
 `scrape_grain` — sparse one-shots for the moments where a limb catches — has a `SPEC` entry but **no
-row in `SlotManifest.cpp`**. `01-Reference-Analysis.md` §7 asks for it and it was dropped from the
+row in `SlotManifest.cpp`**. `04-Reference-Analysis.md` §7 asks for it and it was dropped from the
 29. Three takes in the ledger already pass as one. Adding it back is a design decision.
 
 ---
@@ -120,7 +120,7 @@ transient.
 
 **Spectral centroid barely works on its own.** The four reference hero hits measure 1950–3306 Hz
 centroid while being clearly bass-led, because there are simply more FFT bins up top. The centroid
-limits in `SPEC` are loose sanity bounds only — the trap `01-Reference-Analysis.md` §7 flags for the
+limits in `SPEC` are loose sanity bounds only — the trap `04-Reference-Analysis.md` §7 flags for the
 scrape. Check tilt, and check how much level a file loses to its own high-pass.
 
 Character is always measured **after the slot's high-pass**, because that is what ships.
@@ -168,9 +168,54 @@ being too long, and has its seam checked instead of its attack. It defaults to t
 §2 and is overridable per slot: a sliding or wind-like sound assigned somewhere else wants the same
 treatment.
 
+Which is why **a texture take is worth cutting both ways** — as a seamless 2–3 s loop window, and as
+the whole take trimmed but not seam-matched. The long one has no seam to give it away and can fill a
+one-shot slot with `Looping = 0`, and the two do not measure the same: the window sweep optimises the
+seam, which pins it to one 2 s slice of the material, while the same take averaged whole can land
+inside a grain or tilt band the slice misses. The only `scrape_loop` to pass in the 2026-08-23 batch
+was a 9.9 s long cut whose own loop window failed. `tools/triage_batch.py` emits both.
+
 Everything in the library carries a `<file>.meta.ini` sidecar with what the importer measured, in
 these same units — so a badge in the testbench's library window can be read straight against §3.
 
 Anything unfilled falls through to a procedural stand-in rather than going silent, so a partial pack
 is a quieter mod, not a broken one — which is why `grunt_impact` and `scream_big` can sit declared
 and empty indefinitely.
+
+
+---
+
+## 7. Two biases to expect from the generator
+
+Measured across the 102-file batch of 2026-08-23 and the 30 takes before it. Both are
+about *direction*, and both survive re-prompting, so budget takes accordingly.
+`03-Asset-Status.md` §7 has the numbers.
+
+| Ask for | You get | Consequence |
+|---|---|---|
+| Anything **hard, dry and bright** — stone, flagstone, a flat tight slap | Something **bass-led**. All four stone prompts measured tilt −0.4 to +17.7 against `surf_stone`'s ≤ −2 | `surf_stone` is not promptable. The takes are usable as `imp_body` / `surf_soft` |
+| Anything **dull, dense and low** — bone crunch, wet squelch, offal | Something **bright and sparse**. Centroid 3733–8875 Hz against 4000/4500 ceilings, and 1–16 lo-mid transients against the 15 `crunch_gran` needs | `crunch_gran` and `gore_wet` need shelving *and* enough density to shelve down to. Check density first |
+
+The reason the second one is worth checking before reaching for EQ: shelving above 2.5 kHz
+is what rescued the two shipped `crunch_gran` files, but that only works on a take that
+already carries the low-mid density. A take that is bright *and* sparse has nothing under
+the shelf, and comes out quiet rather than dull.
+
+### The `surf_stone` numbers trap
+
+`surf_stone`'s gate is bright, decays fast and runs 100–160 ms. **A wet meat slap
+satisfies all three.** 29 of 38 wet cuts in that batch report "would pass as `surf_stone`"
+and not one of them is a flagstone. §2 of this page is the authority — "no resonance and
+no tail… stone does not ring, it stops" — and `sfx.py --suggest` is a shortlist to
+audition, never a verdict.
+
+### Quiet satellites
+
+Generators bolt a quiet second event onto an otherwise clean take often enough to plan
+for: **39 of 100 takes**, 68 events, 21–34 dB under the hero, 60 of them after it. They are
+usually a bright debris wash rather than a contact.
+
+Left in, one lands on top of whatever the engine schedules next and reads as a flam — the
+same failure the `WARN` in §3 of `03-Asset-Status.md` catches at +55–75 ms, just later and
+quieter. `tools/triage_batch.py` cuts them out at a 20 dB threshold and records every one
+it dropped, so the decision stays reviewable.

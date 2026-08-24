@@ -117,6 +117,18 @@ public:
     static bool SaveFrom(const std::filesystem::path& file, const void* root,
                          std::span<const ParamDesc> params, std::string_view header);
 
+    /// The same file, as a string: every section, every key, each with the
+    /// comment that says what it changes perceptually.
+    ///
+    /// Split out of SaveFrom because a config is worth reading in places that
+    /// are not a file - the testbench pastes a whole one into its export, so a
+    /// report carries the settings it is a report *of* rather than a name that
+    /// may since have been edited. One renderer, so what comes out of an export
+    /// can be saved as an ini and be the same file.
+    [[nodiscard]] static std::string ToIniText(const void* root,
+                                               std::span<const ParamDesc> params,
+                                               std::string_view header);
+
 private:
     ConfigManager() = default;
 

@@ -91,7 +91,7 @@ void App::LoadSfx() {
 
     m_sfxUndo.clear();
     m_sfxRedo.clear();
-    m_browser.Init(&m_library, &m_player, 48000);
+    m_browser.Init(&m_library, &m_sfx, &m_player, 48000, &m_sfxPreviewGainDb);
     m_browser.SetPackDirectory(m_paths.sounds);
     ApplySfx();
 }
@@ -99,6 +99,9 @@ void App::LoadSfx() {
 void App::ApplySfx() {
     m_bank.LoadAssigned(m_library, m_sfx, m_paths.sounds.string());
     m_bank.Seed(m_seed);
+    // The load cleared the bank's overrides, because it renumbered the variants
+    // they name. This puts back the ones that still point at something.
+    ApplySfxSession();
     // The cache is keyed on (slot, variant), and that key now means a different
     // file. Without this the panel would say one thing and the speakers another
     // until the next restart, which is the exact bug this feature exists to make
@@ -158,10 +161,169 @@ void App::RedoSfx() {
     ApplySfx();
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// forcing and muting
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Two ways to point a whole take at one file, and they are not the same kind of
+// thing - which is the reason they are stored in two different places.
+//
+// A **force** pins one file: every cue the slot emits plays it, so a candidate
+// can be heard against the take it will live in rather than against a preview
+// button. That is a way to listen and nothing else. It lives in m_sfxSession,
+// is written nowhere, is not pushed to the game, is not an undo step, and dies
+// with the process.
+//
+// A **mute** suspends one: the slot carries on without it, which is how you find
+// out whether the one you dislike is the one you keep hearing - and once you
+// know, the answer is "never play this here", which is a decision about the
+// pack. So it lives in m_sfx beside the file list, saves into
+// RagdollSounds_SFX.ini, undoes and redoes with every other assignment edit, and
+// goes over the link so a running game stops playing it too. The file keeps its
+// place in the list, so its variant index is untouched and unmuting puts the
+// take back exactly as it was.
+
+namespace {
+
+/// The bank's variant index for a library file on a slot, or -1.
+///
+/// By path rather than by position in the assignment: a file the bank skipped -
+/// disabled in the library, or missing from disk - shifts every index after it,
+/// so counting rows in the panel would silence the wrong sound.
+[[nodiscard]] int VariantOfFile(const rds::SoundBank& bank, const rds::SfxLibrary& library,
+                                rds::SlotId slot, std::string_view file) {
+    const std::string path = library.PathOf(file).string();
+    const std::size_t count = bank.FileCount(slot);
+    for (std::size_t i = 0; i < count; ++i) {
+        rds::ResolvedSound sound;
+        if (bank.Get(slot, static_cast<std::uint8_t>(i), sound) && sound.path == path) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+}  // namespace
+
+void App::ApplySfxSession() {
+    // Only the pins. The mutes are part of the assignment now, so
+    // SoundBank::LoadAssigned has already applied them by the time this runs -
+    // and applying them a second time here is how the two copies would drift.
+    for (std::size_t i = 0; i < m_sfxSession.size(); ++i) {
+        const auto slot = static_cast<rds::SlotId>(i);
+        SlotSession& session = m_sfxSession[i];
+        if (session.forced.empty()) {
+            continue;
+        }
+        const int variant = VariantOfFile(m_bank, m_library, slot, session.forced);
+        // Gone from the slot: dropped rather than remembered, so the count on
+        // "Unforce all" is the number of slots actually pinned and not the
+        // number of times somebody pressed the button.
+        if (variant < 0) {
+            session.forced.clear();
+        } else {
+            m_bank.ForceVariant(slot, static_cast<std::uint8_t>(variant));
+        }
+    }
+}
+
+bool App::SfxForced(rds::SlotId slot, std::string_view file) const {
+    return m_sfxSession[static_cast<std::size_t>(slot)].forced == file;
+}
+
+bool App::SfxMuted(rds::SlotId slot, std::string_view file) const {
+    return m_sfx.For(slot).Muted(file);
+}
+
+void App::ToggleSfxForce(rds::SlotId slot, std::string_view file) {
+    std::string& forced = m_sfxSession[static_cast<std::size_t>(slot)].forced;
+    forced = (forced == file) ? std::string{} : std::string(file);
+    ApplySfx();
+}
+
+void App::ToggleSfxMute(rds::SlotId slot, std::string_view file) {
+    const rds::SfxAssignments before = m_sfx;
+    std::vector<std::string>& muted = m_sfx.For(slot).muted;
+    if (const auto it = std::ranges::find(muted, file); it != muted.end()) {
+        muted.erase(it);
+    } else {
+        muted.emplace_back(file);
+    }
+    // Through the assignment history like every other edit to the pack, so
+    // Ctrl+Z reaches it and the unsaved marker lights. PushSfxEdit calls
+    // ApplySfx, which rebuilds the bank and re-runs the take.
+    PushSfxEdit(before, std::string(rds::Slot(slot).name) + " / " +
+                            (muted.size() > before.For(slot).muted.size() ? "mute" : "unmute"));
+}
+
+int App::SfxForceCount() const {
+    return static_cast<int>(std::ranges::count_if(
+        m_sfxSession, [](const SlotSession& s) { return !s.forced.empty(); }));
+}
+
+int App::SfxMuteCount() const {
+    int total = 0;
+    for (const rds::SlotDesc& desc : rds::Slots()) {
+        total += static_cast<int>(m_sfx.For(desc.id).muted.size());
+    }
+    return total;
+}
+
+void App::ClearSfxForces() {
+    for (SlotSession& session : m_sfxSession) {
+        session.forced.clear();
+    }
+    ApplySfx();
+}
+
+void App::ClearSfxMutes() {
+    const rds::SfxAssignments before = m_sfx;
+    for (const rds::SlotDesc& desc : rds::Slots()) {
+        m_sfx.For(desc.id).muted.clear();
+    }
+    PushSfxEdit(before, "unmute all");
+}
+
 bool App::SlotInTimeline(rds::SlotId slot) const {
-    const ConfigSide& side = m_side[m_player.ActiveSide()];
-    return std::ranges::any_of(side.result.cues,
-                               [slot](const rds::Cue& cue) { return cue.slot == slot; });
+    // The remembered answer, not the live one. Recomputing it from the cue
+    // list every frame meant that muting a slot - or any config change that
+    // silenced one - reordered the panel while the cursor was still on the
+    // control that caused it. See m_slotSeen.
+    const auto index = static_cast<std::size_t>(slot);
+    return index < m_slotSeen.size() && m_slotSeen[index];
+}
+
+CueSound App::SoundOf(const rds::Cue& cue) const {
+    CueSound out;
+    out.variant = cue.variant;
+    out.variantCount = static_cast<int>(m_bank.FileCount(cue.slot));
+    out.forced = m_bank.ForcedVariant(cue.slot) != rds::SoundBank::kNoVariant;
+
+    rds::ResolvedSound resolved{};
+    if (!m_bank.Get(cue.slot, cue.variant, resolved)) {
+        // A declared-and-unfilled voice slot. The engine skips these, so it is
+        // not a cue anybody should be looking at - but say so rather than
+        // leaving the cell blank, which reads as a bug in this column.
+        out.label = "(unfilled)";
+        return out;
+    }
+    if (resolved.procedural || resolved.path.empty()) {
+        out.procedural = true;
+        out.label = "(procedural)";
+        return out;
+    }
+
+    out.file = fs::path(resolved.path).filename().string();
+    // The library's display name, which is what the panel and the browser call
+    // it. Renaming is free there precisely so a sound can be called what it
+    // sounds like, and this is the column where that pays off.
+    if (const rds::SfxEntry* entry = m_library.Find(out.file); entry != nullptr &&
+                                                              !entry->name.empty()) {
+        out.label = entry->name;
+    } else {
+        out.label = fs::path(resolved.path).stem().string();
+    }
+    return out;
 }
 
 std::vector<rds::SlotId> App::SlotOrder() const {
@@ -224,6 +386,33 @@ void App::DrawSfxPanel(float height) {
     }
     Tip("Everything in the library, with what it measures. Also where importing happens.");
 
+    // Only while there is something to undo. A force or a mute is invisible from
+    // anywhere but the row it is on - the slot may not even be in this take -
+    // so the way out of one has to be at the top where it cannot be missed.
+    if (const int forced = SfxForceCount(); forced > 0) {
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, kDirty);
+        if (ImGui::Button(std::format("Unforce all ({})###unforceall", forced).c_str())) {
+            ClearSfxForces();
+        }
+        ImGui::PopStyleColor();
+        Tip(std::format("{} slot(s) are pinned to one file. This puts every one of them back to "
+                        "picking between its variants.",
+                        forced));
+    }
+    if (const int muted = SfxMuteCount(); muted > 0) {
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, kDirty);
+        if (ImGui::Button(std::format("Unmute all ({})###unmuteall", muted).c_str())) {
+            ClearSfxMutes();
+        }
+        ImGui::PopStyleColor();
+        Tip(std::format("{} file(s) are muted on a slot. This puts all of them back in play, as "
+                        "one undo step. It does not touch anything disabled in the library, which "
+                        "is the everywhere-at-once version of the same idea.",
+                        muted));
+    }
+
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-4.0f);
     ImGui::InputTextWithHint("##sfxfilter", "filter slots", m_sfxFilter, sizeof(m_sfxFilter));
@@ -282,6 +471,42 @@ void App::DrawSlotWidget(rds::SlotId slot) {
                     "quarter either side of it to the top, and everything else still assignable "
                     "below that."));
 
+    // The whole slot's mute, beside the files it would have played.
+    //
+    // Not the same switch as the per-file mutes below it: those suspend one
+    // recording and let the slot pick another, which answers "is this the right
+    // file". This silences the layer, which answers "does the mix need this
+    // layer at all" - and that is the question the design keeps asking, because
+    // its central claim is that muting imp_sub should take the gnarl with it.
+    //
+    // It writes the same flag the [Layers] and [Surfaces] panels do, through
+    // rds::LayerMute, so the two are one switch shown twice rather than two
+    // switches that can disagree. Like every mute it lands at render, which is
+    // what makes it an honest A/B: arbitration made the same decisions either
+    // way and only the sound is gone.
+    if (const bool* mute = rds::LayerMute(m_side[m_focusSide].cfg, slot); mute != nullptr) {
+        const bool audible = *mute;
+        ImGui::SameLine();
+        if (!audible) ImGui::PushStyleColor(ImGuiCol_Text, kDirty);
+        if (ImGui::SmallButton(audible ? "mute" : "muted")) {
+            ConfigSide& s = m_side[m_focusSide];
+            const rds::AlgorithmConfig before = s.cfg;
+            *rds::LayerMute(s.cfg, slot) = !audible;
+            s.dirty = true;
+            PushEdit(m_focusSide, before,
+                     std::string(desc.name) + (audible ? " / muted" : " / unmuted"));
+        }
+        if (!audible) ImGui::PopStyleColor();
+        Tip(std::format(
+            "Silence every cue this slot emits, on side {}. Arbitration is untouched - the "
+            "same cues are chosen and paid for, and only the sound is gone - so what you "
+            "hear is this take without this layer rather than a different take.\n\n"
+            "The same flag as [Layers] / [Surfaces] in the config panel. With split A/B on, "
+            "muting one side gives you with-and-without on alternate loops, which is the "
+            "fastest way to ask whether a layer is earning its place.",
+            static_cast<char>('A' + m_focusSide)));
+    }
+
     ImGui::SameLine();
     bool looping = assignment.looping;
     if (ImGui::Checkbox("loop", &looping)) {
@@ -291,6 +516,13 @@ void App::DrawSlotWidget(rds::SlotId slot) {
     }
     Tip("This slot's sound is a sustained texture the engine repeats, not an event. Looping slots "
         "are never judged for being too long, and a long file assigned to one is not a warning.");
+
+    if (!m_sfxSession[static_cast<std::size_t>(slot)].forced.empty()) {
+        ImGui::SameLine();
+        ImGui::TextColored(kDirty, "[forced]");
+        Tip("Every cue this slot emits is playing one file. The slot is not picking between its "
+            "variants until that is cleared.");
+    }
 
     ImGui::SameLine();
     if (ImGui::SmallButton("+ add")) {
@@ -324,10 +556,15 @@ void App::DrawSlotWidget(rds::SlotId slot) {
             Tip("Named by the ini but not in the library - deleted, renamed on disk, or the "
                 "library folder moved. The slot plays one fewer variant than it says.");
         } else {
+            // Greyed rather than hidden while muted: the point of suspending one
+            // variant is to keep looking at it while it is not playing.
+            const bool quiet = SfxMuted(slot, file);
+            if (quiet) ImGui::PushStyleColor(ImGuiCol_Text, kQuiet);
             ImGui::TextUnformatted(entry->name.c_str());
-            Tip(std::format("{}\n\nvariant {} of {}. The order is the variant index a recorded cue "
-                            "carries, so re-ordering changes which file a given cue plays.",
-                            entry->file, i, assignment.files.size()));
+            if (quiet) ImGui::PopStyleColor();
+            Tip(std::format("{}\n\nvariant {} of {}{}. The order is the variant index a recorded "
+                            "cue carries, so re-ordering changes which file a given cue plays.",
+                            entry->file, i, assignment.files.size(), quiet ? ", muted" : ""));
             ImGui::SameLine();
             sfxui::Badges(*entry, false);
             // The one badge the library view cannot show, because it depends on
@@ -341,6 +578,40 @@ void App::DrawSlotWidget(rds::SlotId slot) {
                                 desc.maxLengthMs));
             }
         }
+
+        const bool forced = SfxForced(slot, file);
+        const bool muted = SfxMuted(slot, file);
+
+        ImGui::SameLine();
+        if (forced) ImGui::PushStyleColor(ImGuiCol_Text, kDirty);
+        if (ImGui::SmallButton(forced ? "forced" : "force")) {
+            ToggleSfxForce(slot, file);
+        }
+        if (forced) ImGui::PopStyleColor();
+        Tip(forced ? "Stop pinning this one. The slot goes back to picking between its variants, "
+                     "with the same seed, so the take returns to exactly what it was."
+                   : "Play this file for every cue on this slot, so a candidate can be heard "
+                     "against the whole take instead of against the preview button. One pin per "
+                     "slot - pinning another moves it - and it beats a mute on the same file, "
+                     "because pinning something you muted is asking to hear it. Lasts until you "
+                     "clear it or close the testbench; nothing is written and the game is not "
+                     "told.");
+
+        ImGui::SameLine();
+        if (muted) ImGui::PushStyleColor(ImGuiCol_Text, kDirty);
+        if (ImGui::SmallButton(muted ? "muted" : "mute")) {
+            ToggleSfxMute(slot, file);
+        }
+        if (muted) ImGui::PopStyleColor();
+        Tip(muted ? "Put it back in play on this slot. The file never left its place in the "
+                    "list, so the take goes back to exactly what it was."
+                  : "Never choose this one, while leaving it on the slot. The rest of the "
+                    "variants carry the take, which is how you find out whether the one you "
+                    "dislike is the one you keep hearing; a slot with all of its files muted goes "
+                    "silent rather than falling back to a stand-in.\n\n"
+                    "This slot only, and it is saved: it writes into RagdollSounds_SFX.ini, "
+                    "undoes with Ctrl+Z, goes over the link to a running game, and is still there "
+                    "next launch. The library's own disable is the everywhere-at-once version.");
 
         ImGui::SameLine();
         if (ImGui::SmallButton("change")) {
@@ -358,8 +629,9 @@ void App::DrawSlotWidget(rds::SlotId slot) {
 
     if (removeAt >= 0) {
         const rds::SfxAssignments before = m_sfx;
-        auto& files = m_sfx.For(slot).files;
-        files.erase(files.begin() + removeAt);
+        rds::SlotAssignment& target = m_sfx.For(slot);
+        target.Unmute(target.files[static_cast<std::size_t>(removeAt)]);
+        target.files.erase(target.files.begin() + removeAt);
         PushSfxEdit(before, std::string(desc.name) + " / remove");
     }
 

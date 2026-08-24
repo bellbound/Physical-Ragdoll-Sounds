@@ -2,7 +2,7 @@
 """
 preview.py -- render the impact composite so the stack can be judged as one sound.
 
-The layer offsets and level balance come from 01-Reference-Analysis.md section 1: the bands
+The layer offsets and level balance come from 04-Reference-Analysis.md section 1: the bands
 of a reference hero hit do not arrive together. Transient at 0 ms and quietest, body at
 +10-30 ms, sub at +55-75 ms and loudest. This is the check the asset list exists to serve --
 the individual files can all pass and still not fuse.

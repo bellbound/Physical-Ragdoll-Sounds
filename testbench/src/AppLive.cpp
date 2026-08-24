@@ -45,6 +45,15 @@ namespace {
 /// hardware session, and a take that is only data is still a take.
 constexpr std::uint32_t kObsArmTimeoutMs = 4000;
 
+/// How often the take pairs OBS's output clock with the game's.
+///
+/// QuickModMenuNG sampled every ten seconds, because it was recording sessions
+/// minutes long inside a headset. A devbench take is usually five to thirty
+/// seconds, and a fit through two rows is a line through two points - so this is
+/// a second, which costs one websocket round trip and gives the slope something
+/// to be fitted through.
+constexpr double kClockSampleMs = 1000.0;
+
 void Tip(std::string_view text) {
     if (!text.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
         ImGui::BeginTooltip();
@@ -126,6 +135,11 @@ VideoTake::Mode App::VideoMode() const {
 // ═════════════════════════════════════════════════════════════════════════════
 
 void App::SyncToGame() {
+    // Not config, but it belongs on the same once-a-frame call: a take that is
+    // running needs its clocks paired whether or not anything on the sliders
+    // moved, and this is the frame tick the devbench half already has.
+    SampleTakeClock(false);
+
     const bool connected = m_link.Connected();
     if (connected != m_wasConnected) {
         // A fresh connection knows nothing about what is on the sliders, so
@@ -133,12 +147,30 @@ void App::SyncToGame() {
         // the devbench" is, seen from this end: the game says hello and the
         // three things it needs arrive unasked.
         m_pushedValid = false;
+        m_pushedAudioMode = false;
         m_wasConnected = connected;
         if (!connected) {
             return;
         }
     }
-    if (!connected || !m_pushToGame) {
+    if (!connected) {
+        return;
+    }
+
+    // Before the push gate below, and not subject to it: which mix the game is
+    // playing is not one of the overrides. Turning the sliders loose so the game
+    // runs its own inis is exactly when the comparison is worth making, and the
+    // switch would be dead in the one mode it matters most.
+    //
+    // Sent once on connect as well as on every change, because a game that has
+    // just started knows nothing about a switch that was already flipped.
+    if (!m_pushedAudioMode || m_pushedVanillaAudio != m_useVanillaAudio) {
+        m_link.PushAudioMode(m_useVanillaAudio);
+        m_pushedVanillaAudio = m_useVanillaAudio;
+        m_pushedAudioMode = true;
+    }
+
+    if (!m_pushToGame) {
         return;
     }
 
@@ -177,9 +209,9 @@ void App::DrawLinkRow() {
 
     // Laid out from the right edge, so it keeps the same place as the numbers to
     // its left grow and shrink. The width is the widest this row ever gets -
-    // recording, with a clock and two counters - rather than measured per frame,
-    // because a row that moves as it counts is unreadable.
-    constexpr float kWidth = 430.0f;
+    // connected, with the audio switch, a clock and two counters - rather than
+    // measured per frame, because a row that moves as it counts is unreadable.
+    constexpr float kWidth = 580.0f;
     const float rightEdge = ImGui::GetWindowWidth() - 8.0f;
     if (ImGui::GetCursorPosX() < rightEdge - kWidth) {
         ImGui::SetCursorPosX(rightEdge - kWidth);
@@ -232,6 +264,28 @@ void App::DrawLinkRow() {
                 "ignored rather than reinterpreted. Config still gets through. Rebuild both\n"
                 "halves from the same tree.");
         }
+
+        // The A/B switch, in this row rather than buried in Options because it
+        // is clicked between one shove and the next: a comparison is only worth
+        // anything while the same body is falling down the same stairs.
+        ImGui::SameLine();
+        if (m_useVanillaAudio) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.78f, 0.35f, 1.0f));
+        }
+        ImGui::Checkbox("Use Vanilla Audio", &m_useVanillaAudio);
+        if (m_useVanillaAudio) {
+            ImGui::PopStyleColor();
+        }
+        Tip("Hand the mix back to Skyrim for as long as this is ticked.\n\n"
+            "On: the game puts vanilla's own body impact sounds back on the impact records\n"
+            "this mod silenced, and the mod stops playing - every cue is still made and\n"
+            "still recorded, it just never becomes a voice. So what you hear is what a\n"
+            "knockdown sounds like with the mod not installed.\n\n"
+            "Off: ours again, and vanilla goes back to being silenced - unless\n"
+            "[Suppression] bSuppressVanillaBodyImpacts is 0 in RagdollSounds.ini, in which\n"
+            "case that choice is left alone.\n\n"
+            "Nothing is left behind by it: the mod puts itself back the moment the link\n"
+            "drops, so a session can never be left silently muted by a closed testbench.");
 
         ImGui::SameLine();
         switch (m_recordState) {
@@ -300,6 +354,7 @@ void App::StartLiveRecording() {
     m_recordStem = NextTakeStem(m_paths.recordings, "devbench_take");
     m_link.BeginCapture();
     m_recordStarted = std::chrono::steady_clock::now();
+    m_recordSync.clear();
 
     const obs::Status video = obs::Now();
     if (!video.connected) {
@@ -330,13 +385,49 @@ void App::OnVideoArmed(bool started) {
     m_recordState = RecordState::kRecording;
     if (!started) {
         spdlog::info("record: OBS did not confirm it was running - taking the events only");
+        return;
     }
+    // The arm sample. OBS has just said the output is running, so this row is the
+    // one nearest the head of the file and the one the intercept leans on most.
+    SampleTakeClock(true);
+}
+
+void App::SampleTakeClock(bool force) {
+    if (m_recordState != RecordState::kRecording || !m_recordHasVideo) {
+        return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    if (!force &&
+        std::chrono::duration<double, std::milli>(now - m_lastClockSample).count() <
+            kClockSampleMs) {
+        return;
+    }
+    // The game's clock at the moment the question is asked. Read here rather than
+    // in the callback because the callback runs whenever the answer comes back,
+    // and the round trip is the one interval this pairing has to account for.
+    double gameMs = 0.0;
+    if (!m_link.GameClock(gameMs)) {
+        return;  // no heartbeat yet, so nothing to pair OBS against
+    }
+    m_lastClockSample = now;
+    obs::SampleClock([this, gameMs](std::uint64_t obsMs, std::uint64_t rttMs) {
+        // The midpoint of the send and the reply is the local instant the reply
+        // describes - the estimator NTP uses, and the same one QuickModMenuNG's
+        // recorder used from inside the game.
+        m_recordSync.push_back({gameMs + static_cast<double>(rttMs) * 0.5,
+                                static_cast<double>(obsMs), static_cast<double>(rttMs)});
+    });
 }
 
 void App::StopLiveRecording() {
     if (m_recordState == RecordState::kIdle) {
         return;
     }
+    // The closing row, before the state moves off kRecording and before the stop
+    // is queued. Both requests go down the one socket in order, so this one is
+    // answered - and pushed - before the stop is, and the fit gets a sample at
+    // each end of the take rather than only at the head.
+    SampleTakeClock(true);
     m_recordState = RecordState::kWriting;
     if (!m_recordHasVideo) {
         FinishLiveRecording({});
@@ -349,6 +440,10 @@ void App::FinishLiveRecording(const std::string& videoPath) {
     obs::SetTakeActive(false);
     const LiveCapture capture = m_link.EndCapture();
     m_recordState = RecordState::kIdle;
+    // Cleared here rather than at the end, where it used to be: the end is past
+    // the video move, and a clear there wiped the one message that says the clip
+    // did not make it beside the take.
+    m_recordError.clear();
 
     if (capture.Empty()) {
         m_recordError = "nothing arrived - was anybody knocked over?";
@@ -372,8 +467,9 @@ void App::FinishLiveRecording(const std::string& videoPath) {
     }
 
     std::string error;
-    const fs::path csv =
-        WriteTake(m_paths.recordings, stem, source, capture.startMs, capture.endMs + 1.0, error);
+    TakeWindow window;
+    const fs::path csv = WriteTake(m_paths.recordings, stem, source, capture.startMs,
+                                   capture.endMs + 1.0, error, &window);
     if (csv.empty()) {
         m_recordError = error;
         return;
@@ -383,22 +479,32 @@ void App::FinishLiveRecording(const std::string& videoPath) {
     // convention Recording::Scan looks for. Moved rather than copied: OBS wrote
     // it into the user's recording folder and leaving a second copy there is how
     // a disk fills up without anybody deciding to.
+    fs::path video;
     if (!videoPath.empty()) {
         std::error_code ec;
         const fs::path from{videoPath};
         const fs::path to = m_paths.recordings / (stem + from.extension().string());
         fs::rename(from, to, ec);
         if (ec) {
+            // Across volumes, usually. The tidy-up afterwards is best effort on
+            // its own error, because a copy that landed is a video beside the
+            // take whether or not the original could be swept up.
             fs::copy_file(from, to, fs::copy_options::overwrite_existing, ec);
-            if (!ec) fs::remove(from, ec);
+            if (!ec) {
+                std::error_code sweep;
+                fs::remove(from, sweep);
+            }
         }
         if (ec) {
             m_recordError = std::format("the take was written but the video stayed at {}",
                                         videoPath);
+        } else {
+            video = to;
         }
     }
 
-    m_recordError.clear();
+    WriteTakeSync(stem, window, video);
+
     RescanKeepingSelection();
     // Straight to it. The reason to record is to hear it, and a take you have to
     // go and find in a combo box is one more step between the fall and the sound.
@@ -410,6 +516,39 @@ void App::FinishLiveRecording(const std::string& videoPath) {
     }
     spdlog::info("record: {} written, {} event(s){}", stem, capture.events.size(),
                  videoPath.empty() ? " (no video)" : " with video");
+}
+
+void App::WriteTakeSync(const std::string& stem, const TakeWindow& window,
+                        const std::filesystem::path& video) {
+    if (video.empty()) {
+        return;  // no video, so nothing to line anything up against
+    }
+
+    // Rebased onto the take's own zero, which is its first surviving row less the
+    // lead-in - `window.originMs`, and not the moment Record was pressed. That is
+    // the same clock t_ms is written on, so it is the only one the sync track may
+    // be expressed in.
+    ObsTakeInfo info;
+    info.outputPath = video.generic_string();
+    info.obsVersion = obs::Version();
+    info.recordDirectory = obs::RecordDirectory();
+
+    std::string error;
+    if (WriteSyncTrack(m_paths.recordings, stem, m_recordSync, window.originMs, error)) {
+        info.syncCsv = stem + "_sync.csv";
+        const SyncModel fit = FitSync(m_paths.recordings / info.syncCsv);
+        info.offsetMs = fit.valid ? fit.intercept : 0.0;
+        spdlog::info("record: {} sync {}/{} rows, offset {:+.0f} ms, drift {:+.2f} ms/s", stem,
+                     fit.rowsUsed, fit.rowsTotal, info.offsetMs, fit.driftMsPerSec);
+    } else {
+        // Worth saying out loud, but not worth failing the take over: the events
+        // and the video are both on disk and the offset can still be nudged by
+        // hand. The block below is written either way, because "OBS recorded this
+        // take and nothing was cut off it" is true whether or not a clock was
+        // ever sampled - and it is what keeps the two-second clip pad off it.
+        spdlog::warn("record: {} has video but no sync track - {}", stem, error);
+    }
+    AppendObsBlock(m_paths.recordings / (stem + ".yaml"), info);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -519,23 +658,30 @@ void App::CreateRecordingFromSelection() {
         NextTakeStem(m_paths.recordings, SafeStem(info.stem) + "_cut");
 
     std::string error;
+    TakeWindow window;
     const fs::path csv = SliceTake(*m_recording, info, m_paths.recordings, stem, m_selStartMs,
-                                   m_selEndMs, error);
+                                   m_selEndMs, error, &window);
     if (csv.empty()) {
         m_selectionNote = error;
         return;
     }
 
     // The matching stretch of video, cut and then decoded, so the new take is
-    // usable rather than merely present. The window is the *video's* - the
-    // selection is in take time and the two clocks are a fit apart.
+    // usable rather than merely present. Two conversions, and both matter: the
+    // *written take's* window rather than the selection, because SliceTake
+    // re-bases onto the first row it kept and a selection dragged by eye starts
+    // in dead air; then take time to video time, because the two clocks are a
+    // fit apart. Cutting from the selection cost 623 ms on log_14_cut_1 - the
+    // gap between where the drag started and where the ragdoll did - and the
+    // picture ran half a second ahead of everything it was there to explain.
     std::string videoNote;
     if (!info.videoPath.empty()) {
         const fs::path clip = m_paths.recordings / (stem + ".mp4");
-        const double from = VideoTimeMs(m_selStartMs) - kLeadInMs;
-        const double to = VideoTimeMs(m_selEndMs) + kLeadInMs;
+        const double zero = VideoTimeMs(window.originMs);
+        const double from = std::max(0.0, zero - kLeadInMs);
+        const double to = VideoTimeMs(window.originMs + window.durationMs) + kLeadInMs;
         std::string cutError;
-        if (CutVideo(info.videoPath, clip, std::max(0.0, from), to, cutError)) {
+        if (CutVideo(info.videoPath, clip, from, to, cutError)) {
             std::string buildError;
             if (m_videoSync) {
                 // Video sync keeps the mp4 and reads frames out of it, so
@@ -549,11 +695,12 @@ void App::CreateRecordingFromSelection() {
             } else {
                 videoNote = ", clip cut but " + buildError;
             }
-            // The clip starts at the selection, so the new take's offset is the
-            // lead-in and nothing else. Written down rather than left to the
-            // guess, because the guess is about OBS's cut point and this cut is
-            // ours.
-            m_offsets.Set(stem, kLeadInMs);
+            // Where the take's zero actually fell inside the clip: the lead-in,
+            // except at the very front of a recording where there was not a
+            // lead-in's worth of video to take. Written down rather than left to
+            // the guess, because the guess is about OBS's cut point and this cut
+            // is ours.
+            m_offsets.Set(stem, zero - from);
         } else {
             videoNote = ", no video (" + cutError + ")";
         }

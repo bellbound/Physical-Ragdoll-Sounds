@@ -60,6 +60,36 @@ struct ParamDesc {
     /// every other type. Declared last so the RDS_PARAM macro, which stops at
     /// `enumNames`, leaves it at zero without having to know about it.
     std::size_t capacity{};
+
+    /// Where this parameter used to live, for a file written before it moved.
+    /// The ini reader falls back to it when the current section and key are not
+    /// in the file, so a rename costs nobody their tuning; the writer drops the
+    /// old line and writes the parameter out under its current name, so the
+    /// file migrates itself the first time anything is saved.
+    ///
+    /// Empty for every parameter that has never moved, which is almost all of
+    /// them. Set through `Renamed()` rather than by the macro - see
+    /// ConfigSchema.cpp.
+    std::string_view legacySection;
+    std::string_view legacyKey;
+
+    /// This row shares its line in the UI with the next one: a ramp's two ends,
+    /// a gain and its trim, a toggle and the window it applies to. Two columns
+    /// is the most the panel will do, so the flag is never set on two rows in a
+    /// row. Set through `Pairs()`.
+    bool pairWithNext{};
+
+    /// A rule is drawn above this row, because it opens a feature of its own
+    /// inside a group that holds several: the second `bEnabled` in a drawer and
+    /// everything under it, a block that answers a different question from the
+    /// block above. The group header says what the drawer is; the rule says
+    /// where one thing inside it stops and the next begins.
+    ///
+    /// Never set on the right-hand half of a pair - there is no line to break
+    /// there - and the panel drops it on the first row a group draws, so a
+    /// group the filter has thinned out never opens with a rule under its
+    /// header. Set by the RDS_HRULE / RDS_HPAIR rows in ConfigSchema.cpp.
+    bool ruleBefore{};
 };
 
 /// Every parameter of RagdollSounds_Algorithm.ini, in file order.

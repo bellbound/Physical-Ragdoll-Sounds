@@ -20,6 +20,42 @@ constexpr TimeMs kTailMs = 3000.0;
 
 [[nodiscard]] bool IsOneShot(const Cue& cue) { return cue.op == CueOp::kPlayOneShot; }
 
+/// Copy every tracked actor's measured body out of the engine, for one tick.
+///
+/// Called after Tick rather than before: the state a rule read this frame is
+/// the state Tick left behind, and sampling first would show the timeline the
+/// frame before the one it is labelled with.
+void SampleBody(const Engine& engine, TimeMs nowMs, std::vector<BodySample>& out) {
+    const std::size_t tracked = engine.TrackedActors();
+    for (std::size_t i = 0; i < tracked; ++i) {
+        const CrashState* state = engine.ActorAt(i);
+        if (state == nullptr) {
+            break;
+        }
+        BodySample sample{};
+        sample.timeMs = nowMs;
+        sample.actorId = state->actorId;
+        sample.comPosition = state->comPosition;
+        sample.comVelocity = state->comVelocity;
+        sample.speed = std::sqrt(state->comVelocity.x * state->comVelocity.x +
+                                 state->comVelocity.y * state->comVelocity.y +
+                                 state->comVelocity.z * state->comVelocity.z);
+        sample.verticalSpeed = state->verticalSpeed;
+        sample.verticalAccel = state->verticalAccel;
+        sample.fallDropUnits = state->fallDropUnits;
+        sample.airborne = state->airborne;
+        sample.airborneSinceMs = state->airborneSinceMs;
+        sample.haveBodySamples = state->haveBodySamples;
+        sample.motion = state->motion;
+        sample.motionEnteredMs = state->motionEnteredMs;
+        sample.slideExit = state->slideExit;
+        sample.moment = state->moment;
+        sample.heroSeq = state->heroSeq;
+        sample.heroSinceMs = state->heroSinceMs;
+        out.push_back(sample);
+    }
+}
+
 /// One audible moment, gathered back out of the cue list.
 ///
 /// The references measure *onsets*, not individual layers - "peak level of every
@@ -118,17 +154,30 @@ OfflineResult RunOffline(Recording& recording, const AlgorithmConfig& config, So
     // Tick at the recording's own frame boundaries, so the engine steps the way
     // it did in the game rather than at whatever rate the runner feels like.
     TimeMs last = frames.empty() ? 0.0 : frames.front();
+    TimeMs first = last;
+    bool anyTick = false;
     for (const TimeMs frame : frames) {
         if (frame < start || (end > 0.0 && frame > end)) {
             continue;
         }
+        if (!anyTick) {
+            first = frame;
+            anyTick = true;
+        }
         engine.Tick(recording, frame);
+        SampleBody(engine, frame, result.body);
+        ++result.ticks;
         last = frame;
     }
     const TimeMs step = recording.FrameStepMs() > 0.0 ? recording.FrameStepMs() : 16.6;
+    TimeMs lastTail = last;
     for (TimeMs t = last + step; t <= last + kTailMs; t += step) {
         engine.Tick(recording, t);
+        SampleBody(engine, t, result.body);
+        ++result.ticks;
+        lastTail = t;
     }
+    result.simulatedMs = lastTail - first;
 
     result.cues = collector.Cues();
     std::ranges::stable_sort(result.cues,
@@ -404,7 +453,37 @@ VerifyReport Verify(Recording& recording, const AlgorithmConfig& config, SoundBa
               std::format("{} settle cues (design: exactly one)", settles));
     }
 
-    // ── 8. the same seed and config twice give a byte-identical list ─────────
+    // ── 8. the moment axis fired sanely, and never in mid-air ────────────────
+    //
+    // Two claims, both about Stage 2's second axis, and both traceable to a
+    // failure that shipped.
+    //
+    // The hero count guards the floor. A test that is too willing spends the
+    // moment on the first thing that touches - a 44.7 u/s thigh scuff, in the
+    // case that motivated the check - and a moment that resets the burst budget
+    // every time it opens stops being a budget at all. Zero heroes is
+    // legitimate (a gentle slump crosses nothing and the design says so), but a
+    // take with many is a floor set too low, and a hero moment that resets the
+    // burst budget every time it opens stops being a budget.
+    //
+    // The in-flight count guards §3.6 and is an absolute: a fall that announces
+    // it is over while the body is still falling reads as broken immediately,
+    // which is the falsifiable half of the physics/design split.
+    {
+        const bool inFlightOk = run.stats.settleInFlight == 0;
+        // Per knockdown rather than per take: the long recordings are several
+        // knockdowns and are entitled to a hero apiece.
+        const double perEvent =
+            run.stats.bursts > 0 ? static_cast<double>(run.stats.heroes) : 0.0;
+        const bool countOk = run.stats.heroes <= 3 || perEvent <= run.stats.bursts;
+        Check(report, "hero moments", inFlightOk && countOk,
+              std::format("{} hero moments (+{} re-anchored) over {} bursts; {} closing cues in "
+                          "flight (design: 0-3 per knockdown, and never a settle in mid-air)",
+                          run.stats.heroes, run.stats.heroReanchors, run.stats.bursts,
+                          run.stats.settleInFlight));
+    }
+
+    // ── 9. the same seed and config twice give a byte-identical list ─────────
     {
         const OfflineResult again = RunOffline(recording, config, bank, options);
         bool identical = again.cues.size() == run.cues.size();

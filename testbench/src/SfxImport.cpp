@@ -3,13 +3,18 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
+#include <ctime>
 #include <format>
 #include <sstream>
 
 #include <windows.h>
 
 #include <commdlg.h>
+// WIN32_LEAN_AND_MEAN keeps shellapi.h out of windows.h, and shlobj.h does not
+// bring it back: SHFileOperationW and its struct live there.
+#include <shellapi.h>
 #include <shlobj.h>
 
 #include <spdlog/spdlog.h>
@@ -444,6 +449,10 @@ ImportOutcome ImportSfx(const fs::path& source, rds::SfxLibrary& library,
     rds::SfxEntry entry;
     entry.file = filename;
     entry.name = fs::path(filename).stem().string();
+    // Here rather than after the decode, so the one file that cannot be decoded
+    // still carries the evening it arrived on - it is the sound most likely to
+    // be looked for by when it came in.
+    entry.importedAt = static_cast<std::int64_t>(std::time(nullptr));
 
     std::vector<float> mono;
     int rate = 0;
@@ -507,12 +516,14 @@ bool MeasureExisting(rds::SfxLibrary& library, const std::string& file, std::str
         return false;
     }
 
-    // The name and the note are the user's and survive a re-measure; everything
-    // else is replaced.
+    // The name and the mute are the user's, and the import date is when the file
+    // arrived rather than anything about its samples; all three survive a
+    // re-measure and everything else is replaced.
     rds::SfxEntry entry;
     entry.file = existing->file;
     entry.name = existing->name;
-    entry.note = existing->note;
+    entry.importedAt = existing->importedAt;
+    entry.disabled = existing->disabled;
 
     MeasureSfx(mono, rate, entry);
     if (const rds::WavInfo wav = rds::ProbeWav(path.string()); wav.Valid()) {
@@ -573,6 +584,50 @@ std::vector<fs::path> PickAudioFiles() {
         }
     }
     return files;
+}
+
+bool RecycleFiles(const std::vector<fs::path>& files, std::string& error) {
+    error.clear();
+
+    // pFrom is a run of NUL-terminated paths ending in a second NUL, so the
+    // buffer is built by hand rather than by handing over a std::wstring - a
+    // wstring's own terminator is the list's terminator and one file would look
+    // like an empty list.
+    std::vector<wchar_t> from;
+    std::size_t queued = 0;
+    for (const fs::path& file : files) {
+        std::error_code ec;
+        if (!fs::exists(file, ec)) {
+            continue;
+        }
+        // Absolute, because the shell resolves a relative path against its own
+        // idea of the current directory and not against ours.
+        const std::wstring text = fs::absolute(file, ec).wstring();
+        from.insert(from.end(), text.begin(), text.end());
+        from.push_back(L'\0');
+        ++queued;
+    }
+    if (queued == 0) {
+        return true;
+    }
+    from.push_back(L'\0');
+
+    SHFILEOPSTRUCTW op{};
+    op.wFunc = FO_DELETE;
+    op.pFrom = from.data();
+    // No confirmation and no progress dialog: the window has already asked, and
+    // a second modal from the shell would be the same question twice. ALLOWUNDO
+    // is the whole point - without it this is an unlink.
+    op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT |
+                FOF_NOCONFIRMMKDIR;
+
+    const int result = SHFileOperationW(&op);
+    if (result != 0 || op.fAnyOperationsAborted != FALSE) {
+        error = result != 0 ? std::format("the shell refused it (0x{:X})", result)
+                            : "the shell aborted it";
+        return false;
+    }
+    return true;
 }
 
 }  // namespace tb

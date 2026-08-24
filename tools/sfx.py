@@ -3,7 +3,7 @@
 sfx.py — evaluate and post-process generated SFX takes for Physical Ragdoll Sounds.
 
 Specs come from 02-SFX-Generation-Prompts.md, which derives them from the measurements
-in 01-Reference-Analysis.md. Two subcommands:
+in 04-Reference-Analysis.md. Two subcommands:
 
     python sfx.py eval  <file|dir> [--slot SLOT] [--detail] [--csv OUT]
     python sfx.py make  <file> --slot SLOT --var N [--out DIR] [--start MS] [--len MS]
@@ -52,7 +52,7 @@ BANDS = [
 # NOTE ON CENTROID: it is a weak discriminator and generous limits here are deliberate.
 # The four Skate 3 reference hero hits measure 1950-3306 Hz centroid while being clearly
 # bass-led (tilt +6.5 to +21.6 dB) -- there are simply more FFT bins up top, the trap
-# 01-Reference-Analysis.md §7 flags for the scrape. Tilt is what actually separates a body
+# 04-Reference-Analysis.md §7 flags for the scrape. Tilt is what actually separates a body
 # layer from a transient; centroid only catches gross errors. Ranges below are calibrated
 # against Example/*.wav, so a spec must never reject the references themselves.
 SPEC = {
@@ -83,7 +83,7 @@ SPEC = {
     # Calibrated against the 2.1 s stone slide at the end of
     # Example/heavy-impact-tumble-and-slide.wav: tilt +11.2, 17 grains/s, 5.0 dB steadiness,
     # bands sub +0 low -3 lomid -4 mid -4 high -7 air -18. Note how FLAT that is -- only the
-    # air band is really down. "Low-tilted" in 01-Reference-Analysis.md §7 means "not a
+    # air band is really down. "Low-tilted" in 04-Reference-Analysis.md §7 means "not a
     # hiss", not "no mid content"; a pure low rumble with lomid 20+ dB down is as wrong as
     # a hiss, in the other direction. The old grains=(35,95) came from the analysis's prose
     # count of 65/s, which used a different threshold than count_peaks here.
@@ -111,12 +111,43 @@ PROMPT_HEADS = {
     "soft scuff tap of a": "limb_tap", "quiet slap of loose": "limb_tap",
     "slow crushing of a b": "crunch_gran", "twisting a handful o": "crunch_gran",
     "wet squelch of raw m": "gore_wet", "heavy wet slap of so": "gore_wet",
+    # 2026-08-23 Firefly batch. The two stone heads name the *prompt's* slot, not the
+    # take's: all four stone takes came back bass-led (tilt +7.8 to +17.7 against
+    # surf_stone's -2 ceiling) and are staged for imp_body / head_impact instead --
+    # see 03-Asset-Status.md section 7. `make --slot` overrides the inference anyway.
+    "a heavy wet slap of ": "gore_wet", "a wet thick squelch ": "gore_wet",
+    "hard flat impact aga": "surf_stone", "hard flat impact of ": "surf_stone",
+    "quick impact crushin": "crunch_gran",
+    "a steady soft rustle": "foley_cloth", "a heavy object glide": "scrape_loop",
+    "a dull heavy thump a": "imp_body",
+    # 17:19-17:30 arrivals
+    "single hard knuckle ": "imp_transient",
+    "a quick light forear": "limb_tap", "a soft short boot he": "limb_tap",
+    "naked body sliding a": "scrape_loop", "heavy body violently": "scrape_loop",
+    # "hitmarker" is not a slot; the prompt asks for a short bright crack, which is
+    # imp_transient's job. Graded there so it is judged rather than skipped.
+    "hitmarker sound sing": "imp_transient",
+    # 22:03-22:15 arrivals
+    "series of light limb": "limb_tap", "quick light tap of a": "limb_tap",
+    "heavy forearm droppe": "limb_tap",
+    "side of raw meat dro": "imp_body", "leg of raw meat drop": "imp_body",
+    "a dry meaty damp cut": "imp_body",
+    "small sandbag of dam": "imp_body", "small sandbag of dro": "imp_body",
+    # "fish slap" is the classic wet-slap reference, but all four takes measure
+    # bright (4923-6813 Hz, tilt -10 to -14) -- that is a contact, not a body.
+    "fish slap variation": "imp_transient",
+    # hand-named files with no prompt behind them; graded to where they measure
+    "bone crack impact co": "imp_body",
     "heavy body dragged s": "scrape_loop", "body dragged slowly": "scrape_loop",
     "heavy limp body drag": "scrape_loop",
     "human body dragged s": "scrape_loop", "continuous soft rust": "foley_cloth",
     "low soft air movemen": "air_whoosh",
     "heavy melon wrapped": "head_impact", "hard blunt blow to a": "head_impact",
     "heavy limp body sett": "settle_rest", "loose fabric and a h": "settle_rest",
+    # 23:36-23:39 arrivals. The damped-wood prompt from 02-SFX-Generation-Prompts.md
+    # section 4 - solid/rotten timber with no cavity behind it, which is meant to
+    # measure between surf_wood's hollow knock and surf_soft's dead thump.
+    "dull impact on damp ": "surf_wood", "dull thump on damp r": "surf_wood",
 }
 
 
@@ -160,7 +191,7 @@ def env_db(x, sr, ms=2.0):
 
 
 def band(x, sr, lo, hi):
-    """Zero-phase band split, matching the method in 01-Reference-Analysis.md."""
+    """Zero-phase band split, matching the method in 04-Reference-Analysis.md."""
     n = len(x)
     F = np.fft.rfft(x)
     f = np.fft.rfftfreq(n, 1.0 / sr)
@@ -538,7 +569,7 @@ def cmd_eval(args):
 
 def onsets(x, sr, rise_db=8.0, min_gap_ms=46.0, floor_db=32.0):
     """Onset times in samples. The 46 ms minimum gap is the reference rate floor from
-    01-Reference-Analysis.md §2 -- below it two contacts stop resolving as separate
+    04-Reference-Analysis.md §2 -- below it two contacts stop resolving as separate
     events, so anything closer is one onset, not two."""
     e, hop = env_db(x, sr)
     if not len(e):

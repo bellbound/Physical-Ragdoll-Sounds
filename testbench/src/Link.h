@@ -12,6 +12,7 @@
 // what the game consumed - byte for byte, off the same drain.
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <map>
 #include <mutex>
@@ -81,13 +82,19 @@ public:
 
     // ── pushing config at the game ───────────────────────────────────────────
     //
-    // All four are fire and forget. Nothing waits for an answer, because the
+    // All of them are fire and forget. Nothing waits for an answer, because the
     // answer is that the next contact sounds different.
 
     void PushAlgorithm(const rds::AlgorithmConfig& config);
     void PushSfx(const rds::SfxAssignments& assignments);
     void PushLibraryPath(const std::string& path);
     void PushClear();
+
+    /// Which mix the game should be playing. True puts vanilla's own body
+    /// impacts back and silences ours; false is the mod as it ships. Not a
+    /// config override - it changes what the game is, not what the algorithm
+    /// says - so it goes out whether or not the sliders are being pushed.
+    void PushAudioMode(bool useVanillaAudio);
 
     // ── capturing what arrives ───────────────────────────────────────────────
 
@@ -104,6 +111,25 @@ public:
     /// Contacts, not every row - the number that says whether the take is worth
     /// keeping.
     [[nodiscard]] std::size_t CapturedContacts() const;
+
+    // ── the game's clock, read from here ─────────────────────────────────────
+
+    /// What the game's session clock reads right now, on this side of the
+    /// socket. False when no heartbeat has arrived on this connection.
+    ///
+    /// This is the clock every event is stamped on, so it is the clock anything
+    /// lined up against a take has to be expressed in - the video, in practice.
+    /// Both ends stamp off `steady_clock` on the same machine, so the two run at
+    /// the same rate and only the epoch differs; the heartbeat carries the game's
+    /// reading once a second and the difference is that epoch.
+    ///
+    /// The difference is taken as the *smallest* any heartbeat has shown rather
+    /// than the newest. A packet can only ever arrive late - queue, poll, socket -
+    /// so every sample is the true epoch plus a positive delay, and the minimum
+    /// over a take's worth of them is the sample that was least delayed. With a
+    /// 1 Hz heartbeat, a 20 ms read poll at each end and loopback in between,
+    /// that lands within a few milliseconds, which is inside a video frame.
+    [[nodiscard]] bool GameClock(double& sessionMs) const;
 
 private:
     void Run();
@@ -127,6 +153,15 @@ private:
     /// snapshot. Kept as a count of seconds since Start so the snapshot stays a
     /// plain struct.
     double m_lastStatusSec{};
+
+    /// This process's own zero, so a local instant and the game's sessionMs can
+    /// be subtracted from one another.
+    std::chrono::steady_clock::time_point m_epoch{std::chrono::steady_clock::now()};
+    /// Local ms minus the game's sessionMs, at the least-delayed heartbeat this
+    /// connection has seen. Reset on connect, because the game restarts its
+    /// session clock and the old epoch would be a lifetime out.
+    double m_clockOffsetMs{};
+    bool m_haveClockOffset{};
 
     mutable std::mutex m_outMutex;
     std::vector<std::byte> m_staged;

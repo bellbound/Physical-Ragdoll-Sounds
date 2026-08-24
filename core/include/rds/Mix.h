@@ -85,6 +85,13 @@ struct MixBuffer {
     /// 4 rule 5).
     Vec3 position{};
     std::int32_t boneIndex{-1};
+    /// The contact this moment is built on, so the renderer can hang the voice
+    /// on the limb that made it.
+    std::uint16_t limbIndex{};
+    /// See Cue::collapsed. A collapsed moment goes on the body rather than on a
+    /// limb, which is what "place every layer at one point" means once voices
+    /// follow nodes instead of coordinates.
+    bool collapsed{};
 
     [[nodiscard]] bool Empty() const { return samples.empty(); }
     [[nodiscard]] float LengthMs() const {

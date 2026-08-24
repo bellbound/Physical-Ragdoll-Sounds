@@ -3,7 +3,9 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
+#include <format>
 
 #include "AudioBlobs.h"
 
@@ -18,9 +20,13 @@ namespace {
 ///            resource id. Ours are single-use, and a reused voice would play the
 ///            previous composite.
 ///
-/// SkyrimNet also passes 0x0010, which is the flag vanilla dialogue always sets.
-/// We are not dialogue, so it is left out.
-constexpr std::uint32_t kSoundFlags = 0x8000 | 0x0080;
+///   0x0010 - what `Actor::PlayVoiceFile` always passes, and what SkyrimNet
+///            mirrors. This was left out on the reasoning that we are not
+///            dialogue, which was reasoning from the flag's company rather than
+///            from what it does - nobody has established what it does. Both of
+///            the paths known to work set it and we were the one that did not,
+///            so it goes back in until there is a reason to leave it out.
+constexpr std::uint32_t kSoundFlags = 0x8000 | 0x0080 | 0x0010;
 
 /// Ragdoll impacts should outlive ambience but never a line of dialogue.
 constexpr std::uint8_t kPriority = 0x30;
@@ -31,6 +37,30 @@ constexpr std::uint8_t kPriority = 0x30;
 /// blob retired on the nose can be refused before it was ever served. This is the
 /// same start latency SkyrimNet allows 750 ms of grace for, rounded up.
 constexpr double kRetireGraceMs = 1000.0;
+
+/// How many frames a one-shot's placement is re-sent for before we give up.
+///
+/// One send is not enough and was the bug: `SetPosition` before `Play` is a
+/// message to a sound the engine has not prepared yet and is dropped, and the
+/// single re-send that covered that was gated on `IsPlaying()`, which a 300 ms
+/// composite can finish without ever being observed true - at which point the
+/// voice keeps the position it was opened with, which is the world origin. An
+/// unplaced voice does not go quiet, it goes *somewhere else*: attenuated by
+/// however far the origin is and arriving from a fixed direction that has
+/// nothing to do with the body. Twelve frames is a sixth of a second at 60 fps
+/// and an eighth at VR rates, and it costs at most twelve messages per voice.
+constexpr std::uint8_t kPlaceAttempts = 12;
+
+/// How often the placement line is worth saying, in milliseconds. It is at info
+/// rather than debug on purpose: "our audio is N metres from your ears and the
+/// body is not" is the one thing a shipping log has to be able to answer about a
+/// mod that sounds like it is coming from the wrong place, and nobody reproduces
+/// that with debug logging already on.
+constexpr double kPlaceLogIntervalMs = 2000.0;
+
+/// Skyrim world units per metre. Only ever used to put a human number beside a
+/// distance in the log.
+constexpr float kUnitsPerMetre = 69.99124f;
 
 /// How long a loop buffer is, and how much of the next one overlaps the last.
 ///
@@ -100,20 +130,76 @@ void GameRenderer::SetSoundBank(SoundBank* bank) {
 
 void GameRenderer::SetBoneResolver(BoneResolver resolver) { m_boneResolver = std::move(resolver); }
 
+void GameRenderer::SetActorPositionResolver(ActorPositionResolver resolver) {
+    m_actorPositionResolver = std::move(resolver);
+}
+
 void GameRenderer::Counters(std::uint64_t& cuesIn, std::uint64_t& voicesOut) const {
     cuesIn = m_cuesIn;
     voicesOut = m_voicesOut;
 }
 
-RE::NiAVObject* GameRenderer::NodeFor(ActorId actorId, std::int32_t boneIndex) const {
-    if (boneIndex < 0 || !m_boneResolver) {
-        return nullptr;
+RE::NiAVObject* GameRenderer::NodeFor(ActorId actorId, std::int32_t boneIndex,
+                                      std::uint16_t limbIndex, bool collapsed) const {
+    // Everything follows a node. Not a world coordinate: `SetPosition` is a
+    // message the engine takes and does not keep, and an unfollowed sound sits
+    // at the origin - the middle of the cell, a fixed direction away from
+    // wherever you are standing, and quiet with it. Vanilla's voice path ends on
+    // SetObjectToFollow and SkyrimNet calls SetPosition exactly zero times in
+    // twenty-two placements; we were the only one placing by coordinate and the
+    // only one with the symptom.
+    //
+    // Which node is the whole question, and there are three answers in order.
+
+    // 1. A named bone. The player's own ragdoll, where a collapse to one point
+    //    at arm's length sounds like the audio is inside your head.
+    if (boneIndex >= 0 && m_boneResolver) {
+        if (auto* bone = m_boneResolver(actorId, boneIndex)) {
+            return bone;
+        }
     }
-    return m_boneResolver(actorId, boneIndex);
+
+    // 2. The body, but only when the arbitrator actually asked for that. Stage 4
+    //    rule 5 collapses a hero moment onto one point because several points
+    //    read as several events; the root is that one point, and unlike the
+    //    world coordinate it used to be, it moves with the body instead of
+    //    standing where the body was a second ago.
+    if (collapsed && m_rootResolver) {
+        if (auto* root = m_rootResolver(actorId)) {
+            return root;
+        }
+    }
+
+    // 3. Otherwise the limb that made the contact. This is the default and it is
+    //    the one the design argues for: physics owns *where*, and a listener
+    //    checks it against what they can see - "a sound must come from where the
+    //    limb hit". An NPC's limbs resolve exactly the same way the player's do;
+    //    nothing here was ever player-only.
+    if (m_boneResolver) {
+        if (auto* limb = m_boneResolver(actorId, static_cast<std::int32_t>(limbIndex))) {
+            return limb;
+        }
+    }
+
+    // The body as a backstop - an unrecognised skeleton, or 3D that went away
+    // mid-fall. Better a voice on the wrong bone than a voice at the origin.
+    if (m_rootResolver) {
+        return m_rootResolver(actorId);
+    }
+    return nullptr;
 }
 
+void GameRenderer::SetRootResolver(RootResolver resolver) { m_rootResolver = std::move(resolver); }
+
 void GameRenderer::Emit(const Cue& cue) {
+    // Counted before it is dropped, so the testbench's heartbeat shows cues
+    // arriving with no voices leaving - which is what muted looks like from the
+    // other end, and is worth being able to tell apart from an engine that has
+    // stopped proposing anything.
     ++m_cuesIn;
+    if (m_muted) {
+        return;
+    }
 
     switch (cue.op) {
         case CueOp::kPlayOneShot: {
@@ -243,11 +329,19 @@ bool GameRenderer::Open(std::span<const std::uint8_t> wav, const Vec3& position,
     }
 
     // Every engine sound needs somewhere to be. Unattached, under a model that
-    // attenuates with distance, means the world origin - which is inaudible.
+    // attenuates with distance, means the world origin - which is not silence,
+    // it is a quiet sound arriving from the wrong direction.
+    //
+    // Sent here as well as after Play because a placement that does land here is
+    // one the first frame does not have to fix. It is not relied on: see
+    // kPlaceAttempts.
     if (follow != nullptr) {
         handle.SetObjectToFollow(follow);
-    } else {
-        handle.SetPosition(ToNiPoint(position));
+    } else if (!handle.SetPosition(ToNiPoint(position)) && !m_warnedPlacement) {
+        m_warnedPlacement = true;
+        spdlog::warn("render: the engine refused a position before Play, so every voice depends on "
+                     "the re-send after it. If impacts sound like they come from one fixed spot "
+                     "rather than from the body, this is why.");
     }
 
     if (!handle.Play()) {
@@ -263,10 +357,78 @@ bool GameRenderer::Open(std::span<const std::uint8_t> wav, const Vec3& position,
     return true;
 }
 
+std::string GameRenderer::DescribeAgainstActor(const Voice& voice) const {
+    // Which of the two placements this voice got. A coordinate is now the
+    // failure case rather than the normal one, so it says so.
+    std::string suffix = voice.follow != nullptr
+                             ? " [following a node]"
+                             : " [STATIC COORDINATE - no node resolved, expect the cell origin]";
+    Vec3 actor{};
+    if (!m_actorPositionResolver || !m_actorPositionResolver(voice.actorId, actor)) {
+        return suffix;
+    }
+    // The number that separates "the body really is over there" from "our
+    // contact points are wrong". A contact is on the body, so this should be
+    // within a body's reach - tens of units, not hundreds.
+    const float dx = voice.position.x - actor.x;
+    const float dy = voice.position.y - actor.y;
+    const float dz = voice.position.z - actor.z;
+    const float off = std::sqrt(dx * dx + dy * dy + dz * dz);
+    return std::format(", {:.0f} units off the body at ({:.0f}, {:.0f}, {:.0f}){}", off, actor.x,
+                       actor.y, actor.z, suffix);
+}
+
+void GameRenderer::Place(Voice& voice, bool playing) {
+    if (!voice.handle.IsValid()) {
+        return;
+    }
+    ++voice.placeAttempts;
+
+    bool took = true;
+    if (voice.follow != nullptr) {
+        // SetObjectToFollow has no return to check, so an attachment is only ever
+        // known to have taken by being re-sent until the sound is playing.
+        voice.handle.SetObjectToFollow(voice.follow);
+    } else {
+        took = voice.handle.SetPosition(ToNiPoint(voice.position));
+    }
+
+    // A placement is only trusted once it has been sent on a frame the engine
+    // admits the sound is playing on. Before that the message can be dropped and
+    // nothing says so.
+    if (playing && took) {
+        voice.placed = true;
+
+        if (voice.watch) {
+            const float dx = voice.position.x - m_listener.x;
+            const float dy = voice.position.y - m_listener.y;
+            const float dz = voice.position.z - m_listener.z;
+            const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+            const float peakDb =
+                voice.peak > 1.0e-6f ? 20.0f * std::log10(voice.peak) : -120.0f;
+            spdlog::info("placed: sound {} at ({:.0f}, {:.0f}, {:.0f}) on attempt {}, {:.0f} units "
+                         "({:.1f} m) from the ears at ({:.0f}, {:.0f}, {:.0f}), buffer peak "
+                         "{:.1f} dBFS{}",
+                         voice.handle.soundID, voice.position.x, voice.position.y,
+                         voice.position.z, voice.placeAttempts, distance,
+                         distance / kUnitsPerMetre, m_listener.x, m_listener.y, m_listener.z,
+                         peakDb, DescribeAgainstActor(voice));
+        }
+    }
+
+    if (!took && !m_warnedPlacement) {
+        m_warnedPlacement = true;
+        spdlog::warn("render: SetPosition was refused for sound {} on attempt {} - the voice is "
+                     "playing wherever the engine last put it, most likely the world origin",
+                     voice.handle.soundID, voice.placeAttempts);
+    }
+}
+
 bool GameRenderer::StartComposite(const MixBuffer& mixed, ActorId actorId, TimeMs nowMs) {
     EncodeWavPcm16Into(mixed.samples, mixed.sampleRate, m_encoded);
 
-    RE::NiAVObject* follow = NodeFor(actorId, mixed.boneIndex);
+    RE::NiAVObject* follow =
+        NodeFor(actorId, mixed.boneIndex, mixed.limbIndex, mixed.collapsed);
 
     Voice voice;
     if (!Open(m_encoded, mixed.position, follow, voice.handle, voice.token)) {
@@ -276,6 +438,13 @@ bool GameRenderer::StartComposite(const MixBuffer& mixed, ActorId actorId, TimeM
     voice.expiresMs = nowMs + static_cast<double>(mixed.LengthMs()) + kRetireGraceMs;
     voice.position = mixed.position;
     voice.follow = follow;
+    voice.peak = mixed.rawPeak;
+    voice.actorId = actorId;
+    voice.bufferMs = mixed.LengthMs();
+    if (nowMs - m_lastPlaceLogMs >= kPlaceLogIntervalMs) {
+        m_lastPlaceLogMs = nowMs;
+        voice.watch = true;
+    }
     m_voices.push_back(voice);
     return true;
 }
@@ -287,7 +456,10 @@ bool GameRenderer::StartLoopVoice(Loop& loop, TimeMs nowMs) {
     }
     EncodeWavPcm16Into(m_mix.samples, m_mix.sampleRate, m_encoded);
 
-    RE::NiAVObject* follow = NodeFor(loop.actorId, loop.boneIndex);
+    // A loop is a continuous texture rather than a moment, so it hangs on the
+    // body: a scrape that jumped between limbs as the contact moved would smear
+    // rather than track.
+    RE::NiAVObject* follow = NodeFor(loop.actorId, loop.boneIndex, 0, true);
 
     RE::BSSoundHandle handle{};
     std::uint64_t token = 0;
@@ -371,16 +543,43 @@ void GameRenderer::Update(TimeMs nowMs) {
     for (std::size_t i = 0; i < m_voices.size();) {
         Voice& voice = m_voices[i];
 
-        // The one message that cannot be baked into the buffer. An attachment
-        // requested before the engine has prepared the sound does not fully take,
-        // so it is re-sent once, on the first frame the handle admits to playing.
-        if (!voice.reattached && voice.handle.IsValid() && voice.handle.IsPlaying()) {
-            if (voice.follow != nullptr) {
-                voice.handle.SetObjectToFollow(voice.follow);
-            } else {
-                voice.handle.SetPosition(ToNiPoint(voice.position));
+        // The one message that cannot be baked into the buffer, and the one the
+        // engine can silently drop: a placement asked for before the sound has
+        // been prepared does not take. So it is re-sent on every frame until it
+        // has landed on a frame the handle reports itself playing on, bounded by
+        // kPlaceAttempts.
+        if (!voice.placed && voice.placeAttempts < kPlaceAttempts) {
+            Place(voice, voice.handle.IsValid() && voice.handle.IsPlaying());
+            if (!voice.placed && voice.placeAttempts >= kPlaceAttempts && !m_warnedPlacement) {
+                m_warnedPlacement = true;
+                spdlog::warn("render: sound {} never reported itself playing across {} frames, so "
+                             "its position was never confirmed. Impacts will sound displaced and "
+                             "quiet; check iOutputModelFormID and the blob registry.",
+                             voice.handle.soundID, kPlaceAttempts);
             }
-            voice.reattached = true;
+        }
+
+        if (voice.watch && voice.handle.IsValid()) {
+            const bool playing = voice.handle.IsPlaying();
+            if (playing && voice.firstPlayingMs < 0.0) {
+                voice.firstPlayingMs = nowMs;
+            }
+            if (voice.wasPlaying && !playing) {
+                // Stopped. Everything the frame-boundary assumption turns on, in
+                // one line: how long the audio was, when the engine admitted to
+                // starting it, and when it actually finished.
+                const double ranFor = nowMs - voice.startedMs;
+                const double slack = ranFor - static_cast<double>(voice.bufferMs);
+                spdlog::info("timing: sound {} - {:.0f} ms of audio, first reported playing at "
+                             "+{:.0f} ms, silent at +{:.0f} ms, so the engine added about "
+                             "{:.0f} ms before the first sample",
+                             voice.handle.soundID, voice.bufferMs,
+                             voice.firstPlayingMs < 0.0 ? -1.0 : voice.firstPlayingMs -
+                                                                    voice.startedMs,
+                             ranFor, std::max(0.0, slack));
+                voice.watch = false;
+            }
+            voice.wasPlaying = playing;
         }
 
         if (nowMs >= voice.expiresMs) {
@@ -415,6 +614,21 @@ void GameRenderer::StopAll() {
 
     m_groups.clear();
     registry.Collect();
+}
+
+void GameRenderer::SetMuted(bool muted) {
+    if (m_muted == muted) {
+        return;
+    }
+    m_muted = muted;
+    if (muted) {
+        // Not just the cues to come: a loop is re-issued rather than played once,
+        // so a scrape already running would keep going for as long as the buffer
+        // it is on. Everything in flight goes with the switch.
+        StopAll();
+    }
+    spdlog::info("renderer: {}", muted ? "muted - vanilla's own impacts are what you are hearing"
+                                       : "unmuted - back to our mix");
 }
 
 }  // namespace rds::game

@@ -143,6 +143,11 @@ void GameLink::PushLibraryPath(const std::string& path) {
 
 void GameLink::PushClear() { Queue(rds::link::Msg::kClearOverrides, nullptr, 0); }
 
+void GameLink::PushAudioMode(bool useVanillaAudio) {
+    const std::uint8_t byte = useVanillaAudio ? 1u : 0u;
+    Queue(rds::link::Msg::kAudioMode, &byte, sizeof(byte));
+}
+
 // ── capturing ────────────────────────────────────────────────────────────────
 
 void GameLink::BeginCapture() {
@@ -187,6 +192,17 @@ std::size_t GameLink::CapturedContacts() const {
 double GameLink::CapturedDurationMs() const {
     std::lock_guard lock{m_mutex};
     return m_capture.Empty() ? 0.0 : m_capture.DurationMs();
+}
+
+bool GameLink::GameClock(double& sessionMs) const {
+    std::lock_guard lock{m_mutex};
+    if (!m_haveClockOffset) {
+        return false;
+    }
+    const double localMs =
+        std::chrono::duration<double, std::milli>(Clock::now() - m_epoch).count();
+    sessionMs = localMs - m_clockOffsetMs;
+    return true;
 }
 
 // ── the socket thread ────────────────────────────────────────────────────────
@@ -268,6 +284,9 @@ void GameLink::Serve(rds::link::Socket& client) {
         m_snapshot.contactsReceived = 0;
         m_snapshot.lastEventMs = 0.0;
         m_snapshot.game = rds::link::StatusPacket{};
+        // A new game is a new session clock, counting from its own zero again.
+        m_haveClockOffset = false;
+        m_clockOffsetMs = 0.0;
     }
     m_connected.store(true, std::memory_order_relaxed);
 
@@ -312,9 +331,31 @@ void GameLink::Serve(rds::link::Socket& client) {
                     break;
                 }
                 std::lock_guard lock{m_mutex};
+                const double previousSessionMs = m_snapshot.game.sessionMs;
                 std::memcpy(&m_snapshot.game, payload.data(), sizeof(rds::link::StatusPacket));
                 m_lastStatusSec = SecondsSince(opened);
                 m_snapshot.gameStatusAgeSec = 0.0;
+                // And the epoch between the two clocks, kept at its minimum -
+                // see GameClock() for why the smallest sample is the true one.
+                //
+                // A session clock that went backwards is a game that reset its
+                // own epoch under us, and every sample before it now describes a
+                // clock that no longer exists. Nothing does that today - the
+                // reset happens at plugin init, before anything can connect - but
+                // the failure it would cause is a take that lines up with nothing
+                // and says nothing about why.
+                {
+                    if (m_snapshot.game.sessionMs < previousSessionMs) {
+                        m_haveClockOffset = false;
+                    }
+                    const double localMs =
+                        std::chrono::duration<double, std::milli>(Clock::now() - m_epoch).count();
+                    const double offset = localMs - m_snapshot.game.sessionMs;
+                    if (!m_haveClockOffset || offset < m_clockOffsetMs) {
+                        m_clockOffsetMs = offset;
+                        m_haveClockOffset = true;
+                    }
+                }
                 break;
             }
             case rds::link::Msg::kPing:

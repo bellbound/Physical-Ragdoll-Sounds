@@ -88,6 +88,8 @@ bool MixComposite(std::span<const Cue> cues, PcmCache& cache, const MixParams& p
     out.rawPeak = 0.0f;
     out.boneIndex = -1;
     out.position = {};
+    out.limbIndex = 0;
+    out.collapsed = false;
     if (cues.empty() || params.sampleRate <= 0) {
         return false;
     }
@@ -122,6 +124,8 @@ bool MixComposite(std::span<const Cue> cues, PcmCache& cache, const MixParams& p
             loudest = cue.gainDb;
             out.position = cue.position;
             out.boneIndex = cue.boneIndex;
+            out.limbIndex = cue.limbIndex;
+            out.collapsed = cue.collapsed;
         }
     }
     if (neededMs <= 0.0) {

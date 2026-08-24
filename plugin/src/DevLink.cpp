@@ -243,6 +243,17 @@ void DevLink::Session(link::Socket& socket) {
                 m_overrideFlags.store(0, std::memory_order_relaxed);
                 break;
             }
+            case link::Msg::kAudioMode: {
+                // One byte, and an empty payload means "back to ours" - so a
+                // truncated frame errs towards the mod being audible rather than
+                // towards a silent game nobody can explain.
+                const bool useVanilla = !payload.empty() &&
+                                        static_cast<unsigned char>(text.front()) != 0;
+                std::lock_guard lock{m_inMutex};
+                m_pending.audioMode = true;
+                m_pending.useVanillaAudio = useVanilla;
+                break;
+            }
             case link::Msg::kPing:
                 if (!link::WriteMessage(socket, link::Msg::kPong)) {
                     return;
@@ -251,6 +262,15 @@ void DevLink::Session(link::Socket& socket) {
             default:
                 break;
         }
+    }
+    // Whatever the testbench had the game playing, it does not get to leave it
+    // that way. A testbench closed mid-comparison would otherwise leave the mod
+    // silent and vanilla's impacts back for the rest of the session, with
+    // nothing on screen to say why.
+    {
+        std::lock_guard lock{m_inMutex};
+        m_pending.audioMode = true;
+        m_pending.useVanillaAudio = false;
     }
     spdlog::info("devbench: the testbench went away; listening for it again");
 }

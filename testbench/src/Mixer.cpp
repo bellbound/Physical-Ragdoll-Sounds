@@ -210,6 +210,12 @@ void SoundSource::SetBank(const rds::SoundBank* bank, int sampleRate) {
 }
 
 const std::vector<float>& SoundSource::Get(rds::SlotId slot, std::uint8_t variant) {
+    // Ahead of the cache rather than in it: the audition is not keyed on a
+    // variant, and putting it in the cache would mean invalidating a slot's
+    // worth of entries every time the highlight moved one row.
+    if (m_auditionSlot == static_cast<int>(slot) && !m_auditionSamples.empty()) {
+        return m_auditionSamples;
+    }
     const std::uint32_t key = CacheKey(slot, variant);
     auto it = m_cache.find(key);
     if (it != m_cache.end()) return it->second.samples;
@@ -239,8 +245,34 @@ const std::vector<float>& SoundSource::Get(rds::SlotId slot, std::uint8_t varian
 }
 
 bool SoundSource::IsProcedural(rds::SlotId slot, std::uint8_t variant) const {
+    if (m_auditionSlot == static_cast<int>(slot) && !m_auditionSamples.empty()) {
+        return false;
+    }
     auto it = m_cache.find(CacheKey(slot, variant));
     return it == m_cache.end() ? true : it->second.procedural;
+}
+
+void SoundSource::SetAudition(rds::SlotId slot, const std::string& path) {
+    if (m_auditionSlot == static_cast<int>(slot) && m_auditionPath == path) {
+        return;
+    }
+    m_auditionSlot = static_cast<int>(slot);
+    m_auditionPath = path;
+    m_auditionSamples.clear();
+    int rate = 0;
+    if (!DecodeFile(path, 1, m_sampleRate, m_auditionSamples, rate)) {
+        // Nothing to hear rather than a stand-in: a file the decoder cannot read
+        // is one the browser is already flagging, and synthesising something in
+        // its place would have the audition answer for a sound that does not
+        // exist.
+        m_auditionSamples.clear();
+    }
+}
+
+void SoundSource::ClearAudition() {
+    m_auditionSlot = -1;
+    m_auditionPath.clear();
+    m_auditionSamples.clear();
 }
 
 std::vector<std::string> SoundSource::Report() const {

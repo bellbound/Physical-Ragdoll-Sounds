@@ -106,18 +106,50 @@ std::string_view ToString(Coverage c) {
     return "bare";
 }
 
-std::string_view ToString(Phase p) {
-    switch (p) {
-        case Phase::kLaunch: return "Launch";
-        case Phase::kAirborne: return "Airborne";
-        case Phase::kPrimaryImpact: return "PrimaryImpact";
-        case Phase::kTumble: return "Tumble";
-        case Phase::kSlide: return "Slide";
-        case Phase::kSettle: return "Settle";
-        case Phase::kRest: return "Rest";
-        case Phase::kCount: break;
+std::string_view ToString(Motion m) {
+    switch (m) {
+        case Motion::kLaunch: return "Launch";
+        case Motion::kAirborne: return "Airborne";
+        case Motion::kTumble: return "Tumble";
+        case Motion::kSlide: return "Slide";
+        case Motion::kResting: return "Resting";
+        case Motion::kCount: break;
     }
-    return "Rest";
+    return "Resting";
+}
+
+std::string_view ToString(SlideExit e) {
+    switch (e) {
+        case SlideExit::kNone: return "none";
+        case SlideExit::kRested: return "rested";
+        case SlideExit::kLaunched: return "launched";
+        case SlideExit::kStruck: return "struck";
+    }
+    return "none";
+}
+
+std::string_view ToString(Moment m) {
+    switch (m) {
+        case Moment::kOrdinary: return "Ordinary";
+        case Moment::kHero: return "Hero";
+        case Moment::kCount: break;
+    }
+    return "Ordinary";
+}
+
+std::string_view ToString(Motion m, Moment moment) {
+    if (moment != Moment::kHero) {
+        return ToString(m);
+    }
+    switch (m) {
+        case Motion::kLaunch: return "Launch+Hero";
+        case Motion::kAirborne: return "Airborne+Hero";
+        case Motion::kTumble: return "Tumble+Hero";
+        case Motion::kSlide: return "Slide+Hero";
+        case Motion::kResting: return "Resting+Hero";
+        case Motion::kCount: break;
+    }
+    return "Resting+Hero";
 }
 
 std::string_view ToString(DistanceTier t) {

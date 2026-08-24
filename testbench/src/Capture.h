@@ -64,6 +64,20 @@ struct TakeSource {
     std::string note;    ///< recording.note - the take's *intent*
 };
 
+/// Where a written take's clock came from, for a caller that has to line
+/// something else up with it - the video, in practice.
+///
+/// A take is re-based onto its first surviving row rather than onto the window
+/// it was asked for, and that is right: a selection dragged by eye starts in
+/// dead air, and re-basing onto the request would open every cut take with a
+/// second of nothing. But it means the two are not the same number, and
+/// anything cut to match the take has to be cut against this one. Cutting
+/// against the request instead is a de-sync of exactly the dead air.
+struct TakeWindow {
+    double originMs{};    ///< source time that became the new take's zero
+    double durationMs{};  ///< the new take's own length, closing row included
+};
+
 /// Write `<stem>.csv` and `<stem>.yaml` into `directory`, keeping only the
 /// events inside `[loMs, hiMs]`.
 ///
@@ -71,9 +85,77 @@ struct TakeSource {
 /// the file start at `kLeadInMs` rather than at zero: a take whose first row is
 /// t_ms 0 gives the phase machine no frame before the first contact, and the
 /// captures the game writes all carry a lead-in of their own.
+///
+/// `window`, when given, comes back with the clock this landed on.
 [[nodiscard]] std::filesystem::path WriteTake(const std::filesystem::path& directory,
                                               const std::string& stem, const TakeSource& source,
-                                              double loMs, double hiMs, std::string& error);
+                                              double loMs, double hiMs, std::string& error,
+                                              TakeWindow* window = nullptr);
+
+// ═════════════════════════════════════════════════════════════════════════════
+// lining a take up with its video
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Sync works differently here than it did for the takes in Research/, and the
+// difference is worth stating because it is what makes the numbers mean opposite
+// things.
+//
+// QuickModMenuNG recorded inside the game against an OBS recording that was
+// usually already running and was cut down to a clip afterwards. Its sync rows
+// pair the take's clock with *that* recording's clock, the cut point was written
+// down nowhere, and so the fitted intercept is useless against the mp4 on disk -
+// hence the hand-measured per-take nudges in framecache/video-offsets.ini.
+//
+// A devbench take owns its recording: this program tells OBS to start, tells it
+// to stop, and the file that comes out is the take's whole video with nothing cut
+// off either end. So the intercept is the answer outright - there is nothing left
+// to nudge - and the sidecar says so by naming an `obs.output_path` and not
+// claiming `external_recording`.
+//
+// What has to be crossed instead is a process boundary. The events are stamped on
+// the game's session clock and OBS answers on its own, and nothing in this program
+// is on either - so a row is (the game's clock, read through GameLink::GameClock,
+// at the midpoint of the round trip to OBS) against (what OBS said its output
+// duration was). The rtt column says how much each row is worth, exactly as before.
+
+/// One row of the sync track, before it is rebased onto a take's own clock.
+struct SyncSample {
+    double gameMs{};  ///< the game's session clock at the instant OBS answered
+    double obsMs{};   ///< OBS's output duration at that instant
+    double rttMs{};   ///< how long the round trip took, and so what the row is worth
+};
+
+/// Write `<stem>_sync.csv`, rebasing each row's game clock onto the take's own by
+/// subtracting `originMs` - the number `WriteTake` hands back in its `TakeWindow`.
+///
+/// Rows from before the take's zero are kept rather than dropped: a negative t_ms
+/// is a perfectly good point on the same line and it lengthens the lever arm the
+/// slope is fitted over.
+[[nodiscard]] bool WriteSyncTrack(const std::filesystem::path& directory,
+                                  const std::string& stem,
+                                  const std::vector<SyncSample>& samples, double originMs,
+                                  std::string& error);
+
+/// What the sidecar's `obs:` block says about a take's video.
+struct ObsTakeInfo {
+    /// The mp4 as it now sits beside the take. Empty means the take has no video
+    /// and no block is written at all.
+    std::string outputPath;
+    std::string syncCsv;  ///< empty when no sync track could be written
+    /// OBS's output clock at the take's zero - the fitted intercept, or 0 when
+    /// there was nothing to fit.
+    double offsetMs{};
+    std::string obsVersion;
+    std::string recordDirectory;
+};
+
+/// Append the `obs:` block to a take's sidecar, in the shape QuickModMenuNG
+/// writes it and `Recording.cpp` reads it.
+///
+/// Appended rather than written by `WriteTake`, because the offset is not known
+/// until the video has been stopped, moved and fitted - which is three steps
+/// after the CSV exists.
+void AppendObsBlock(const std::filesystem::path& yaml, const ObsTakeInfo& info);
 
 /// The first `<base>_<n>` with no CSV in `directory`.
 [[nodiscard]] std::string NextTakeStem(const std::filesystem::path& directory,
@@ -107,7 +189,7 @@ std::size_t DeleteTake(const std::filesystem::path& csv, const std::filesystem::
                                               const rds::RecordingInfo& info,
                                               const std::filesystem::path& directory,
                                               const std::string& stem, double loMs, double hiMs,
-                                              std::string& error);
+                                              std::string& error, TakeWindow* window = nullptr);
 
 /// Turn a live capture into a TakeSource. Picks the subject actor, and carries
 /// the cell and the name off its profile.

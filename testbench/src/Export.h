@@ -38,6 +38,13 @@ struct ExportRequest {
     const VideoTake* video{};
 
     std::string configName;
+    /// True when the config in memory is not what the file of that name holds,
+    /// so `configName` above is where it came from and not what it is.
+    bool configUnsaved{};
+    /// Write the whole config out as an ini, with every key's description, at
+    /// the end of the report. Off leaves only the list of what differs from
+    /// default, which is shorter and says nothing about the other eighty keys.
+    bool includeConfigs{};
     double videoOffsetMs{};
     /// True when the offset came from framecache/video-offsets.ini rather than
     /// from a fallback. Changes the note under it from a caveat to a fact.
@@ -73,6 +80,11 @@ struct ExportRequest {
 ///              in one time-ordered column, which is what settles a "why is
 ///              there sound here" question
 ///   cues       every cue with its full provenance
+///   config ini the whole config as it stood in memory, saved or not, with each
+///              key's description - so the report carries the settings it is a
+///              report *of* rather than the name of a file that may since have
+///              been edited. Last, because it is four hundred lines and the
+///              question is nearly always further up
 ///
 /// Returns the path written, or empty with `error` filled.
 std::filesystem::path WriteExport(const ExportRequest& request,

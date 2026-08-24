@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <cstring>
+#include <ctime>
 #include <format>
 
 #include <spdlog/spdlog.h>
@@ -22,6 +24,42 @@ constexpr ImVec4 kBlocked{1.0f, 0.42f, 0.42f, 1.0f};
 constexpr ImVec4 kSuggest{0.55f, 0.82f, 1.0f, 1.0f};
 constexpr ImVec4 kQuiet{0.62f, 0.64f, 0.70f, 1.0f};
 constexpr ImVec4 kLoop{0.50f, 0.90f, 0.65f, 1.0f};
+
+/// The confirmation's title, in one place because it is written twice - once to
+/// open it and once to draw it - and a typo in either is a dialog that never
+/// appears.
+constexpr const char* kDeletePopup = "Delete this sfx?";
+
+/// `just now`, `4 hours ago`, `9 days ago`. The date says which day it was; this
+/// says how long that is without anybody counting back from it.
+[[nodiscard]] std::string Ago(std::int64_t unixSeconds) {
+    const auto now = static_cast<std::int64_t>(std::time(nullptr));
+    const std::int64_t seconds = now - unixSeconds;
+    // A clock that moved, or a file dated in the future. Nothing useful to say
+    // about it and no reason to say something wrong.
+    if (seconds < 0) {
+        return {};
+    }
+    if (seconds < 90) {
+        return "just now";
+    }
+    const std::int64_t minutes = seconds / 60;
+    if (minutes < 90) {
+        return std::format("{} minutes ago", minutes);
+    }
+    const std::int64_t hours = minutes / 60;
+    if (hours < 36) {
+        return std::format("{} hours ago", hours);
+    }
+    const std::int64_t days = hours / 24;
+    if (days < 14) {
+        return std::format("{} days ago", days);
+    }
+    if (days < 60) {
+        return std::format("{} weeks ago", days / 7);
+    }
+    return std::format("{} months ago", days / 30);
+}
 
 [[nodiscard]] std::string Lower(std::string_view text) {
     std::string out(text);
@@ -103,6 +141,12 @@ void HighlightedText(std::string_view text, std::string_view needle) {
 }
 
 void Badges(const rds::SfxEntry& entry, bool showSuggestions) {
+    if (entry.disabled) {
+        Pill("muted", kBlocked);
+        Tip("Disabled in the library. It stays where it is - the slots that name it still name it - "
+            "and the bank skips it, so nothing plays it until it is enabled again.");
+        ImGui::SameLine();
+    }
     Pill(Duration(entry.durationMs), kQuiet);
     Tip(std::format("{:.0f} ms of file{}", entry.durationMs,
                     entry.loops ? "" : std::format(", {:.0f} ms of event after {:.0f} ms of lead-in",
@@ -194,10 +238,13 @@ void PreviewButton(const char* id, const rds::SfxLibrary& library, const std::st
 // the window
 // ═════════════════════════════════════════════════════════════════════════════
 
-void SfxBrowser::Init(rds::SfxLibrary* library, Player* player, int sampleRate) {
+void SfxBrowser::Init(rds::SfxLibrary* library, const rds::SfxAssignments* assignments,
+                      Player* player, int sampleRate, float* previewGainDb) {
     m_library = library;
+    m_assignments = assignments;
     m_player = player;
     m_sampleRate = sampleRate;
+    m_previewGainDb = previewGainDb;
     m_stale = true;
 }
 
@@ -209,6 +256,67 @@ bool SfxBrowser::TakeLibraryChanged() {
     const bool changed = m_libraryChanged;
     m_libraryChanged = false;
     return changed;
+}
+
+std::vector<std::string> SfxBrowser::TakeDeleted() {
+    std::vector<std::string> out;
+    out.swap(m_deleted);
+    return out;
+}
+
+std::vector<std::string> SfxBrowser::SlotsUsing(const std::string& file) const {
+    std::vector<std::string> out;
+    if (m_assignments == nullptr) {
+        return out;
+    }
+    for (const rds::SlotDesc& desc : rds::Slots()) {
+        const rds::SlotAssignment& assignment = m_assignments->For(desc.id);
+        const bool named = std::ranges::any_of(
+            assignment.files, [&](const std::string& name) { return Lower(name) == Lower(file); });
+        if (named) {
+            out.emplace_back(desc.name);
+        }
+    }
+    return out;
+}
+
+void SfxBrowser::DeleteEntry(const std::string& file) {
+    if (m_library == nullptr || m_library->Find(file) == nullptr) {
+        return;
+    }
+    const std::filesystem::path audio = m_library->PathOf(file);
+
+    // The sidecar goes with it. Leaving it behind would put the name, the import
+    // date and the mute back on the next file imported under this name, which is
+    // a sound wearing another sound's history.
+    std::string error;
+    if (!RecycleFiles({audio, rds::SfxLibrary::MetaPathFor(audio)}, error)) {
+        // Nothing is dropped from the library: the file is still there, and an
+        // index that has forgotten a file on disk is one Load away from coming
+        // back with the name unexplained.
+        m_importNote = std::format("could not delete {} - {}", file, error);
+        spdlog::warn("sfx: delete {}: {}", file, error);
+        return;
+    }
+
+    if (m_player != nullptr && m_player->PreviewFile() == file) {
+        m_player->StopPreview();
+    }
+    m_library->Remove(file);
+    // Unsaved edits to something that no longer exists. Left in, Save would
+    // look it up, not find it, and quietly do nothing - correct, and it would
+    // also keep saying "1 unsaved" at a file nobody can open.
+    std::erase(m_dirtyFiles, file);
+    if (m_current == file) {
+        m_current.clear();
+    }
+    m_deleted.push_back(file);
+    m_importNote = std::format("deleted {} - it is in the recycle bin", file);
+    // The list is short by one and the bank still holds its samples, so both
+    // have to be rebuilt: the row and the sound go at the same time.
+    m_stale = true;
+    m_libraryChanged = true;
+    spdlog::info("sfx: deleted {}", file);
 }
 
 std::vector<std::filesystem::path> SfxBrowser::PackCandidates() const {
@@ -286,7 +394,7 @@ void SfxBrowser::OpenForSlot(rds::SlotId slot, int variant, std::string current,
 }
 
 void SfxBrowser::Close() {
-    CommitNote();
+    CommitEdits();
     m_open = false;
     m_picking = false;
     if (m_player != nullptr) {
@@ -296,17 +404,67 @@ void SfxBrowser::Close() {
 
 bool SfxBrowser::WantsKeys() const { return m_open && m_hasFocus; }
 
+SfxBrowser::Audition SfxBrowser::InTakeAudition() const {
+    Audition out;
+    if (!m_open || !m_picking || !m_auditionInTake || m_library == nullptr) {
+        return out;
+    }
+    if (m_highlight < 0 || m_highlight >= static_cast<int>(m_rows.size())) {
+        return out;
+    }
+    const rds::SfxEntry& entry =
+        m_library->Entries()[m_rows[static_cast<std::size_t>(m_highlight)].entry];
+    out.active = true;
+    out.slot = m_slot;
+    out.file = entry.file;
+    return out;
+}
+
 void SfxBrowser::MarkDirty(const std::string& file) {
     if (std::ranges::find(m_dirtyFiles, file) == m_dirtyFiles.end()) {
         m_dirtyFiles.push_back(file);
     }
 }
 
+void SfxBrowser::ToggleDisabled(std::size_t entry) {
+    if (m_library == nullptr || entry >= m_library->Size()) {
+        return;
+    }
+    rds::SfxEntry& mutableEntry = m_library->MutableEntries()[entry];
+    mutableEntry.disabled = !mutableEntry.disabled;
+    MarkDirty(mutableEntry.file);
+    // The row moves to the bottom of the list, and the bank has to be rebuilt:
+    // muting is a statement about what the take plays, so it has to be audible
+    // on the next block rather than after a reload.
+    m_stale = true;
+    m_libraryChanged = true;
+    if (m_player != nullptr && m_player->PreviewPlaying() &&
+        m_player->PreviewFile() == mutableEntry.file && mutableEntry.disabled) {
+        m_player->StopPreview();
+    }
+}
+
+void SfxBrowser::DisableButton(std::size_t entry) {
+    const rds::SfxEntry& e = m_library->Entries()[entry];
+    ImGui::PushID(static_cast<int>(entry));
+    if (ImGui::SmallButton(e.disabled ? "enable" : "disable")) {
+        ToggleDisabled(entry);
+    }
+    Tip(e.disabled
+            ? "Put it back in play. It returns to whatever slots still name it, in the position "
+              "it had - which is why muting is the thing to reach for when a sound is wrong but "
+              "you are not certain it is wrong."
+            : "Mute it. It keeps its place on every slot that names it and stops being played by "
+              "any of them, and it drops to the bottom of this list so it stops turning up in "
+              "the search. This writes to its metadata file, so Ctrl+S.");
+    ImGui::PopID();
+}
+
 void SfxBrowser::Save() {
     if (m_library == nullptr) {
         return;
     }
-    CommitNote();
+    CommitEdits();
     for (const std::string& file : m_dirtyFiles) {
         if (const rds::SfxEntry* entry = m_library->Find(file); entry != nullptr) {
             m_library->SaveMeta(*entry);
@@ -318,20 +476,20 @@ void SfxBrowser::Save() {
     m_dirtyFiles.clear();
 }
 
-void SfxBrowser::CommitNote() {
+std::string SfxBrowser::ImportedLine(const rds::SfxEntry& entry) {
+    const std::string when = rds::FormatImportTime(entry.importedAt);
+    if (when.empty()) {
+        return {};
+    }
+    const std::string ago = Ago(entry.importedAt);
+    return ago.empty() ? std::format("imported {}", when)
+                       : std::format("imported {} - {}", when, ago);
+}
+
+void SfxBrowser::CommitEdits() {
     if (m_library == nullptr) {
         return;
     }
-    if (m_noteRow >= 0 && m_noteRow < static_cast<int>(m_rows.size())) {
-        rds::SfxEntry& entry =
-            m_library->MutableEntries()[m_rows[static_cast<std::size_t>(m_noteRow)].entry];
-        if (entry.note != m_noteBuffer) {
-            entry.note = m_noteBuffer;
-            MarkDirty(entry.file);
-        }
-    }
-    m_noteRow = -1;
-
     if (m_renameRow >= 0 && m_renameRow < static_cast<int>(m_rows.size())) {
         rds::SfxEntry& entry =
             m_library->MutableEntries()[m_rows[static_cast<std::size_t>(m_renameRow)].entry];
@@ -353,44 +511,93 @@ void SfxBrowser::Rebuild() {
     const auto entries = m_library->Entries();
     for (std::size_t i = 0; i < entries.size(); ++i) {
         const rds::SfxEntry& entry = entries[i];
-        if (!needle.empty()) {
-            // Name, note and every badge - which is what "searches name, badges
-            // and note" means, and the badges are the warning codes and the
-            // suggested slot names.
-            std::string hay = Lower(entry.name) + " " + Lower(entry.file) + " " + Lower(entry.note);
-            for (const rds::SfxWarning& w : entry.warnings) {
-                hay += " " + Lower(w.code);
-            }
-            for (const rds::SlotId slot : entry.suggested) {
-                hay += " " + Lower(rds::Slot(slot).name);
-            }
-            if (entry.loops) {
-                hay += " loop";
-            }
-            if (hay.find(needle) == std::string::npos) {
-                continue;
-            }
-        }
         Row row;
         row.entry = i;
+        row.disabled = entry.disabled;
+        if (!needle.empty()) {
+            // The name and every badge, and the badges are the warning codes and
+            // the suggested slot names. Which of the two it hit is kept: typing
+            // "body" means the sound called body far more often than it means
+            // the ninety sounds the analysis suggested for imp_body, so the one
+            // goes above the ninety rather than into them.
+            const bool name = Lower(entry.name).find(needle) != std::string::npos ||
+                              Lower(entry.file).find(needle) != std::string::npos;
+
+            std::string tags;
+            for (const rds::SfxWarning& w : entry.warnings) {
+                tags += " " + Lower(w.code);
+            }
+            for (const rds::SlotId slot : entry.suggested) {
+                tags += " " + Lower(rds::Slot(slot).name);
+            }
+            if (entry.loops) {
+                tags += " loop";
+            }
+            if (entry.disabled) {
+                tags += " disabled muted";
+            }
+            const bool tag = tags.find(needle) != std::string::npos;
+
+            if (!name && !tag) {
+                continue;
+            }
+            row.match = name ? Match::kName : Match::kTag;
+        }
         if (m_picking) {
-            row.fit = SlotFit(entry, m_slot);
-            row.lengthSuits = LengthSuits(entry.durationMs, m_slot, m_slotLoops);
+            row.fit = SlotFit(entries[i], m_slot);
+            row.lengthSuits = LengthSuits(entries[i].durationMs, m_slot, m_slotLoops);
         }
         m_rows.push_back(row);
     }
 
-    if (m_picking) {
-        // Fitting lengths to the top, and inside that band by name - which is
-        // the order asked for, and the one that makes the list navigable: the
-        // right length is the hard filter, everything after it is taste.
-        std::ranges::stable_sort(m_rows, [&](const Row& a, const Row& b) {
-            if (a.lengthSuits != b.lengthSuits) {
-                return a.lengthSuits;
-            }
-            return Lower(entries[a.entry].name) < Lower(entries[b.entry].name);
-        });
-    }
+    // Stable, and over the library's own order, so with nothing typed and
+    // nothing muted this is the order the folder is in - the sort only ever
+    // moves the rows it has a reason to move.
+    std::ranges::stable_sort(m_rows, [&](const Row& a, const Row& b) {
+        // Muted last, ahead of every other consideration: a sound somebody
+        // switched off is not a candidate, and leaving it in the band it would
+        // have sorted into is how it gets picked again by mistake.
+        if (a.disabled != b.disabled) {
+            return !a.disabled;
+        }
+        // Fitting lengths to the top - the right length is the hard filter,
+        // everything after it is taste.
+        if (m_picking && a.lengthSuits != b.lengthSuits) {
+            return a.lengthSuits;
+        }
+        if (a.match != b.match) {
+            return a.match < b.match;
+        }
+        // Inside a band, whatever the sort box says - and only inside it: every
+        // test above this one has already had its say, so newest-first cannot
+        // lift a muted sound, a wrong-length sound or a badge-only hit over the
+        // rows that beat it on those. The library's own order is already by
+        // name, so `name` while browsing is the order the folder listing has and
+        // the stable sort leaves every row exactly where it was.
+        const rds::SfxEntry& ea = entries[a.entry];
+        const rds::SfxEntry& eb = entries[b.entry];
+        switch (m_sort) {
+            case Sort::kNewest:
+                // By name inside one timestamp, so a batch that came in on the
+                // same second - which is what importing twelve files at once
+                // is - reads alphabetically rather than in scan order.
+                if (ea.importedAt != eb.importedAt) {
+                    return ea.importedAt > eb.importedAt;
+                }
+                return Lower(ea.name) < Lower(eb.name);
+            case Sort::kOldest:
+                if (ea.importedAt != eb.importedAt) {
+                    return ea.importedAt < eb.importedAt;
+                }
+                return Lower(ea.name) < Lower(eb.name);
+            case Sort::kName:
+                break;
+        }
+        if (m_picking) {
+            return Lower(ea.name) < Lower(eb.name);
+        }
+        return false;
+    });
 
     m_highlight = std::min(m_highlight, static_cast<int>(m_rows.size()) - 1);
     m_stale = false;
@@ -426,13 +633,13 @@ SfxBrowser::Pick SfxBrowser::Draw() {
         ImGui::Separator();
     }
 
-    const char* hint = m_picking ? "search name, note, warnings and suggested slots"
-                                 : "search name, note and badges";
+    const char* hint = m_picking ? "search name, warnings and suggested slots"
+                                 : "search name and badges";
     if (m_focusSearch) {
         ImGui::SetKeyboardFocusHere();
         m_focusSearch = false;
     }
-    ImGui::SetNextItemWidth(-160.0f);
+    ImGui::SetNextItemWidth(-490.0f);
     if (ImGui::InputTextWithHint("##search", hint, m_search, sizeof(m_search))) {
         m_stale = true;
         // A new search is a new list, and keeping the old index would leave the
@@ -440,18 +647,73 @@ SfxBrowser::Pick SfxBrowser::Draw() {
         m_highlight = m_rows.empty() ? -1 : 0;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Clear")) {
+    // "search" is in the label because the one thing this button must never be
+    // read as is one that empties the library.
+    if (ImGui::Button("Clear search")) {
         m_search[0] = '\0';
         m_stale = true;
     }
+    Tip("Empties the search box, and nothing else - every file stays exactly where it is.\n\n"
+        "Nothing in this window removes a sound except `delete` on its own row, and that asks "
+        "first and tells you which slots play it.");
+
+    ImGui::SameLine();
+    ImGui::TextDisabled("sort");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(96.0f);
+    {
+        int sort = static_cast<int>(m_sort);
+        if (ImGui::Combo("##sort", &sort, "name\0newest\0oldest\0")) {
+            m_sort = static_cast<Sort>(sort);
+            m_stale = true;
+            // The rows are about to move under the highlight, and a highlight
+            // left on an index is a highlight on a different sound.
+            m_highlight = m_rows.empty() ? -1 : 0;
+            m_scrollToHighlight = true;
+        }
+    }
+    Tip("What orders the list. `newest` by default - what you are after is usually what you "
+        "just imported.\n\n"
+        "`newest` and `oldest` are by the date each file was imported, which the row under "
+        "each name shows - so an evening's downloads come back as one block at the top.\n"
+        "`name` is the library's own order, alphabetical.\n\n"
+        "This only ever orders *inside* the bands. While picking for a slot the right length "
+        "still comes first and the muted are still last; while searching, a name hit still "
+        "beats a badge hit. Newest decides the order within each of those.");
+
     ImGui::SameLine();
     ImGui::TextDisabled("%d / %d", static_cast<int>(m_rows.size()),
                         static_cast<int>(m_library->Size()));
+
+    // Right-aligned, on the row it belongs to: this is the volume of every Play
+    // button in the window, so it sits with the list rather than in the header
+    // bar with the things that write to disk.
+    if (m_previewGainDb != nullptr) {
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - 168.0f);
+        ImGui::TextDisabled("vol");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::SliderFloat("##previewgain", m_previewGainDb, -36.0f, 12.0f, "%+.0f dB",
+                               ImGuiSliderFlags_AlwaysClamp)) {
+            m_player->SetPreviewGainDb(*m_previewGainDb);
+        }
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            *m_previewGainDb = 0.0f;
+            m_player->SetPreviewGainDb(*m_previewGainDb);
+        }
+        Tip("How loud an audition is - the Play buttons here and on the slot panel, and the "
+            "space bar on the highlighted row.\n\n"
+            "The preview voice only. The take's own transport is untouched, and nothing here "
+            "reaches the pack: this is the volume you listen at, not a gain on the sound.\n\n"
+            "Right-click for 0 dB. Remembered between launches.");
+    }
 
     HandleKeys(pick);
 
     ImGui::Separator();
     DrawList(pick);
+
+    DrawDeleteConfirm();
 
     ImGui::End();
     if (!open) {
@@ -461,6 +723,84 @@ SfxBrowser::Pick SfxBrowser::Draw() {
         Close();
     }
     return pick;
+}
+
+void SfxBrowser::DrawDeleteConfirm() {
+    if (m_openConfirm) {
+        ImGui::OpenPopup(kDeletePopup);
+        m_openConfirm = false;
+    }
+    // Centred on the app rather than on the mouse, because the Del key opens
+    // this too and a dialog that appears wherever the pointer was left is a
+    // dialog somebody confirms without reading.
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(
+        ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f),
+        ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(kDeletePopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        return;
+    }
+
+    const rds::SfxEntry* entry = m_library->Find(m_confirmFile);
+    if (entry == nullptr) {
+        // It went while the dialog was up - a re-measure that could not read it,
+        // or a second delete. Nothing to ask about.
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+
+    ImGui::TextUnformatted(entry->name.c_str());
+    ImGui::SameLine();
+    sfxui::Badges(*entry, false);
+    ImGui::TextDisabled("%s", entry->file.c_str());
+
+    ImGui::Spacing();
+    const std::vector<std::string> slots = SlotsUsing(entry->file);
+    if (slots.empty()) {
+        ImGui::TextDisabled("No slot plays it.");
+    } else {
+        std::string list;
+        for (const std::string& name : slots) {
+            list += (list.empty() ? "" : ", ") + name;
+        }
+        ImGui::TextColored(kWarn, "%d slot(s) play it: %s", static_cast<int>(slots.size()),
+                           list.c_str());
+        ImGui::TextDisabled("It comes off them. That much is on the undo stack - Ctrl+Z puts the\n"
+                            "assignment back, and then names a file that is not there any more.");
+    }
+
+    ImGui::Spacing();
+    ImGui::PushTextWrapPos(430.0f);
+    ImGui::TextUnformatted(
+        "The sound and its .meta.ini go to the recycle bin together - the name, the import "
+        "date, the mute and every measurement with them. Restoring the pair from the bin puts it "
+        "back whole, and nothing in here will find it before you do.");
+    ImGui::PopTextWrapPos();
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    if (ImGui::Button("Cancel", ImVec2(110.0f, 0.0f))) {
+        m_confirmFile.clear();
+        ImGui::CloseCurrentPopup();
+    }
+    // Cancel takes the keyboard, so Enter on a dialog nobody read is the answer
+    // that changes nothing.
+    ImGui::SetItemDefaultFocus();
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.42f, 0.12f, 0.14f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.55f, 0.16f, 0.18f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.62f, 0.18f, 0.20f, 1.0f));
+    const bool go = ImGui::Button("Delete", ImVec2(110.0f, 0.0f));
+    ImGui::PopStyleColor(3);
+    if (go) {
+        DeleteEntry(m_confirmFile);
+        m_confirmFile.clear();
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
 }
 
 void SfxBrowser::DrawHeader() {
@@ -534,7 +874,7 @@ void SfxBrowser::DrawHeader() {
     }
     Tip("Decode and measure every file again. For entries that arrived without a metadata file - "
         "dropped into the folder by hand, or written by sfx.py - and after the slot targets change. "
-        "Names and notes are kept.");
+        "Names, mutes and import dates are kept.");
 
     if (!m_importNote.empty()) {
         ImGui::SameLine();
@@ -544,7 +884,7 @@ void SfxBrowser::DrawHeader() {
     if (Dirty()) {
         ImGui::SameLine();
         ImGui::TextColored(kMatch, "* %zu unsaved", DirtyCount());
-        Tip("Names and notes you have changed but not written. Ctrl+S saves everything unsaved, "
+        Tip("Names and mutes you have changed but not written. Ctrl+S saves everything unsaved, "
             "here and in the main window.");
     }
 }
@@ -555,6 +895,15 @@ void SfxBrowser::DrawPickPreviews() {
     ImGui::SameLine();
     ImGui::TextDisabled("- %s  |  %.0f to %.0f ms%s", std::string(desc.character).c_str(),
                         desc.minLengthMs, desc.maxLengthMs, m_slotLoops ? "  |  looping" : "");
+
+    ImGui::SameLine();
+    ImGui::Checkbox("hear it in the take", &m_auditionInTake);
+    Tip("Drop whatever is highlighted into this slot and re-mix the take, so moving down the "
+        "list plays each candidate where it will actually land - under the transient, against "
+        "the body layer, at the gain the arbitration gave it.\n\n"
+        "Nothing is assigned by this: it lasts as long as the highlight does, and closing the "
+        "window puts the slot's own sound back. Off if the take is long enough that the re-mix "
+        "on every keypress is in the way.");
 
     // Two widgets, one above the other, so the comparison is a pair of buttons a
     // few pixels apart rather than a scroll.
@@ -571,6 +920,12 @@ void SfxBrowser::DrawPickPreviews() {
             ImGui::TextUnformatted(entry->name.c_str());
             ImGui::SameLine();
             sfxui::Badges(*entry, false);
+            // Here as well as in the list, because this is where you are looking
+            // when you decide a sound is wrong: the slot's own row is the one
+            // place the answer "not this, and not anywhere else either" is one
+            // click away.
+            ImGui::SameLine();
+            DisableButton(static_cast<std::size_t>(entry - m_library->Entries().data()));
         } else {
             ImGui::TextColored(kBlocked, "%s - not in the library", m_current.c_str());
         }
@@ -586,6 +941,12 @@ void SfxBrowser::DrawPickPreviews() {
         ImGui::TextUnformatted(entry.name.c_str());
         ImGui::SameLine();
         sfxui::Badges(entry, false);
+        if (m_auditionInTake) {
+            ImGui::SameLine();
+            ImGui::TextColored(kSuggest, "<- in the take");
+            Tip("The take is mixed with this file in the slot right now. Play it and you are "
+                "hearing this candidate in place.");
+        }
     } else {
         ImGui::TextDisabled("  (arrow keys move the highlight, space plays it)");
     }
@@ -631,6 +992,13 @@ void SfxBrowser::HandleKeys(Pick& pick) {
         pick.variant = m_variant;
         pick.file = m_library->Entries()[m_rows[static_cast<std::size_t>(m_highlight)].entry].file;
     }
+    if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) && m_highlight >= 0 &&
+        m_highlight < static_cast<int>(m_rows.size())) {
+        CommitEdits();
+        m_confirmFile =
+            m_library->Entries()[m_rows[static_cast<std::size_t>(m_highlight)].entry].file;
+        m_openConfirm = true;
+    }
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
         Close();
     }
@@ -656,13 +1024,21 @@ void SfxBrowser::DrawRow(const Row& row, int index, Pick& pick) {
     const bool highlighted = index == m_highlight;
     const bool isCurrent = m_picking && entry.file == m_current;
 
+    const Row* previous = index > 0 ? &m_rows[static_cast<std::size_t>(index - 1)] : nullptr;
+
     // The band break: once, where the fitting lengths stop. Cheaper to read than
-    // a badge on every row saying which side of the line it is on.
-    if (m_picking && index > 0 && m_rows[static_cast<std::size_t>(index - 1)].lengthSuits &&
+    // a badge on every row saying which side of the line it is on. Only in the
+    // live block - the muted rows below carry their own break and would
+    // otherwise draw a second one inside themselves.
+    if (m_picking && !row.disabled && previous != nullptr && previous->lengthSuits &&
         !row.lengthSuits) {
         ImGui::Separator();
         ImGui::TextDisabled("  the wrong length for %s - still assignable",
                             std::string(rds::Slot(m_slot).name).c_str());
+    }
+    if (row.disabled && (previous == nullptr || !previous->disabled)) {
+        ImGui::Separator();
+        ImGui::TextDisabled("  muted - not played by anything until enabled");
     }
 
     ImGui::BeginGroup();
@@ -673,9 +1049,7 @@ void SfxBrowser::DrawRow(const Row& row, int index, Pick& pick) {
     // The name, which doubles as the row's hit box. Double-click renames.
     if (m_renameRow == index) {
         ImGui::SetNextItemWidth(220.0f);
-        if (m_renameRow != m_noteRow) {
-            ImGui::SetKeyboardFocusHere();
-        }
+        ImGui::SetKeyboardFocusHere();
         ImGui::InputText("##rename", m_renameBuffer, sizeof(m_renameBuffer),
                          ImGuiInputTextFlags_AutoSelectAll);
         if (ImGui::IsItemDeactivated()) {
@@ -691,13 +1065,15 @@ void SfxBrowser::DrawRow(const Row& row, int index, Pick& pick) {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
         } else if (isCurrent) {
             ImGui::PushStyleColor(ImGuiCol_Text, kSuggest);
+        } else if (entry.disabled) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.48f, 0.50f, 0.56f, 1.0f));
         }
         sfxui::HighlightedText(entry.name, m_search);
-        if (highlighted || isCurrent) {
+        if (highlighted || isCurrent || entry.disabled) {
             ImGui::PopStyleColor();
         }
         if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-            CommitNote();
+            CommitEdits();
             m_renameRow = index;
             std::snprintf(m_renameBuffer, sizeof(m_renameBuffer), "%s", entry.name.c_str());
         }
@@ -713,6 +1089,24 @@ void SfxBrowser::DrawRow(const Row& row, int index, Pick& pick) {
     ImGui::SameLine();
     sfxui::Badges(entry, true);
 
+    ImGui::SameLine();
+    DisableButton(row.entry);
+
+    ImGui::SameLine();
+    if (ImGui::SmallButton("delete")) {
+        // The rename first: the row is about to be asked about, and a half-typed
+        // name left in the buffer would be committed to whatever row inherits
+        // this index after the list rebuilds.
+        CommitEdits();
+        m_confirmFile = entry.file;
+        m_openConfirm = true;
+    }
+    Tip("Take it out of the library and send the file to the recycle bin. Asks first, and says "
+        "which slots play it before it does.\n\n"
+        "For a sound that should not have been imported. A sound that is merely wrong wants "
+        "`disable` - that one is a mute you can take back, this one is a file you have to go "
+        "and fetch.");
+
     if (m_picking) {
         ImGui::SameLine();
         if (ImGui::SmallButton(isCurrent ? "keep" : "use")) {
@@ -723,40 +1117,23 @@ void SfxBrowser::DrawRow(const Row& row, int index, Pick& pick) {
         }
     }
 
-    // The note, on its own line. A text box only for the row being typed into:
-    // one live widget instead of one per file.
+    // When it arrived, on its own line under the name. Text rather than a badge
+    // because it is the one piece of metadata that is a sentence, and it sits
+    // here so the two import orders in the sort box have something to be read
+    // against - a list ordered by a date nobody can see is a list in no order.
     ImGui::Indent(52.0f);
-    if (m_noteRow == index) {
-        ImGui::SetNextItemWidth(-4.0f);
-        ImGui::InputTextWithHint("##note", "your note - searched as substring", m_noteBuffer,
-                                 sizeof(m_noteBuffer));
-        if (ImGui::IsItemDeactivated()) {
-            rds::SfxEntry& mutableEntry = m_library->MutableEntries()[row.entry];
-            if (mutableEntry.note != m_noteBuffer) {
-                mutableEntry.note = m_noteBuffer;
-                MarkDirty(mutableEntry.file);
-            }
-            m_noteRow = -1;
-        }
-    } else if (entry.note.empty()) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.44f, 0.50f, 1.0f));
-        ImGui::TextUnformatted("+ note");
-        ImGui::PopStyleColor();
-        if (ImGui::IsItemClicked()) {
-            CommitNote();
-            m_noteRow = index;
-            m_noteBuffer[0] = '\0';
-        }
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.42f, 0.44f, 0.50f, 1.0f));
+    if (const std::string line = ImportedLine(entry); line.empty()) {
+        ImGui::TextUnformatted("imported - date unknown");
     } else {
-        ImGui::PushStyleColor(ImGuiCol_Text, kQuiet);
-        sfxui::HighlightedText(entry.note, m_search);
-        ImGui::PopStyleColor();
-        if (ImGui::IsItemClicked()) {
-            CommitNote();
-            m_noteRow = index;
-            std::snprintf(m_noteBuffer, sizeof(m_noteBuffer), "%s", entry.note.c_str());
-        }
+        ImGui::TextUnformatted(line.c_str());
     }
+    ImGui::PopStyleColor();
+    Tip("When this file came into the library, from its metadata file.\n\n"
+        "Anything imported before the date was recorded - and anything dropped into the "
+        "library folder by hand - shows the file's own date instead, which is the same "
+        "moment for everything the importer copied in.\n\n"
+        "The sort box orders the list by this.");
     ImGui::Unindent(52.0f);
 
     ImGui::EndGroup();

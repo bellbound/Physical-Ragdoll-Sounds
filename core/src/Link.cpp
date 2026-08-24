@@ -118,6 +118,7 @@ std::string_view ToString(Msg type) {
         case Msg::kStatus: return "status";
         case Msg::kPing: return "ping";
         case Msg::kPong: return "pong";
+        case Msg::kAudioMode: return "audio-mode";
     }
     return "?";
 }
@@ -429,7 +430,15 @@ std::string EncodeSfx(const SfxAssignments& assignments) {
             }
             files += file;
         }
+        std::string muted;
+        for (const std::string& file : assignment.muted) {
+            if (!muted.empty()) {
+                muted += '|';
+            }
+            muted += file;
+        }
         out += std::format("{}={}\n", slot.name, files);
+        out += std::format("{}.mute={}\n", slot.name, muted);
         out += std::format("{}.loop={}\n", slot.name, assignment.looping ? 1 : 0);
     }
     return out;
@@ -445,8 +454,12 @@ void DecodeSfx(std::string_view text, SfxAssignments& out) {
             return;
         }
         bool isLoop = false;
+        bool isMute = false;
         if (key.size() > 5 && key.substr(key.size() - 5) == ".loop") {
             isLoop = true;
+            key.remove_suffix(5);
+        } else if (key.size() > 5 && key.substr(key.size() - 5) == ".mute") {
+            isMute = true;
             key.remove_suffix(5);
         }
         for (const SlotDesc& slot : slots) {
@@ -458,7 +471,11 @@ void DecodeSfx(std::string_view text, SfxAssignments& out) {
                 assignment.looping = ToInt(value) != 0;
                 return;
             }
-            assignment.files.clear();
+            // Cleared before the parse either way, so an empty value means "none
+            // of them" rather than "no opinion" - which is what makes unmuting
+            // the last file reach the game.
+            std::vector<std::string>& into = isMute ? assignment.muted : assignment.files;
+            into.clear();
             if (value.empty()) {
                 return;
             }
@@ -466,7 +483,7 @@ void DecodeSfx(std::string_view text, SfxAssignments& out) {
             for (const std::string_view file : parts) {
                 const std::string_view trimmed = Trim(file);
                 if (!trimmed.empty()) {
-                    assignment.files.emplace_back(trimmed);
+                    into.emplace_back(trimmed);
                 }
             }
             return;

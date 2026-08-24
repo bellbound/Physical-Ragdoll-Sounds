@@ -5,10 +5,13 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <format>
 #include <fstream>
 #include <sstream>
+
+#include "rds/Pose.h"
 
 #include "Video.h"
 
@@ -131,7 +134,7 @@ void WriteRow(std::ostream& out, const rds::FeedEvent& event, std::uint32_t seq,
 }
 
 void WriteSidecar(const fs::path& yaml, const std::string& stem, const TakeSource& source,
-                  double durationMs, std::uint32_t impacts) {
+                  double durationMs, std::uint32_t impacts, std::size_t poseFrames) {
     std::ofstream out(yaml, std::ios::trunc);
     if (!out) return;
 
@@ -145,6 +148,12 @@ void WriteSidecar(const fs::path& yaml, const std::string& stem, const TakeSourc
     out << "recording:\n";
     out << "  file_index: 1\n";
     out << "  csv: \"" << stem << ".csv\"\n";
+    // Only when there is one. An absent key and a key naming a file that is not
+    // there are different things, and the second is the one that wastes an hour.
+    if (poseFrames > 0) {
+        out << "  pose: \"" << stem << "_pose.bin\"\n";
+        out << "  pose_frames: " << poseFrames << "\n";
+    }
     out << "  note: \"" << source.note << "\"\n";
     out << "  started_real: \"" << std::format("{:%Y-%m-%dT%H:%M:%S}",
                                                std::chrono::floor<std::chrono::seconds>(local))
@@ -293,7 +302,7 @@ std::string NextTakeStem(const fs::path& directory, std::string_view base) {
 }
 
 fs::path WriteTake(const fs::path& directory, const std::string& stem, const TakeSource& source,
-                   double loMs, double hiMs, std::string& error) {
+                   double loMs, double hiMs, std::string& error, TakeWindow* window) {
     std::vector<const rds::FeedEvent*> kept;
     kept.reserve(source.events.size());
     for (const rds::FeedEvent& event : source.events) {
@@ -322,7 +331,19 @@ fs::path WriteTake(const fs::path& directory, const std::string& stem, const Tak
     const double origin = kept.front()->timeMs - kLeadInMs;
     std::uint32_t seq = 1;
     std::uint32_t impacts = 0;
+    std::vector<rds::FeedEvent> poseSamples;
     for (const rds::FeedEvent* event : kept) {
+        // Pose is dense - eighteen limbs a tick - and putting it here would cost
+        // this file the one property it has, which is being readable. It goes to
+        // its own sidecar instead, re-based against the same origin so the two
+        // share a clock. The older captures' two snapshots are not pose and stay
+        // exactly where they are - see rds::pose::IsTickSample.
+        if (rds::pose::IsTickSample(*event)) {
+            rds::FeedEvent sample = *event;
+            sample.timeMs = event->timeMs - origin;
+            poseSamples.push_back(sample);
+            continue;
+        }
         if (event->kind == rds::EventKind::kImpact) ++impacts;
         WriteRow(out, *event, seq++, event->timeMs - origin, source.profile, source.actorName);
     }
@@ -339,11 +360,111 @@ fs::path WriteTake(const fs::path& directory, const std::string& stem, const Tak
     WriteRow(out, stop, 0, stop.timeMs, source.profile, source.actorName);
     out.close();
 
-    WriteSidecar(directory / (stem + ".yaml"), stem, source, durationMs + kLeadInMs, impacts);
+    // Already filtered to the window and re-based above, so the range here is
+    // deliberately wide open: applying loMs/hiMs a second time against a clock
+    // that has since moved would silently drop every frame.
+    std::size_t poseFrames = 0;
+    std::string poseError;
+    const fs::path posePath = directory / (stem + "_pose.bin");
+    if (!rds::pose::Write(posePath, poseSamples, 0.0, -1.0e300, 1.0e300, poseFrames, poseError)) {
+        spdlog::warn("capture: {} kept its rows but its pose sidecar failed: {}",
+                     csv.filename().string(), poseError);
+    }
 
-    spdlog::info("capture: wrote {} ({} rows, {} impacts, {:.0f} ms)", csv.filename().string(),
-                 kept.size() + 1, impacts, durationMs + kLeadInMs);
+    WriteSidecar(directory / (stem + ".yaml"), stem, source, durationMs + kLeadInMs, impacts,
+                 poseFrames);
+
+    // The origin, not loMs. What the caller needs to know is where this take's
+    // zero landed in the source, and the answer is the first row it kept.
+    if (window != nullptr) {
+        window->originMs = origin;
+        window->durationMs = durationMs + kLeadInMs;
+    }
+
+    spdlog::info("capture: wrote {} ({} rows, {} impacts, {} pose frames, {:.0f} ms)",
+                 csv.filename().string(), kept.size() + 1 - poseSamples.size(), impacts, poseFrames,
+                 durationMs + kLeadInMs);
     return csv;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// lining a take up with its video
+// ═════════════════════════════════════════════════════════════════════════════
+
+bool WriteSyncTrack(const fs::path& directory, const std::string& stem,
+                    const std::vector<SyncSample>& samples, double originMs, std::string& error) {
+    if (samples.empty()) {
+        error = "no clock samples were taken";
+        return false;
+    }
+    std::error_code ec;
+    fs::create_directories(directory, ec);
+    const fs::path file = directory / (stem + "_sync.csv");
+    std::ofstream out(file, std::ios::trunc | std::ios::binary);
+    if (!out) {
+        error = "cannot write " + file.string();
+        return false;
+    }
+
+    out << "# Lining the impacts CSV up with the video.\n";
+    out << "#\n";
+    out << "# t_ms            this take's own clock - the column the impacts CSV also stamps\n";
+    out << "# obs_duration_ms OBS's output clock at that instant, in milliseconds\n";
+    out << "# rtt_ms          how long the round trip took, and so how much the row is worth\n";
+    out << "#\n";
+    out << "# video_time_ms = t_ms + offset. Fit the offset through the low-rtt rows rather\n";
+    out << "# than taking the first one: over a long take the two clocks drift apart, and a\n";
+    out << "# piecewise fit follows that where a single number cannot.\n";
+    out << "#\n";
+    out << "# Written by the devbench, which drove the recording itself - so the mp4 beside\n";
+    out << "# this file is OBS's whole output and the fitted offset needs no cut subtracted\n";
+    out << "# out of it. t_ms comes off the game's session clock read across the link, so a\n";
+    out << "# millisecond or two of the intercept is the socket rather than the picture; the\n";
+    out << "# slope is unaffected, because that error is the same on every row.\n";
+    out << "t_ms,obs_duration_ms,rtt_ms\n";
+    for (const SyncSample& sample : samples) {
+        out << std::format("{:.0f},{:.0f},{:.0f}\n", sample.gameMs - originMs, sample.obsMs,
+                           sample.rttMs);
+    }
+    out.close();
+
+    spdlog::info("capture: wrote {} ({} row(s))", file.filename().string(), samples.size());
+    return true;
+}
+
+void AppendObsBlock(const fs::path& yaml, const ObsTakeInfo& info) {
+    if (info.outputPath.empty()) {
+        return;
+    }
+    std::ofstream out(yaml, std::ios::app);
+    if (!out) {
+        return;
+    }
+    // Windows paths, in a double-quoted scalar. The recorder wrote them the same
+    // way and the loader unquotes without unescaping, so a lone backslash would
+    // come back as a lone backslash either way - but a path ending in one would
+    // eat the closing quote, and that is a file nobody can parse.
+    const auto quoted = [](std::string_view text) {
+        std::string out;
+        out.reserve(text.size() + 2);
+        for (const char c : text) {
+            if (c == '\\' || c == '"') out += '\\';
+            out += c;
+        }
+        return out;
+    };
+    out << "\nobs:\n";
+    out << "  # video_time_ms = t_ms + offset_ms. offset_ms is the sync track's fitted\n";
+    out << "  # intercept; sync_csv carries the whole series, which is what to use for a\n";
+    out << "  # long take.\n";
+    out << "  # OBS was started and stopped for this take, so output_path below is the take's\n";
+    out << "  # own whole recording. Nothing was cut off its front and offset_ms therefore\n";
+    out << "  # means what it says against the file sitting beside this one.\n";
+    out << "  output_path: \"" << quoted(info.outputPath) << "\"\n";
+    out << "  sync_csv: \"" << quoted(info.syncCsv) << "\"\n";
+    out << "  offset_ms: " << static_cast<std::int64_t>(std::llround(info.offsetMs)) << "\n";
+    out << "  obs_version: \"" << quoted(info.obsVersion) << "\"\n";
+    out << "  record_directory: \"" << quoted(info.recordDirectory) << "\"\n";
 }
 
 TakeSource SourceFromCapture(const std::vector<rds::FeedEvent>& events,
@@ -455,7 +576,8 @@ std::size_t DeleteTake(const fs::path& csv, const fs::path& cacheRoot, std::stri
     std::size_t gone = 0;
 
     for (const fs::path& file : {csv, directory / (stem + ".yaml"),
-                                 directory / (stem + "_sync.csv"), directory / (stem + ".mp4")}) {
+                                 directory / (stem + "_sync.csv"), directory / (stem + ".mp4"),
+                                 directory / (stem + "_pose.bin")}) {
         if (fs::remove(file, ec)) ++gone;
     }
     ClearFrameCache(cacheRoot, stem);
@@ -470,17 +592,23 @@ std::size_t DeleteTake(const fs::path& csv, const fs::path& cacheRoot, std::stri
 
 fs::path SliceTake(const rds::Recording& recording, const rds::RecordingInfo& info,
                    const fs::path& directory, const std::string& stem, double loMs, double hiMs,
-                   std::string& error) {
+                   std::string& error, TakeWindow* window) {
     TakeSource source;
     source.events = recording.Events();
-    source.profile = recording.Profile(recording.Events().empty()
-                                           ? rds::ActorId{}
-                                           : recording.Events().front().actorId);
+    const rds::ActorId actorId =
+        recording.Events().empty() ? rds::ActorId{} : recording.Events().front().actorId;
+    source.profile = recording.Profile(actorId);
+    // The form id has to come with the limb table. The rows keep their own
+    // actor_id, the loader keys the profile off `actor.form.id`, and a cut that
+    // left it at the placeholder wrote a take whose profile could never be
+    // matched to its own contacts: every limb resolved to null, so the whole
+    // take ran with unknown sites, no mirror-drop and no chain merge.
+    source.formId = std::format("{:08X}", actorId);
     source.actorName = info.actorName;
     source.cell = info.cell;
     source.note = std::format("cut from {} at {:.0f}-{:.0f} ms{}", info.stem, loMs, hiMs,
                               info.note.empty() ? "" : " - " + info.note);
-    return WriteTake(directory, stem, source, loMs, hiMs, error);
+    return WriteTake(directory, stem, source, loMs, hiMs, error, window);
 }
 
 }  // namespace tb

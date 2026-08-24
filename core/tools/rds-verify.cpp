@@ -22,6 +22,7 @@
 #include "rds/Offline.h"
 #include "rds/Pcm.h"
 #include "rds/Recording.h"
+#include "rds/Sfx.h"
 #include "rds/Synth.h"
 
 namespace {
@@ -203,6 +204,94 @@ int CheckPcmAndMix(rds::SoundBank& bank) {
     return problems;
 }
 
+
+/// The mute: that it survives the ini, that it keeps the file's variant index,
+/// and that nothing ever picks it.
+///
+/// The index is the part worth asserting. A mute could be implemented by leaving
+/// the file out of the slot's variant list, and everything would still sound
+/// right - but every variant after it would renumber, so a cue list recorded
+/// before the mute would play different files after it, and unmuting would not
+/// put the take back. The whole point of the design is that it does.
+int CheckSfxMute(const std::string& bankDir) {
+    rds::SfxLibrary library;
+    library.Load(bankDir);
+
+    rds::SfxAssignments assignments;
+    assignments.SeedFromNames(library);
+
+    // Any slot with two files will do; three is better, because it also proves
+    // the survivors still take turns rather than the slot collapsing onto one.
+    const rds::SlotDesc* subject = nullptr;
+    for (const rds::SlotDesc& desc : rds::Slots()) {
+        if (assignments.For(desc.id).files.size() >= 2) {
+            subject = &desc;
+            break;
+        }
+    }
+    if (subject == nullptr) {
+        std::printf("sfx mute   skipped - no slot in %s has two files to choose between\n\n",
+                    bankDir.empty() ? "(no bank dir)" : bankDir.c_str());
+        return 0;
+    }
+
+    const rds::SlotId slot = subject->id;
+    const std::string victim = assignments.For(slot).files[1];
+    assignments.For(slot).muted.push_back(victim);
+
+    // ── the ini ──────────────────────────────────────────────────────────────
+    const auto dir = std::filesystem::temp_directory_path() / "rds-verify-sfx";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    std::filesystem::create_directories(dir, ec);
+    const auto file = dir / "RagdollSounds_SFX.ini";
+
+    rds::SfxAssignments reloaded;
+    const bool saved = assignments.Save(file);
+    if (saved) {
+        (void)reloaded.Load(file);
+    }
+    const bool roundTrips = saved && reloaded == assignments;
+
+    // ── the bank ─────────────────────────────────────────────────────────────
+    rds::SoundBank bank;
+    bank.LoadAssigned(library, assignments, bankDir);
+    bank.Seed(1);
+
+    const std::size_t expected = assignments.For(slot).files.size();
+    const bool keptIndex = bank.FileCount(slot) == expected && bank.VariantMuted(slot, 1);
+
+    // Both pickers, because they are two different paths through Resolve and
+    // only one of them consults the shuffle bag.
+    bool neverPicked = true;
+    for (std::uint32_t i = 0; i < 400; ++i) {
+        rds::ResolvedSound picked{};
+        if (bank.Resolve(slot, rds::SurfaceClass::kSoft, rds::Coverage::kBare,
+                         rds::LimbSite::kTorso, picked, i % 2 == 0 ? 0u : i)) {
+            neverPicked = neverPicked && picked.variant != 1;
+        }
+    }
+
+    // Every file muted is silence, not a synthesised replacement: muting
+    // something is not a request to stand in for it.
+    rds::SfxAssignments allMuted = assignments;
+    allMuted.For(slot).muted = allMuted.For(slot).files;
+    rds::SoundBank silent;
+    silent.LoadAssigned(library, allMuted, bankDir);
+    silent.Seed(1);
+    rds::ResolvedSound nothing{};
+    const bool goesSilent = !silent.Resolve(slot, rds::SurfaceClass::kSoft, rds::Coverage::kBare,
+                                            rds::LimbSite::kTorso, nothing);
+
+    const bool ok = roundTrips && keptIndex && neverPicked && goesSilent;
+    std::printf("sfx mute    %s - %s: ini round-trip %s, kept its variant index %s, never "
+                "picked %s, all-muted is silence %s\n\n",
+                ok ? "ok  " : "FAIL", std::string(subject->name).c_str(),
+                roundTrips ? "yes" : "NO", keptIndex ? "yes" : "NO", neverPicked ? "yes" : "NO",
+                goesSilent ? "yes" : "NO");
+    return ok ? 0 : 1;
+}
+
 int CheckConfigRoundTrip() {
     const auto dir = std::filesystem::temp_directory_path() / "rds-verify-config";
     std::error_code ec;
@@ -336,6 +425,12 @@ int main(int argc, char** argv) {
     bank.Seed(1);
     int failures = PrintBankSummary(bank);
     failures += CheckConfigRoundTrip();
+    // The round-trip check loads a general ini, and loading one applies its
+    // `iLogLevel` - so `--debug` used to be switched back off by the check that
+    // ran after it and the firehose never arrived. Re-asserted here rather than
+    // moved, because the check has to write a real ini to be worth anything.
+    rds::log::SetLevel(logOptions.level);
+    failures += CheckSfxMute(bankDir);
     failures += CheckPcmAndMix(bank);
 
     rds::AlgorithmConfig config{};  // shipping defaults, which are the point
@@ -382,6 +477,22 @@ int main(int argc, char** argv) {
                     "emitted %u in %u bursts\n",
                     s.proposedCues, s.droppedRateCap, s.droppedChainMerge, s.droppedMasking,
                     s.droppedBurstCap, s.droppedVoiceCap, s.emittedCues, s.bursts);
+        // The moment axis, on its own line. A take with four heroes has its
+        // floor set too low; a take with none is either a gentle slump, which is
+        // legitimate, or a floor set too high. `settle in flight` must be zero -
+        // it counts closing cues emitted while the body was measurably still in
+        // the air, which is the most obviously broken thing this engine can do.
+        std::printf(
+            "   heroes %u (+%u re-anchored, %u on head relief) | settle in flight %u | "
+            "driven %u\n",
+            s.heroes, s.heroReanchors, s.heroHeadRelief, s.settleInFlight,
+            s.drivenFlights);
+        // The slide, on its own line, because the pair is read together: how
+        // many slides the entry test found at all, and how many of them ended
+        // because something stopped the body rather than because it came to rest
+        // or left the ground. The second number is the one the old machine had
+        // no way to express and simply faded out over.
+        std::printf("   slides %u (%u ended on an impact)\n", s.slides, s.slideImpacts);
         for (const auto& check : report.checks) {
             ++checksRun;
             failures += check.passed ? 0 : 1;

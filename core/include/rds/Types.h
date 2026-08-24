@@ -126,25 +126,73 @@ enum class Coverage : std::uint8_t { kBare = 0, kCloth, kLight, kHeavy };
 
 // ── the run of a fall ────────────────────────────────────────────────────────
 
-/// Stage 2's phase machine. Each phase sets what may be audible and how much
-/// budget it gets; it is the main lever for keeping the last twenty contacts of
-/// a knockdown nearly silent.
-enum class Phase : std::uint8_t {
+/// Stage 2, first axis: what the *body* is doing.
+///
+/// Physics owns it, and it transitions freely: every edge is available from
+/// every state that can reach it. A one-way edge here is a bug waiting to
+/// happen - a state a fall can enter and not leave will eventually swallow the
+/// loudest contacts of one.
+///
+/// What the *mix* should do is deliberately not here; that is `Moment`. Those
+/// are two questions, and a single value that has to answer both must choose,
+/// and whichever it chooses is wrong for the other reader.
+///
+/// `Resting` means "no recent contacts". It carries the quiet budget - the last
+/// twenty contacts of a knockdown are limbs flopping and should be nearly silent
+/// (00-Design §4) - and it is left on a contact over the wake bar, never on any
+/// contact at all.
+enum class Motion : std::uint8_t {
     kLaunch = 0,
     kAirborne,
-    kPrimaryImpact,
     kTumble,
     kSlide,
-    kSettle,
-    kRest,
+    kResting,
     kCount
 };
 
-[[nodiscard]] std::string_view ToString(Phase p);
+[[nodiscard]] std::string_view ToString(Motion m);
+
+/// How a slide ended, which is the only part of a slide the motion enum cannot
+/// say. `Slide` names the state; this names the edge out of it, and the three
+/// edges are three different sounds:
+///
+/// - `kRested`   the body ground to a halt. The loop fades out and the ordinary
+///               closing cue does the rest.
+/// - `kLaunched` the body left the ground. The loop fades out over
+///               `ScrapeLoop:fLaunchFadeMs` instead, because a slide that ends
+///               in flight ends faster than one that ends in friction.
+/// - `kStruck`   neither of those, so the slide was stopped by something. That
+///               is inferred rather than measured - a body that neither rested
+///               nor launched had to have hit something - and it is what places
+///               the slide-end impact.
+///
+/// Held on the crash state after the fact rather than being a transient, so the
+/// timeline can mark the end of a span it has already drawn.
+enum class SlideExit : std::uint8_t { kNone = 0, kRested, kLaunched, kStruck };
+
+[[nodiscard]] std::string_view ToString(SlideExit e);
+
+/// Stage 2, second axis: what the *mix* is doing. Design owns it, and unlike
+/// motion it is latched and windowed rather than a running description.
+///
+/// A fall may reach `Hero` late, more than once, or never - a gentle slump
+/// crosses nothing. The old machine could express none of those, because it
+/// fired on the first thing that touched.
+enum class Moment : std::uint8_t { kOrdinary = 0, kHero, kCount };
+
+[[nodiscard]] std::string_view ToString(Moment m);
+
+/// Both axes as one label - "Tumble", or "Tumble+Hero" while the latch is open.
+///
+/// For the one place a single column used to show a single enum: a table row, a
+/// timeline tooltip, an export line. It is a lookup into fixed storage rather
+/// than a concatenation, so it costs nothing and can be handed straight to a
+/// formatter. Anything making a *decision* should read the two fields.
+[[nodiscard]] std::string_view ToString(Motion m, Moment moment);
 
 /// Which side of the ragdoll handover a feed event is on, as the capture files
-/// and the game's per-tick publisher both report it. Distinct from Phase: this
-/// is the engine's *gate*, Phase is its *state*.
+/// and the game's per-tick publisher both report it. Distinct from both axes
+/// above: this is the engine's *gate*, they are its *state*.
 enum class ActorPhase : std::uint8_t { kUnknown = 0, kAnimated, kRagdoll, kGetUp };
 
 /// Distance tier, evaluated per actor per tick rather than per contact (§10).

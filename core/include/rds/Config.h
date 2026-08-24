@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <string_view>
 
+#include "rds/SlotManifest.h"
 #include "rds/Types.h"
 
 namespace rds {
@@ -162,6 +163,20 @@ struct IngestConfig {
     /// 20.4 ms. 2 ms separates them with three orders of magnitude to spare.
     float frameGapMs{2.0f};
 
+    /// Publish every ragdoll limb's position and velocity once every N ticks.
+    ///
+    /// This is the only measurement of where the body actually *is*. Without it
+    /// air time can only be inferred from the gaps between contacts, which reads
+    /// a body that has merely stopped touching anything as airborne - maximal at
+    /// ragdoll_start, when the actor was standing on the floor a frame earlier.
+    ///
+    /// 1 is every tick, which is what the engine wants and what a capture should
+    /// carry. Higher decimates; 0 turns it off entirely and puts the engine back
+    /// on the inference. A knob rather than a constant because it is the one
+    /// setting that trades capture size against how well a fall can be measured,
+    /// and that trade is worth being able to make without a rebuild.
+    std::int32_t bodySampleEveryNTicks{1};
+
     /// Contacts on one (limb, other body) pair inside a frame collapse to their
     /// max. Do not use manifoldFirst/manifoldLast to bracket this - the flags
     /// do not pair up.
@@ -180,50 +195,335 @@ struct IngestConfig {
     float grazeMaxImpactSpeed{220.0f};
 };
 
-// ── Stage 2: Phase machine ───────────────────────────────────────────────────
+// ── The modifier contract ────────────────────────────────────────────────
+//
+// Three rules mutate a contact between ingest and arbitration - the glancing
+// landing, the head's air time and the body's air time. They used to hand-roll
+// the same dance each time, and the comments said so: "built exactly like the
+// two above and for the same reasons". They re-derived the onset gain from the
+// intensity delta by hand, capped the lift by hand or not at all, and each
+// accumulated its own trim into its own field.
+//
+// So the pipeline is declared instead, in four stages with a contract each:
+//
+//   Admit   veto, speed floor            nothing today
+//   Shape   intensity, onsetGainDb       glancing, head air, body air
+//   Budget  grains, gaps, caps, masking  the hero moment
+//   Trim    loudness only                post-intensity, role and file trims,
+//                                        the motion/hero trim, the compressor
+//
+// Two invariants, written here once instead of repeated in four comment blocks.
+//
+//  - **Anything that changes rank is bounded, and never touches `rawIntensity`.**
+//    A level added before arbitration is also a *rank*, so an unbounded one does
+//    not merely make a contact loud - it makes it outrank everything in the
+//    frame. And Stage 2 must read the untouched figure, or a lifting rule can
+//    walk the actor into a different motion state and quieten everything after
+//    it.
+//  - **Anything at Trim cannot change what was chosen.** By the time it runs the
+//    slot, the layer balance and the pitch are all decided; loudness is the only
+//    thing left, which is what makes it safe to turn while listening.
 
-/// What one phase is allowed to spend. The trim is in dB against the actor's
-/// mix, so the settle phase being nearly silent is one number rather than a
+/// What one Shape-stage rule may move.
+///
+/// `maxLevelDb` bounds where the contact *lands*, not how much is added -
+/// `gainDb` already bounds the addition on its own, so a second cap on it would
+/// be a no-op. Zero is the engine's own natural ceiling, since `onsetGainDb`
+/// tops out at exactly 0 dB for the hardest contact the engine can hear. Only a
+/// lift is capped; a cut is left alone.
+struct ShapeLift {
+    float intensity{0.0f};   ///< class and layer balance, and therefore rank
+    float gainDb{0.0f};      ///< level and rank, before arbitration
+    float maxLevelDb{0.0f};  ///< where the lift may land
+    float trimDb{0.0f};      ///< loudness only, after arbitration
+};
+
+/// What one Budget-stage rule may waive. Never a level, for the reason above.
+struct BudgetWaiver {
+    float burstGapFrac{0.0f};
+    bool ignoreRateCap{false};
+    bool resetsBurst{false};
+};
+
+// ── Stage 2: the motion axis ─────────────────────────────────────────────────
+
+/// What one state is allowed to spend. The trim is in dB against the actor's
+/// mix, so the resting phase being nearly silent is one number rather than a
 /// special case in the arbitrator.
+///
+/// Used by both axes: a motion state has one of these and so does the hero
+/// latch, and `BudgetFor` picks between them. That is the whole mechanism by
+/// which "design owns how loud the mix is" overrides "physics owns what the
+/// body is doing" without either axis having to know about the other.
 struct PhaseBudget {
     float gainTrimDb{0.0f};
     std::int32_t maxCuesPerBurst{4};
 };
 
-struct PhaseConfig {
-    /// Height above the last known ground contact, in units, and how long off
-    /// the ground before Airborne is believed.
-    float airborneMinHeight{40.0f};
+struct MotionConfig {
+    /// How long off the ground before Airborne is believed.
+    ///
+    /// `airborneMinHeight` used to sit beside this and is gone. It was never
+    /// read by anything, and height is the wrong question: its ground reference
+    /// is the last floor contact, which is stale the moment a body starts
+    /// travelling - down a staircase it is a step the body left three bounces
+    /// ago. What replaced it is `freeFallFrac` below, which needs no ground.
     float airborneMinTimeMs{120.0f};
 
-    /// The first contact that carries this fraction of the fall's accumulated
-    /// energy opens PrimaryImpact. Fire-on-first-contact is safe: 96.2 % of
-    /// episodes peak on their first row (07 §9).
-    float primaryImpactEnergyFrac{0.35f};
+    /// How much of free-fall acceleration counts as unsupported.
+    ///
+    /// A body nothing is holding up accelerates downward at gravity: 9.8 m/s^2
+    /// against 69.99 units per metre is about -686 units/s^2. Measured across
+    /// the real fall in Vayne_impacts_log_2_cut_4 at -675, and across the
+    /// opening scuff of that same take at *+229* - the contact the old air-time
+    /// rule scored as fully airborne, and which is in fact the body being pushed
+    /// up rather than falling.
+    ///
+    /// A fraction rather than the number itself, so a mod that changes gravity
+    /// or an actor with unusual damping moves one value. Steeper than free fall
+    /// still counts: a body driven downward has nothing holding it up either.
+    float freeFallFrac{0.55f};
+    float gravityUnitsPerSec2{686.0f};
 
-    /// How long PrimaryImpact stays open. The references' hero moments are a
-    /// small group of peers inside a couple of hundred ms, not one hit.
-    float primaryImpactWindowMs{220.0f};
+    /// How long the acceleration has to look like free fall before the flag is
+    /// believed, and how long it survives a tick that disagrees. One noisy
+    /// sample either way is a solver artefact, not a landing.
+    float freeFallMinMs{40.0f};
+    float freeFallHoldMs{60.0f};
+
+    /// Whether a flight that something is pushing is treated differently from
+    /// one that is only falling.
+    ///
+    /// Off, the residual below is still *measured* - it costs a subtraction and
+    /// a square root per tick, and it is the number you need in order to choose
+    /// a gate - but nothing acts on it, and air time means what it meant before:
+    /// time since the body left support, however it came to be moving.
+    bool drivenEnabled{true};
+
+    /// How far the measured acceleration may sit from gravity before the body
+    /// counts as *driven* rather than falling.
+    ///
+    /// A body nothing is touching accelerates at exactly gravity - straight
+    /// down, nothing sideways. Anything else means something is pushing: a leash
+    /// hauling on a collar, an Unrelenting Force shout, a blast, a spell that
+    /// throws the target across the room. The engine does not need to know which
+    /// of those it was, and must not need to: asking the mod that did it only
+    /// works for the mods that answer, and there is always one more.
+    ///
+    /// Measured on a leash yank in Proventus_Avenicci_devbench_3: the genuine
+    /// fall at 40.7 s sits at 197-284 u/s^2 of residual, well inside the gate,
+    /// and a body being hauled reads 900-1600. A body resting on the floor reads
+    /// ~686 - the ground holding it up is a force too - which is why this is only
+    /// consulted while the free-fall test already says nothing is.
+    ///
+    /// A gate of zero would call every flight driven, so it is treated as off -
+    /// but `drivenEnabled` is the switch, and this is only the threshold.
+    float drivenResidual{450.0f};
+    /// Kept true this long past the last driven tick, so one quiet frame in the
+    /// middle of a sustained pull does not read as the flight going ballistic.
+    float drivenHoldMs{80.0f};
+
+    // ── the slide ────────────────────────────────────────────────────────
+    //
+    // Entry is measured from the contacts and exit is measured from the body,
+    // and that split is the whole shape of the rule. A graze is a good signal
+    // that a slide has *started* - sideways motion instead of a hit is exactly
+    // what sliding looks like to a collision - and a bad signal that one is
+    // still going, because collisions are dense when a fall is busy and absent
+    // when it is not, so a slide inferred from them ends every time the solver
+    // takes a breath.
+    //
+    // So the slide leaves this state three ways, and only three: the body
+    // stopped (`spent`, the ordinary Resting edge), the body left the ground
+    // (`airborne`, the Airborne edge), or neither - in which case something
+    // stopped it, and that is what `SlideExit::kStruck` and the slide-end
+    // impact are. Nothing infers an end from the impacts any more.
 
     /// Sustained tangential contact for this long opens Slide.
     float slideMinTangentSpeed{120.0f};
     float slideMinDurationMs{150.0f};
 
-    /// Energy below this for `settleQuietMs` closes the event with one settle
-    /// cue. Falls that trail off feel unfinished (§7).
+    /// ...or this far travelled along the surface, whichever comes first.
+    ///
+    /// Time alone describes a slow grind and misses a fast skid entirely:
+    /// devbench_3 crosses two metres of floor in under the 150 ms the time gate
+    /// wants, so the slide never opened on the one take that is mostly sliding.
+    ///
+    /// Measured off the centre of mass where a take carries pose - the honest
+    /// answer to "how far did the body go" - and integrated from tangent speed
+    /// where it does not. The contact *point* is not usable for this: it hops
+    /// between manifold points and between limbs, and its displacement is mostly
+    /// jitter that has nothing to do with sliding.
+    float slideMinDistance{45.0f};
+
+    /// How long the graze stream may dry up before the slide is over.
+    ///
+    /// Not a way of ending the slide on the impacts by the back door: what ends
+    /// on this timer is the *slide*, and which of the three exits it took is
+    /// decided by the body, not by the silence. It is here because a slide with
+    /// no grazes at all in it is not a slide any more whatever else is true, and
+    /// because a couple of quiet frames in the middle of a long grind is a
+    /// solver artefact rather than the body having stopped.
+    float slideGraceMs{140.0f};
+
+    /// Whether a slide that ended by hitting something places an impact there.
+    ///
+    /// It is a real collision that the contact stream regularly misses - the
+    /// limb that catches on the doorframe reports one glancing row and then the
+    /// body is simply stopped - and without it the loudest moment of a slide is
+    /// a loop fading out over silence. Off, the slide still ends; it just ends
+    /// quietly, which is what the mod did before.
+    bool slideEndImpact{true};
+
+    /// Energy below this for `settleQuietMs` enters Resting and closes the event
+    /// with one settle cue. Falls that trail off feel unfinished (§7).
     float settleEnergyFloor{45.0f};
     float settleQuietMs{300.0f};
 
-    /// Silence held after the ragdoll ends, covering the get-up blend. Unmeasured
-    /// - every capture take was paralysed and none of them ever got up (07 §1).
+    /// What it takes to leave Resting again, as a multiple of the fall's own
+    /// peak closing speed - so it scales with how hard the knockdown was rather
+    /// than being a speed that means different things in different falls.
+    ///
+    /// This is the edge the old machine did not have. `Settle`'s only exit was
+    /// `Rest`, so the six loudest contacts of a fall arriving after it had
+    /// closed were all judged at the settle budget and every one was dropped.
+    /// But the edge cannot be free either: "any contact leaves it" hands the
+    /// quiet tail back to masking alone, and the last twenty contacts of a
+    /// knockdown being nearly silent is the main lever the design has for
+    /// staying unobtrusive (00-Design §4). So a settling flop stays in Resting
+    /// and a real contact does not.
+    ///
+    /// The floor underneath it is `settleEnergyFloor * 2`, for a knockdown so
+    /// gentle that 40 % of its peak is still nothing.
+    float restingExitPeakFrac{0.40f};
+
+    /// Silence held after the ragdoll formally ends, covering the get-up blend:
+    /// for this long after a `ragdoll_end` or `knock_get_up` row, nothing leaves
+    /// Resting. Unmeasured - every capture take was paralysed and none of them
+    /// ever got up (07 §1) - and it does not block v1, because a death ragdoll
+    /// never gets up and simply never leaves Resting.
     float getUpBlendMs{400.0f};
 
     PhaseBudget launch{-6.0f, 2};
     PhaseBudget airborne{-9.0f, 1};
-    PhaseBudget primaryImpact{0.0f, 5};
     PhaseBudget tumble{-3.0f, 4};
     PhaseBudget slide{-6.0f, 2};
-    PhaseBudget settle{-14.0f, 1};
+    PhaseBudget resting{-14.0f, 1};
+};
+
+// ── Stage 2: the moment axis ─────────────────────────────────────────────────
+
+/// When the mix is allowed to have a hero moment, and what one is worth.
+///
+/// The test this replaces was `frameEnergy >= 0.35 * energyAccum` against a
+/// running total that only ever grew, on an intensity that clamps at 1.0. Two
+/// things followed. Once the total passed 1/0.35 the test could never be
+/// satisfied again, so the hero moment was structurally unavailable after the
+/// opening of a fall; and at the very start the running total *is* the first
+/// contact, so nearly any first touch qualified - in Vayne_impacts_log_2_cut_4
+/// the hero moment was spent on a 44.7 u/s thigh scuff at 696 ms.
+///
+/// Everything here is measured on raw `impactSpeed` rather than on intensity,
+/// which is also what fixes the saturation: intensity is clamped to 1.0, so
+/// above `speedRefHigh` every contact reads the same and the test meant to find
+/// the biggest moment of a fall was blind at the top of its own range. Closing
+/// speed is not clamped and 608 u/s is plainly bigger than 294.
+struct HeroConfig {
+    /// Off, the moment axis stays Ordinary for ever and every budget comes from
+    /// the motion state - which is the old machine minus its hero phase.
+    bool enabled{true};
+
+    /// The absolute floor, as a fraction of `IntensityConfig::speedRefHigh`.
+    ///
+    /// A fraction rather than a speed because every gate in the mod is really a
+    /// statement about where it sits in the range the mod hears (00-Design §6),
+    /// and written as a raw number that statement quietly stops being true the
+    /// moment the anchor moves. At the shipped anchor of 960 this is 288 u/s:
+    /// above the 44.7 scuff that used to steal the moment, below the 294 head
+    /// that should have had it.
+    float floorFrac{0.30f};
+
+    /// Dominance: how much louder than the decaying recent peak a contact has to
+    /// be to be the event rather than part of one.
+    ///
+    /// The envelope it is measured against is the same peak-hold over closing
+    /// speed the settle rule reads, taken from before this tick's contacts were
+    /// folded in - a contact cannot be 1.3x itself.
+    float dominanceRatio{1.30f};
+
+    /// Arrival: a contact that lands out of a genuine measured flight this long
+    /// is a landing, whatever else is going on. This is the clause the pose work
+    /// exists to make possible, and it is deliberately only available on a take
+    /// that carries pose: the old inference reads the first contact of a take as
+    /// maximally airborne, because nothing had ever touched, which is exactly
+    /// the failure that spent the moment on the opening scuff.
+    ///
+    /// 250 ms sits between the two sprawls in Vayne log_2 (16 and 35 ms) and its
+    /// dive (597 ms) with room on both sides.
+    float arrivalMinAirMs{250.0f};
+    /// ...and had come down at least this far, in units. Zero asks nothing of
+    /// the drop and judges on flight time alone.
+    float arrivalMinDropUnits{0.0f};
+
+    /// Slide end: a body that was still travelling this fast when something
+    /// stopped it gets a hero moment for it, as a fraction of
+    /// `IntensityConfig::speedRefHigh` like every other gate here.
+    ///
+    /// This clause exists because the slide-end impact is the one contact in the
+    /// mod that the dominance clause cannot judge fairly. A slide is a long
+    /// stretch of grazes, so `energyRecent` is *low* when it ends - which would
+    /// make a gentle stop dominant - and the impact itself is synthesised at the
+    /// body's speed rather than a limb's, so it is not on the same scale as the
+    /// peak it would be measured against. A speed of its own is the honest test:
+    /// how fast was the body actually going when it was stopped.
+    ///
+    /// At the shipped anchor of 960 the default is 288 u/s, which is a body
+    /// still travelling at roughly the speed of an ordinary shove. Zero switches
+    /// the clause off and leaves the slide-end impact to the ordinary rules.
+    float slideEndFrac{0.30f};
+
+    /// How long the latch holds. The references' hero moments are a small group
+    /// of peers inside a couple of hundred ms, not one hit - a faceplant
+    /// genuinely has a knee, a chest and a head.
+    float windowMs{220.0f};
+
+    /// A contact this many times the open window's own anchor speed re-anchors
+    /// it: the window restarts, the burst budget resets again and the spatial
+    /// collapse point moves onto the new contact.
+    ///
+    /// Re-anchoring rather than opening a second moment is what makes a landing
+    /// read as one event with peers instead of three events. It is also why the
+    /// moment tracks its own peak rather than its first grain: log_2's 608.7 u/s
+    /// slam arrives 132 ms after the 294 u/s head that opened the window, and
+    /// the collapse point belongs on the slam.
+    float reanchorRatio{1.15f};
+
+    /// What a hero moment is worth. Overrides the motion state's budget outright
+    /// while the latch is open - `BudgetFor` is the one place that is decided.
+    PhaseBudget budget{0.0f, 5};
+
+    /// Opening or re-anchoring closes whatever burst was open and lets the
+    /// moment start its own with the grain count back at zero.
+    ///
+    /// This is what absorbs the air-time budget reset rather than bolting it on.
+    /// The thing a long fall most often lost to was not a gate but a burst that
+    /// some scuff had opened and filled three hundred milliseconds earlier,
+    /// while the body was still in the air.
+    bool resetsBurst{true};
+
+    /// Fraction of `ArbitrationConfig::burstMinGapMs` waived for the contacts of
+    /// a hero moment, so the landing is not dropped for arriving too soon after
+    /// the burst it just closed. 1.0 waives it entirely.
+    float burstGapFrac{1.0f};
+
+    /// Whether they also ignore the global rate cap.
+    bool ignoreRateCap{true};
+
+    /// Hero moments per knockdown. **0 is unlimited**, which is the default and
+    /// the whole point of the rework: a body bouncing down a staircase has more
+    /// than one real landing in it. Set it to 1 to get the old machine's "one
+    /// hero per fall" back.
+    std::int32_t maxPerEvent{0};
 };
 
 // ── Stage 4: Arbitration ─────────────────────────────────────────────────────
@@ -264,14 +564,6 @@ struct ArbitrationConfig {
     /// the references' 0.95-0.97 stereo correlation.
     bool spatialCollapseOnHero{true};
     float spatialCollapseWindowMs{200.0f};
-
-    /// The real budget is voices, not CPU.
-    /// A composite is four voices - transient, surface, body, sub - so eight
-    /// could not hold two overlapping composites, and a hard crash is precisely
-    /// two or three overlapping composites. At eight, log_4's landing lost the
-    /// body and sub of its loudest contact and came out as a click.
-    std::int32_t voiceCapPerActor{12};
-    std::int32_t voiceCapGlobal{24};
 
     /// Windows scale with frame time so the system behaves the same at 24 and
     /// 144 fps: every window is max(k * frameTime, the floor above).
@@ -400,12 +692,18 @@ struct EffectiveMassConfig {
 struct ImpactCompositeConfig {
     bool enabled{true};
 
+    /// Below this intensity a contact is burst filler and plays as a single tap
+    /// rather than a four-layer composite. The quiet nine of every ten contacts
+    /// live here, and this is the line they fall under - the only place in the
+    /// engine where a level decision changes a cue's *class*, so it is worth a
+    /// slider rather than a constant.
+    float tapBelowIntensity{0.15f};
+
     /// Layer offsets from the contact frame, in ms. Measured in the references:
     /// transient at 0, body at +8..34, weight at +46..100, sub at +64..74.
     /// Structured, not random - random jitter smears the shape rather than
     /// building it.
     float transientOffsetMs{0.0f};
-    float surfaceOffsetMs{8.0f};
     float bodyOffsetMs{20.0f};
     float subOffsetMs{65.0f};
 
@@ -424,8 +722,6 @@ struct ImpactCompositeConfig {
     float bodyGainAtMaxDb{-2.0f};
     float subGainAtMinDb{-30.0f};
     float subGainAtMaxDb{0.0f};
-    float surfaceGainAtMinDb{-12.0f};
-    float surfaceGainAtMaxDb{-6.0f};
 
     /// Pitch is free and continuous in this engine, and it beats doubling the
     /// bank. Random scatter per voice plus a systematic downward bias with
@@ -435,6 +731,199 @@ struct ImpactCompositeConfig {
 
     /// Stay inside this or the pitch trick starts sounding like a pitch trick.
     float pitchMaxSemis{3.0f};
+};
+
+/// Air time: how long the body had been clear of the world when a contact
+/// arrived, and what that is allowed to do to the sound.
+///
+/// It began as the head's own lead rule, and the measurement is the reason it is
+/// no longer only the head's. A dive and a sprawl produce head contacts the
+/// closing speed cannot tell apart - Vayne log_2 has a 402 u/s head that is the
+/// tip of a spine whip and a 294 u/s head that is a genuine faceplant. What
+/// separates them is how long the body had been clear of the world when the head
+/// arrived: 16 and 35 ms for the two sprawls, 597 ms for the dive. A
+/// seventeenfold gap, and one timestamp per actor to carry it - and that one
+/// timestamp answers the same question for every other limb too.
+///
+/// There are two halves to spend it on, both reading one measurement, and both
+/// are **Shape**-stage rules - they decide how big a contact is *built*:
+///
+///  - the **head** half, the old lead rule, which moves the head accent's own
+///    gate, level and crunch chance;
+///  - the **body** half, which is the same idea for everything that is not the
+///    head - the difference between a limb that came down at the end of a fall
+///    and the same limb clipping the floor mid-tumble is air time, and nothing
+///    else in the pipeline can see it.
+///
+/// There used to be a third, the **budget reset**, and it is gone: deciding
+/// whether a landing is *heard* is a budget question and belongs to the moment
+/// axis, not here. Air time is still the evidence - it is `HeroConfig`'s
+/// arrival clause - but it now buys a hero moment rather than a private waiver.
+/// Keeping both would have meant two rules reading one measurement to bend the
+/// same budgets with two per-knockdown counters.
+///
+/// Every measurement is taken from the value the actor held *before* this tick's
+/// contacts were folded in, so an arm coming down in the same frame as the head
+/// is read as part of the same strike rather than as evidence the body was
+/// already down.
+struct AirTimeConfig {
+    // ── The head half: the head arriving first, with the body still clear ────
+
+    bool headEnabled{false};
+
+    /// How long the body must have been clear of the world for the head's air
+    /// time to count fully. The ramp is linear from zero to here.
+    float headClearMs{250.0f};
+
+    /// A hand is what you put out in front of a dive, so a hand touching down
+    /// with the head is part of the same strike rather than evidence the body
+    /// was already down. Vayne log_2's faceplant lands its left hand in the
+    /// same millisecond as its skull, and counting that hand collapses the air
+    /// time to zero on the one contact the rule exists to catch.
+    ///
+    /// Hands still count as company, and they always count for the body half and
+    /// for the reset - this is the head's own measurement only.
+    bool headExcludeHands{true};
+
+    /// ...but only for this long. This is the window of forgiveness, so a
+    /// *larger* value forgives more: a hand inside it belongs to this strike, a
+    /// hand older than it is an ordinary peer again. That is what keeps a body
+    /// that broke its fall on one arm, rolled, and clipped its head a second
+    /// later from reading as a dive. Zero forgives nothing and makes
+    /// `headExcludeHands` do nothing on its own - contacts inside the frame
+    /// bucket are still discounted, but a hand a frame or two earlier is not.
+    float headHandGraceMs{200.0f};
+
+    /// How much more willing the head gate is at full air time, on the same
+    /// scale as `HeadImpactConfig::headDownBonus`.
+    float headGateBonus{0.45f};
+
+    /// Level added to the head accent at full air time.
+    float headGainDb{9.0f};
+
+    /// The ceiling that boost is allowed to lift the accent to. This bounds
+    /// where the accent *lands*, not how much is added - `headGainDb` already
+    /// bounds the addition on its own, so a second cap on it would be a no-op.
+    ///
+    /// It exists because the boost is applied before arbitration, where a level
+    /// is also a rank: a large `headGainDb` on top of an already-loud contact
+    /// does not merely make the skull loud, it makes it outrank every other
+    /// proposal in the frame. Zero is the engine's own natural ceiling -
+    /// `onsetGainDb` tops out at exactly 0 dB - so it costs an ordinary head
+    /// accent nothing and only bites once the boost would push past what the
+    /// hardest possible contact could reach unaided.
+    ///
+    /// Only a positive boost is capped; a negative `headGainDb` is a cut and is
+    /// left alone. Company damping is applied after this and can still take the
+    /// accent back below the ceiling.
+    float headMaxLevelDb{0.0f};
+
+    /// The post-arbitration half of the head boost, on the same ramp. Nothing
+    /// caps it - a trim is not a rank, so it cannot take the frame over - which
+    /// makes it the one to reach for when the accent is simply too quiet and the
+    /// sort is already coming out right.
+    float headTrimDb{0.0f};
+
+    // The head halo lived here: four numbers that lifted the contacts *around*
+    // a led head, so a dive read as a body going down rather than as an accent
+    // floating over nothing. It is gone, and the hero window is why.
+    //
+    // What the halo was, structurally, is a peer group and a spatial collapse
+    // re-implemented per contact - and the moment axis has both already. A hero
+    // window is 220 ms wide and every contact inside it is a peer by
+    // construction; `Arbitration:bSpatialCollapseOnHero` puts them at one point.
+    // All four numbers defaulted to 0, so nothing that shipped is losing a
+    // setting it had.
+    //
+    // One capability did go with it and is worth naming rather than pretending
+    // otherwise: the halo added *intensity*, which moves the layer balance and
+    // the composite/tap class, while the hero window only moves budget and trim.
+    // If a dive comes out thin, that is the thing to put back - as a lift on the
+    // hero window rather than on the head, so it is one rule and not two.
+
+    /// The crunch gate a head at full air time is held to, replacing
+    /// `CrunchGoreConfig::crunchGateFrac` for that contact only - which is what
+    /// puts a crunch on a slow dive without putting one on every fast sprawl.
+    /// Zero leaves the crunch gate alone.
+    float headCrunchGateFrac{0.55f};
+
+    /// The chance such a head over that gate actually crunches. CrunchGore's own
+    /// ramp is not used here: it runs from the gate up to `crunchCertainFrac`,
+    /// and a dive that opens the gate at a third of the certain speed would come
+    /// out at the bottom of that ramp and almost never fire - which is the thing
+    /// this rule exists to fix. One number instead, so the aliveness is still
+    /// tunable. 1.0 is always.
+    float headCrunchProbability{1.0f};
+
+    // `headClaimsOnset` used to live here, fired by the top of the head's own
+    // air-time ramp. The question it asks is real and it has moved to
+    // `HeadImpactConfig::claimsOnsetOnHero`, fired by the moment axis instead -
+    // see there for why the trigger was the part that was wrong.
+
+    // ── The body half: everything that is not the head ───────────────────────
+    //
+    // The head half asks "did the skull arrive first". This one asks the plainer
+    // question the rest of the body has never been able to answer: was this limb
+    // falling, or was it already down? A thigh that touches the floor 20 ms
+    // after a shoulder is the second grain of a landing; the same thigh at the
+    // same speed after 600 ms of air is the landing. Closing speed does not
+    // separate those two either - a tumble reaches the same speeds it fell at -
+    // and everything downstream of intensity is therefore working blind.
+    //
+    // Hands count here, both as the peer that ends the air time and as a limb
+    // that can be lifted by it: an arm slapping down after a long drop is a
+    // landing, not the arm you threw out in front of a dive.
+    //
+    // The head is excluded outright. It has its own half above, and letting both
+    // fire would stack two boosts on the one contact the whole rule was built
+    // around.
+
+    bool bodyEnabled{false};
+
+    /// How long the body must have been clear of the world for a limb's air time
+    /// to count fully. The ramp is linear from zero to here, so a contact half
+    /// way up it gets half of everything below.
+    float bodyClearMs{250.0f};
+
+    /// Intensity added at full air time. Intensity is the loud knob - it moves
+    /// the composite's layer balance, the pitch bias, and whether the contact is
+    /// a composite at all rather than a tap - so a small number here does more
+    /// than a large one in dB, and it is the one that can turn a landing that
+    /// was filler into an event. As with the halo, `rawIntensity` is untouched,
+    /// so lifting a landing cannot walk the actor into a different phase and
+    /// make everything after it louder.
+    ShapeLift bodyLift{};
+
+    /// Level added before arbitration, where a level is also a rank - so this is
+    /// what stops the landing being crowded out by the scuffs around it.
+
+    /// The ceiling that lift is allowed to reach, exactly as `headMaxLevelDb`:
+    /// it bounds where the contact *lands*, not how much is added, and zero is
+    /// the engine's own natural ceiling. Only a positive lift is capped.
+
+    /// ...and after arbitration, where it is loudness alone and cannot take the
+    /// frame over.
+
+    // ── Budget reset: gone, absorbed by the hero window ──────────────────────
+    //
+    // Seven numbers used to live here. They handed a landing that had been in
+    // the air long enough a fresh arbitration budget - close the open burst,
+    // refill the grains, waive the gap and the rate cap - whichever limb it
+    // landed on, once per knockdown.
+    //
+    // That is a second hero moment, implemented in the arbitrator, and its own
+    // help text said so: "A fall is one landing; a body bouncing down a
+    // staircase is not entitled to a fresh budget for every bounce" is a
+    // sentence about hero moments, written where hero moments could not be
+    // expressed.
+    //
+    // Both halves of it now sit on the moment axis, where the question belongs.
+    // Its evidence - air time past a threshold - is `HeroConfig::arrivalMinAirMs`
+    // and is now measured rather than inferred. Its effect is
+    // `HeroConfig::resetsBurst`, `burstGapFrac` and `ignoreRateCap`. Its
+    // per-knockdown cap is `HeroConfig::maxPerEvent`, which defaults to
+    // unlimited because the staircase really does have more than one landing
+    // in it.
 };
 
 struct HeadImpactConfig {
@@ -452,8 +941,193 @@ struct HeadImpactConfig {
     float gateFrac{0.31f};
 
     float gainDb{-2.0f};
+    /// The post-arbitration half of the same voicing. `gainDb` is added before
+    /// arbitration, so it is a rank as well as a level - a hot `head_impact`
+    /// wav pulled down there also loses the accent its place in the sort, which
+    /// is the trap `config.md` was written around. Put voicing here and the
+    /// balance changes without the arbitrator noticing.
+    float trimDb{0.0f};
     /// Head-down attitude at the moment of contact makes the gate more willing.
     float headDownBonus{0.25f};
+
+    // ── Company: the head arriving inside a pile ─────────────────────────────
+    //
+    // The other half of the same question. A head that lands with four other
+    // limbs in the same frame, and is only 1.13x faster than the fastest of
+    // them, is the end of a lever - the loudness belongs to the body. A head
+    // that lands with one hand and is 1.43x faster than it is the strike.
+
+    bool companyEnabled{false};
+
+    /// More other limbs than this hitting the world in the same frame and the
+    /// contact is treated as part of a sprawl.
+    std::int32_t companyMaxPeers{2};
+
+    /// ...and the head must be at least this much faster than the fastest of
+    /// them, or it is treated as a sprawl whatever the count says.
+    float companyLeadFrac{1.30f};
+
+    /// What a sprawl costs: the gate goes up by this fraction of itself...
+    float companyGateFrac{0.20f};
+
+    /// ...and the accent comes down by this much before arbitration, where the
+    /// level is also the rank, so a sprawled head both sounds smaller and stops
+    /// outranking the limbs the loudness actually belongs to.
+    float companyDampDb{-9.0f};
+
+    /// ...and by this much after it, where it is loudness alone. Damping a
+    /// sprawl purely here keeps the head's place in the sort while taking it
+    /// down in the mix - useful when the accent is the right cue to spend the
+    /// budget on and merely the wrong size.
+    float companyTrimDb{0.0f};
+
+    // ── Budget refund: gone, absorbed by the hero window ─────────────────────
+    //
+    // Six numbers used to live here, buying a hard head strike out of the
+    // arbitrator's budgets: log_1 dropped a 537.8 u/s head - the loudest contact
+    // in the take - on `burst gap`, because a thigh tap opened a burst 155 ms
+    // earlier and the minimum gap between bursts is 300 ms.
+    //
+    // It is the same budget as the air-time reset, bought with head evidence
+    // instead of air-time evidence, and `ApplyHeadRefund` wrote the *same four*
+    // proposal fields `ApplyAirReset` did. Under the hero test that 537.8 u/s
+    // head clears the absolute floor and the dominance ratio comfortably, so it
+    // *is* a hero moment and gets the budget without a second rule, a second
+    // gate expressed as a multiple of another gate, or a second per-knockdown
+    // counter to keep in step with the first.
+
+    // ── Hero floor relief: the head as the start of a moment ─────────────────
+    //
+    // The moment axis's floor is limb-blind, and a faceplant is the one contact
+    // where that is wrong: the strike a fall is *about* can sit under the floor,
+    // or clear it and then fail the dominance ratio against a busy envelope, and
+    // the fall comes out with no hero moment in it at all.
+    //
+    // So a head over a threshold of its own gets the floor lowered, for that
+    // contact and no other. The rule itself lives in `AdvanceMoment` - whether
+    // the mix treats something as a moment is a moment-axis question and not a
+    // strategy's (01-Architecture §7.1) - and it is configured here because this
+    // is where a head is tuned.
+    //
+    // It composes with `claimsOnsetOnHero` below, and that is the point of it:
+    // that switch turns a head which *anchored* a moment from an accessory into
+    // its own onset, and this is what puts a head strike in a position to anchor
+    // one at all.
+
+    bool heroFloorRelief{false};
+
+    /// How hard the head has to hit to earn it, as a fraction of
+    /// `IntensityConfig::speedRefHigh` - the same scale as `gateFrac` above and
+    /// as `HeroConfig::floorFrac`, because every gate in the mod is a statement
+    /// about where it sits in the range the mod hears (00-Design §6), and written
+    /// as a raw speed that statement quietly stops being true the moment the
+    /// anchor moves.
+    ///
+    /// Defaulted to the accent's own gate: a head hard enough to be worth an
+    /// accent is the natural candidate for being worth a moment.
+    float heroFloorReliefAtFrac{0.31f};
+
+    /// ...and how much comes off the hero floor when it does, on that same
+    /// scale, so the two simply subtract and the result reads straight off: a
+    /// 0.30 floor with 0.10 of relief is a head floor of 0.20. Clamped at zero,
+    /// and zero relief is indistinguishable from the feature being off.
+    ///
+    /// Note what this moves besides the floor. The dominance clause measures
+    /// against `max(floor, energyRecentBeforeTick)`, so lowering the floor also
+    /// lowers the reference a decayed envelope is clamped to - and that is what
+    /// actually lets a head *anchor* a moment rather than merely survive the
+    /// first of the two tests. Both halves are deliberate; see `AdvanceMoment`.
+    float heroFloorReliefFrac{0.10f};
+
+    /// A head impact that is the anchor of a hero moment stops being an
+    /// accessory and becomes its own onset.
+    ///
+    /// The question is real - a head landing is still a body landing, so the
+    /// accent normally rides along with the composite and dies with it - and
+    /// only the trigger has changed. It used to be `strike.airFull`, the top of
+    /// the head's own air-time ramp, which is a private measurement that says
+    /// nothing about whether the *mix* considered this a moment. Now it is the
+    /// moment axis: this contact anchored the hero.
+    ///
+    /// Note what this does not fix. A flag that moves a proposal between
+    /// ride-along and onset still moves `fGainDb` onto the arbitrator's sort,
+    /// which is the trap config.md was written around. The real answer is the
+    /// `Proposal::priorityDb` split that file says it is waiting on; until then
+    /// the `fGainDb`/`fTrimDb` pair above is the mitigation - put voicing in the
+    /// trim and the sort stops noticing it.
+    bool claimsOnsetOnHero{true};
+
+    // ── Damage: what a head strike is worth in broken bone ──────────────────
+    //
+    // Two thresholds and two ramps, on top of the accent rather than instead of
+    // it. Past the first, a crunch lands just after the skull; past the second, a
+    // gore layer lands with it.
+    //
+    // Distinct from `CrunchGoreConfig`, which is the body's rule: that one is a
+    // *probability* gate, softened so an ordinary knockdown cracks sometimes and
+    // a real fall always does, and it is deliberately vague because nobody can
+    // check whether a given tumble should have broken something. A head strike is
+    // not vague - the harder the skull lands the worse it is, every time - so this
+    // one is deterministic and ramped on level instead.
+    //
+    // Where they meet, this wins: a contact this rule fires on is skipped by
+    // `CrunchGoreStrategy` rather than being allowed to crunch twice for the same
+    // reason. Both still share `maxCrunchesPerEvent`, so a long tumble cannot turn
+    // into a bag of breaking sticks by coming in through two doors.
+
+    bool damageEnabled{true};
+
+    /// Threshold one, as a fraction of `IntensityConfig::speedRefHigh` like every
+    /// other gate here.
+    ///
+    /// All three defaults are taken off the corpus rather than guessed, because
+    /// the first set was not: 323 head contacts carry a closing speed, they run
+    /// to a maximum of **732 u/s**, and their 95th percentile is 469. A gore tier
+    /// pitched at the body's obliterate frac was therefore unreachable by a
+    /// factor of well over one - it could not fire on any head ever recorded.
+    ///
+    /// 0.45 is 432 u/s, the top 7% of head contacts: a hard landing, not a knock.
+    float crunchAtFrac{0.45f};
+
+    /// Threshold two: from here the crunch is joined by the wet layer. 624 u/s,
+    /// the top 4% - reachable, but only by the worst of them.
+    ///
+    /// Deliberately far under `CrunchGoreConfig::goreGateFrac`. The body's gore
+    /// sits at the obliterate tier, above anything a fall can produce, because
+    /// for a body it is a special case; for a head it is the second half of the
+    /// feature and has to be somewhere a real fall can get to.
+    float goreAtFrac{0.65f};
+
+    /// Where the gore's own ramp reaches full. Past it a harder strike is louder
+    /// through the composite and nothing here changes.
+    ///
+    /// 768 u/s, just above the hardest head in the corpus, so the ramp spans the
+    /// real range and only something worse than anything recorded tops it out.
+    float goreFullFrac{0.80f};
+
+    /// How long after the accent each lands. Not zero by default: the crunch is
+    /// what the skull *did*, and it reads as consequence rather than as texture
+    /// when it arrives a beat late. Both are measured from the accent's own
+    /// offset, so moving the accent moves them with it.
+    float crunchDelayMs{25.0f};
+    float goreDelayMs{40.0f};
+
+    /// The two ramps, in dB against the contact's onset level.
+    ///
+    /// Each runs from its own threshold to its own ceiling, and the crunch's
+    /// ceiling **is** the gore threshold: past there a harder strike has nothing
+    /// more to say through the crunch and everything above belongs to the gore.
+    /// Letting both ramp over the top of the range would make the worst impacts
+    /// louder twice for one reason, which is how a tier structure turns into a
+    /// volume problem.
+    ///
+    /// Quiet ends deliberately well down. Just over a threshold the layer should
+    /// be barely there - the point of a ramp is that crossing it is not an event
+    /// in itself - and only well above it should it be the thing you notice.
+    float crunchQuietDb{-18.0f};
+    float crunchLoudDb{-4.0f};
+    float goreQuietDb{-20.0f};
+    float goreLoudDb{-6.0f};
 };
 
 /// The gnarly gate. Discrete, because you cannot have thirty percent of a bone
@@ -502,33 +1176,49 @@ struct CrunchGoreConfig {
 /// impacts - not a hiss.
 struct ScrapeLoopConfig {
     bool enabled{true};
-    float minTangentSpeed{120.0f};
+
+    /// The loop is the *voicing* of `Motion::kSlide` and nothing else. When a
+    /// slide starts and stops is decided once, on the motion axis, under
+    /// `[Motion]`'s slide keys - so the state, the grinding loop, the budget the
+    /// impacts riding on it get, and the lane the timeline draws are four views
+    /// of one decision rather than four rules that can disagree.
+    ///
+    /// They did disagree, and it was not subtle. The strategy had its own
+    /// duration, distance and speed gates, all of them named differently from
+    /// the motion axis' and none of them the same value, so a knockdown could be
+    /// in `Slide` with no loop under it or grinding away in `Tumble`.
     float startFadeMs{60.0f};
     float stopFadeMs{140.0f};
-    /// How long tangential contact has to persist before the loop starts, so a
-    /// single glancing blow does not open one.
-    float minDurationMs{120.0f};
 
-    /// ...or this far travelled along the surface, whichever comes first.
+    /// The fade used when the slide ended because the body left the ground.
     ///
-    /// Time alone describes a slow grind and misses a fast skid entirely: log_3
-    /// crosses two metres of floor in under the 120 ms the time gate wants, so
-    /// the loop never opened on the one take that is mostly sliding. Distance is
-    /// integrated from tangent speed rather than from contact positions - the
-    /// contact point hops between manifold points and between limbs, and its
-    /// displacement is mostly jitter that has nothing to do with sliding.
-    float minDistance{45.0f};
+    /// A slide that ends in friction ends slowly; one that ends because the body
+    /// launched ends the instant the surface does, and the ordinary fade drags a
+    /// grinding rumble out behind a body that is already in the air. Shorter
+    /// than `fStopFadeMs`, and separate rather than shared, because the two are
+    /// tuned against different pictures.
+    float launchFadeMs{45.0f};
 
-    /// How far the body slides before the loop reaches full level. The loop can
-    /// open on a skid, but it opens *quietly*, and only a real slide brings it
-    /// up - which is what stops every glancing tumble contact sounding like a
-    /// body being dragged.
-    float fadeInDistance{160.0f};
-    float fadeInFloorDb{-15.0f};
     float gainDb{-20.0f};
-    /// Loop gain tracks tangent speed continuously between these.
+
+    /// Loop level and pitch track the *body's measured speed* continuously
+    /// between these. That is the whole of what makes a slide loud: there is no
+    /// distance term, no duration term and no ramp - a slide is exactly as loud
+    /// as the body is fast, which is the one thing about it a listener can check
+    /// against what they see.
+    ///
+    /// The fades stay, because their job is to hide the transition rather than
+    /// to shape the level, and a loop that snaps in at its running level is the
+    /// most obvious thing in the mix.
     float speedForMinGain{120.0f};
     float speedForMaxGain{600.0f};
+
+    /// How far under `fGainDb` the loop sits at `fSpeedForMinGain`. The depth of
+    /// the speed dependence, in other words: at 0 dB the slide is one level
+    /// whatever it is doing, and deep enough that a crawl is inaudible is what
+    /// keeps a body settling on its side from sounding like it is being dragged.
+    float speedRangeDb{-12.0f};
+
     float pitchPerThousandUnits{0.15f};
 };
 
@@ -565,11 +1255,112 @@ struct SettleCloseConfig {
 
 struct StrategiesConfig {
     ImpactCompositeConfig impact;
+    /// Not a strategy of its own - a measurement three of them read. It lives
+    /// here because it is tuned with them and because the head half was part of
+    /// `head` until the body half wanted the same timestamp.
+    AirTimeConfig airTime;
     HeadImpactConfig head;
     CrunchGoreConfig crunch;
     ScrapeLoopConfig scrape;
     MotionFoleyConfig foley;
     SettleCloseConfig settle;
+};
+
+// ── Surfaces ─────────────────────────────────────────────────────────────────
+
+/// Everything that decides how the floor colours a sound, in one place.
+///
+/// A surface skin is not a variant of an impact - it is an extra layer stacked
+/// on one, and that distinction is why this section can exist at all. Colour is
+/// additive, so six surfaces cost six files; a surface *axis* would multiply
+/// every layer in the composite by six instead. It is also the more honest
+/// model: landing on boards does not replace the sound of a body arriving, it
+/// adds a hollow knock to it. A missing skin is then a body landing with no
+/// floor named, which is a quieter mod rather than a wrong one.
+///
+/// These controls used to be spread across four sections - the composite owned
+/// the offset and the ramp, `Mix` owned the role trim, `SlotGain` owned the
+/// three per-file trims and `Layers` owned the three mutes - so answering "is
+/// the floor too loud" meant four panels. Every row moved here carries where it
+/// came from, so an ini written before the move still loads.
+struct SurfaceConfig {
+    /// Off, nothing gets a surface skin and the mod plays the same body on
+    /// marble as on moss. The fastest A/B for how much of the mix is surface
+    /// identity at all; the three mutes below do the same one surface at a time.
+    bool enabled{true};
+
+    // -- on the composite -----------------------------------------------------
+
+    /// When the colour arrives, relative to the contact frame. Close to the
+    /// transient, or it stops reading as the same event.
+    float offsetMs{8.0f};
+
+    /// The ramp, interpolated by intensity like every other layer: a brush of
+    /// the floor barely names it, a body dropped on it names it clearly. If the
+    /// surface reads as a separate sound rather than as colour, it is too loud.
+    float gainAtMinDb{-12.0f};
+    float gainAtMaxDb{-6.0f};
+
+    // -- on the tap -----------------------------------------------------------
+    //
+    // A tap was a single grain, and therefore the one cue in the mod that could
+    // not say what it hit. That is a gap rather than a missing luxury: nine of
+    // every ten contacts are taps, so a body sliding down a wooden staircase
+    // spent nine tenths of itself sounding like a fall down nothing in
+    // particular. Scuffs are where a floor gets identified - the hero hits are
+    // where it gets confirmed.
+
+    /// Colour the burst filler too, not only the four-layer composite.
+    bool onTaps{true};
+
+    /// The tap's own offset and ramp, both tighter and lower than the
+    /// composite's. A tap is 40-100 ms of grain, so a skin arriving 8 ms in and
+    /// running 200 ms would outlive what it is colouring and read as a second
+    /// cue rather than as part of the first.
+    float tapOffsetMs{4.0f};
+    ///
+    /// The ramp is measured rather than guessed. At -20/-14 the colour landed
+    /// under `Mix:fVoiceFloorDb` on nearly every tap that survived to render,
+    /// so the layer existed and was never heard: a tap is already the quietest
+    /// cue in the mod and the floor sits a few decibels under it, which leaves
+    /// no room underneath for something 15 dB down. A tap's colour rides close
+    /// or it does not ride at all - and the headroom below is what stops
+    /// "close" turning into "level with".
+    float tapGainAtMinDb{-12.0f};
+    float tapGainAtMaxDb{-8.0f};
+
+    /// How far under its own tap the colour is held, whatever the ramp says.
+    ///
+    /// This is "colour, not dominate" written down as a number. A proposal's
+    /// level is the loudest of its layers, and level before arbitration is also
+    /// *rank* - so a skin allowed to come out over the grain it is colouring
+    /// would put a scuff on the floorboards ahead of a real impact in the sort.
+    /// Negative, always: 0 lets the colour tie with the grain and positive lets
+    /// it win. The tap's rank is taken from the tap alone regardless, so this
+    /// clamp is about what is heard, not about what is chosen.
+    float tapHeadroomDb{-3.0f};
+
+    // -- level, after the cue has been chosen ---------------------------------
+
+    /// The role trim - all three skins together. Up makes the floor material
+    /// obvious; down makes every surface sound the same, which is what vanilla
+    /// does. Was `Mix:fSurfaceTrimDb`.
+    float trimDb{0.0f};
+
+    /// One trim per file, summed on top of the role trim. The three skins are
+    /// three separately recorded sounds arriving at three different levels, and
+    /// pulling the role trim to fix stone takes wood and soft down with it.
+    /// Were `SlotGain:fSurfWood` and its two neighbours.
+    float woodTrimDb{0.0f};
+    float stoneTrimDb{0.0f};
+    float softTrimDb{0.0f};
+
+    /// Per-skin mutes, applied at render like every other mute - so muting one
+    /// leaves every arbitration decision identical and silences only what came
+    /// out. Were `Layers:bSurfWood` and its two neighbours.
+    bool wood{true};
+    bool stone{true};
+    bool soft{true};
 };
 
 // ── Mix, player, distance ────────────────────────────────────────────────────
@@ -586,13 +1377,140 @@ struct MixConfig {
     float transientTrimDb{0.0f};
     float bodyTrimDb{0.0f};
     float subTrimDb{0.0f};
-    float surfaceTrimDb{0.0f};
     float grainTrimDb{0.0f};
     float loopTrimDb{0.0f};
 
     /// Below this a cue is not worth a voice and is dropped before the cap sees it.
     float voiceFloorDb{-48.0f};
 };
+
+// -- Compression: holding the top of one class down ---------------------------
+
+/// How much of its own range each kind of moment is allowed to use, *on the
+/// mod's own scale*.
+///
+/// This is a compressor and deliberately not a ceiling. A hard cap is the
+/// obvious thing to reach for - "no tap over -20 dB" - and it has one failure
+/// mode that is easy to walk into and hard to un-hear: everything above the cap
+/// arrives at exactly the cap, so a threshold set a few dB too low turns a dozen
+/// distinct impacts into a dozen identical ones. Measured on log_2 with a hard
+/// cap at -20: four separate impacts landed within 1 dB of each other where
+/// there had been an 11 dB spread. The tumble stops having a shape.
+///
+/// So above `threshold` the range is squeezed rather than flattened. A ratio of
+/// 4 means four decibels of input become one of output: the loud ones are still
+/// ordered, still distinguishable, just closer together. `ratio = 1` is off and
+/// a large ratio approaches the hard cap, so the whole span between "leave it
+/// alone" and "clamp it" is one dial.
+///
+/// **What is not here, because it already exists.** Compressing the *whole*
+/// range rather than its top is `Intensity:fDynamicRangeDb`,
+/// `PostIntensity:fExtraRangeDb` and the two `fSoftClipKnee`s. Those are global
+/// and they move every cue, including the quiet ones that were already right.
+/// The gap this fills is per-class and top-only: "taps and head cracks get too
+/// loud, everything else is fine".
+///
+/// ── The unit ────────────────────────────────────────────────────────────────
+///
+/// Thresholds are measured against `Proposal::levelDb` - the number arbitration
+/// itself sorted on, before a single trim is applied - and not against the
+/// rendered level. A threshold written as a rendered level, or as a 0..1
+/// amplitude, would be an *absolute* one, and an absolute threshold fights every
+/// volume control downstream of it: turn `Mix:fMasterGainDb` up 6 dB to sit
+/// against combat properly and the loudest hits do not move, so the mod gets
+/// louder everywhere except at the top and the compression silently tightens by
+/// 6 dB. A 0..1 amplitude would also be a fiction - the game applies its own
+/// distance falloff and output model after us, so there is no full scale for it
+/// to be a fraction of.
+///
+/// `levelDb`'s scale has a real zero: `onsetGainDb` tops out at exactly 0 dB for
+/// the hardest contact the engine can hear, and every layer endpoint sits at or
+/// under it. So
+///
+///     fTapDb = -20  means  "start holding a tap once it comes within 20 dB of
+///                           the loudest thing this mod can produce"
+///
+/// which is a statement about the mix's internal balance and nothing else. Every
+/// trim then applies on top of the compressed value - master, player master, the
+/// phase trims, the slot and role trims, the post-intensity shaping - so turning
+/// the mod up turns its compression up with it and the setting keeps meaning the
+/// same thing at every volume.
+///
+/// Because the input is bounded at 0 dB, a finite ratio still gives an exact
+/// worst case, which is the number to reach for when the question is "how loud
+/// can this get":
+///
+///     loudest possible = threshold + (0 - threshold) / ratio
+///
+/// Two consequences of measuring pre-trim, both deliberate:
+///
+///  - A slot trim is *not* compressed. `SlotGain:fHeadImpact = -10` for a hot
+///    wav still lands on top, so a head accent held to -6 renders at -16. The
+///    compressor is about the event; the trims are about the mix.
+///  - Arbitration has already run on the uncompressed level, so this can never
+///    change which contact wins the rate cap. A held hero hit is still the hero
+///    hit of its frame (config.md, rule 2).
+struct CompressConfig {
+    /// Off by default and behind a flag rather than parked at values nothing
+    /// reaches. Every threshold below is 0, which *is* the top of the range and
+    /// therefore already a no-op - but leaving it implicit would make this a
+    /// section that looks inert and is not.
+    bool enabled{false};
+
+    /// Decibels in per decibel out, above a class's threshold. 1 is off; 4 is an
+    /// ordinary musical squeeze; 20 is near enough a hard limiter to be one.
+    ///
+    /// One ratio for every class rather than nine, because it is the *character*
+    /// of the holding - gentle or firm - and wanting that to differ between a
+    /// tap and a crunch is a much rarer thing than wanting the thresholds to.
+    /// The threshold is where a class starts being held; this is how hard.
+    ///
+    /// Defaults to 4 rather than to 1 so that lowering a threshold does
+    /// something the first time. A ratio of 1 with a threshold moved is a
+    /// section that is switched on, configured, and silent about why nothing
+    /// changed.
+    float ratio{4.0f};
+
+    /// The four-layer impact. Its surface skin has no line of its own: a
+    /// composite is one acoustic moment, the cut is taken once for the whole
+    /// stack, and giving the skin its own threshold would be a second answer to
+    /// a question that has one.
+    float impactDb{0.0f};
+
+    /// The burst filler. The nine of every ten contacts that sit under
+    /// `tapBelowIntensity`, and the line most worth pulling down: taps are what
+    /// a tumble is mostly made of, so a tap that can reach the top of the range
+    /// is a tumble with no shape to it.
+    float tapDb{0.0f};
+
+    float headDb{0.0f};
+    float crunchDb{0.0f};
+    float goreDb{0.0f};
+    float scrapeDb{0.0f};
+    float foleyDb{0.0f};
+    float airborneDb{0.0f};
+    float settleDb{0.0f};
+};
+
+/// How many dB the class compressor takes off a moment at this level, as a
+/// negative number, or 0 when it is under the threshold or switched off.
+///
+/// Free and inline rather than a member of the engine, because three places need
+/// the same arithmetic: the engine applies it, the testbench explains it on a cue
+/// that already carries it, and the timeline draws the height a held cue would
+/// have had. Three copies of a compressor curve is three chances to disagree
+/// about what the slider did.
+[[nodiscard]] inline float CompressCutDb(const CompressConfig& cfg, float thresholdDb,
+                                         float levelDb) {
+    if (!cfg.enabled || levelDb <= thresholdDb) {
+        return 0.0f;
+    }
+    // Under 1:1 the compressor would be an expander, which is not a thing this
+    // section is for and would be a surprising way to make something louder.
+    const float ratio = cfg.ratio > 1.0f ? cfg.ratio : 1.0f;
+    const float over = levelDb - thresholdDb;
+    return -(over - over / ratio);
+}
 
 /// At zero distance the player's own ragdoll is a different acoustic problem,
 /// so it runs the same ingest and the same strategies with its own mix.
@@ -647,11 +1565,6 @@ struct LayerMuteConfig {
     bool impBody{true};
     bool impSub{true};  ///< mute this one and the design says the gnarl should leave with it
 
-    // surface skins
-    bool surfWood{true};
-    bool surfStone{true};
-    bool surfSoft{true};
-
     // grains and texture
     bool limbTap{true};
     bool crunchGran{true};
@@ -669,13 +1582,16 @@ struct LayerMuteConfig {
 
 /// One gain trim per sound slot, applied at Stage 5 beside the mutes.
 ///
-/// MixConfig's trims are per *role* - every surface skin moves together, and so
-/// does every grain - which is the right grain of control for balancing the
-/// composite against the accents. It is the wrong grain for a bank: the three
-/// surface skins are three separately recorded files that arrive at three
-/// different levels, and pulling `fSurfaceTrimDb` to fix stone quietly takes
-/// wood and soft down with it. Then the fix moves into the wav, which is a file
-/// edit and a redeploy to undo.
+/// MixConfig's trims are per *role* - every grain moves together, and so does
+/// every loop - which is the right grain of control for balancing the composite
+/// against the accents. It is the wrong grain for a bank: two files in one role
+/// are two separate recordings arriving at two different levels, and pulling the
+/// role trim to fix one takes the other down with it. Then the fix moves into the
+/// wav, which is a file edit and a redeploy to undo.
+///
+/// The three surface skins are the clearest case of that and they are no longer
+/// here: their trims moved into SurfaceConfig with the rest of the surface
+/// controls, so the floor is tuned in one panel instead of four.
 ///
 /// So one number per slot, summed on top of the role trim rather than replacing
 /// it: the role trim says how loud that kind of layer should be, and this says
@@ -685,10 +1601,6 @@ struct SlotGainConfig {
     float impTransient{0.0f};
     float impBody{0.0f};
     float impSub{0.0f};
-
-    float surfWood{0.0f};
-    float surfStone{0.0f};
-    float surfSoft{0.0f};
 
     float limbTap{0.0f};
     float crunchGran{0.0f};
@@ -713,22 +1625,130 @@ struct SlotResolutionConfig {
     /// Fixed seed so a testbench A/B compares two configs and not two dice
     /// rolls. 0 means seed from the clock, which is what the game wants.
     std::uint32_t rngSeed{0};
+
+    /// Draw every random choice for a cue from its own contact rather than from
+    /// one running stream.
+    ///
+    /// A single stream makes an A/B useless: the shuffle bag and the scatter
+    /// advance once per cue, so a change that adds or removes one cue early in a
+    /// take re-rolls the variant and the pitch of everything after it, and two
+    /// exports differ everywhere instead of where the change bit. Seeding per
+    /// contact from `rngSeed` and the contact's own row means a config edit
+    /// changes only the cues it actually affects - and changing `rngSeed` still
+    /// re-rolls the whole take, so the variety is not lost.
+    bool stableVariants{true};
 };
 
 /// Everything RagdollSounds_Algorithm.ini carries.
+/// A foot the body lands squarely on takes the fall. A foot that clips the floor
+/// on the way past does not, and it should not sound like it did. The two differ
+/// only in the angle they arrive at, so the measure is how much of the limb's
+/// motion goes *into* the surface rather than past it: `impactSpeed / bodySpeed`,
+/// which is the cosine of the angle of incidence.
+///
+/// Measured across three captures of the same knockdown: 0.995 for a foot the
+/// body drops squarely onto (6 degrees off the normal), 0.737 for a knee that
+/// takes some of it (42 degrees), 0.579 for a foot that clips the floor while
+/// the body carries on into a whiplash (55 degrees). The three cases sound
+/// different and the closing speed alone cannot tell them apart.
+///
+/// Scoped to the lower body, and that is not optional. A head dive comes in at
+/// 0.611 and a hand thrown out in front of a fall is lower still; both are
+/// glancing by this measure and both should stay loud. The number only means
+/// "little was transferred" for a limb that was supposed to take the landing.
+struct GlancingImpactConfig {
+    bool enabled{false};
+
+    /// Transfer at or above this is a square landing and is left alone; at or
+    /// below `noTransferFrac` the reduction is full. Between them it ramps.
+    float fullTransferFrac{0.90f};
+    float noTransferFrac{0.55f};
+
+    /// What intensity is multiplied by at full reduction. Intensity carries the
+    /// *class* of the event: the composite/tap split is a branch on it, so a bad
+    /// enough glance demotes itself to a tap, and it is also what the arbitrator
+    /// ranks by. 1.0 leaves intensity alone and uses only the trim below.
+    float maxIntensityScale{0.35f};
+
+    /// Level taken off at full reduction, applied *before* arbitration - so the
+    /// landing is quieter and also ranks lower, losing the hero slot to whatever
+    /// hits next. It does not change the cue's class: only `maxIntensityScale`
+    /// crosses the tap threshold.
+    ///
+    /// Negative is a cut.
+    float maxGainCutDb{0.0f};
+
+    /// Level taken off at full reduction, applied after arbitration - so it
+    /// changes how loud the landing is and *nothing else*: not its class, not
+    /// which contact wins the hero slot, not the phase. This is the knob for
+    /// "quieter, but leave the rest of the fall where it was".
+    ///
+    /// Negative is a cut. Use it alone (with `maxIntensityScale` at 1.0) for
+    /// pure loudness, or alongside it.
+    float maxTrimCutDb{0.0f};
+
+    /// A slide is not a clipped landing. Both are mostly-tangential motion, so
+    /// the transfer ratio alone calls a body sliding along the floor a fully
+    /// glancing landing and turns every contact of it into a tap.
+    ///
+    /// Tangent over closing speed tells them apart: a clipped foot runs about
+    /// 1.4, a knee taking part of a fall 0.35, a squarely landed foot 0.06 -
+    /// while a body sliding on its side runs 3 to 17. Between these two the
+    /// reduction fades out, so nothing switches off at a cliff edge.
+    float slideRatioStart{2.0f};
+    float slideRatioFull{4.0f};
+
+    /// Whether the thigh counts as a landing limb alongside the foot and calf.
+    /// Off, only feet and knees are judged.
+    bool includeThigh{true};
+
+    /// Below this the limb is barely moving and the ratio is noise.
+    float minBodySpeed{60.0f};
+
+    /// Whether the same reduction also raises the bar for a crunch, by scaling
+    /// the speed the crunch and gore gates compare against.
+    ///
+    /// Off by default. A bone can break at any angle, and the crunch is already
+    /// quieter without this - its level rides on the intensity the ramp just
+    /// reduced. Turn it on if glancing landings crunch too readily.
+    bool scaleCrunchGate{false};
+};
+
 struct AlgorithmConfig {
     IngestConfig ingest;
-    PhaseConfig phase;
+    /// Stage 2's two axes. `motion` is what the body is doing, `hero` is what
+    /// the mix is doing; see Types.h for why they are not one value.
+    MotionConfig motion;
+    HeroConfig hero;
     ArbitrationConfig arb;
     IntensityConfig intensity;
     EffectiveMassConfig limbs;
+    GlancingImpactConfig glancing;
     StrategiesConfig strategies;
+    /// Every surface-driven decision, gathered out of four other sections.
+    SurfaceConfig surfaces;
     MixConfig mix;
+    CompressConfig compress;
     PlayerConfig player;
     DistanceConfig distance;
     SlotResolutionConfig slots;
     SlotGainConfig slotGains;
     LayerMuteConfig layers;
 };
+
+
+/// The render-time mute for one slot, or nullptr for a slot that has none.
+///
+/// One mapping rather than two. Stage 5 reads it to decide whether a layer is
+/// audible and the testbench's slot panel writes through it, and a second copy
+/// of the switch is exactly how a panel and an engine come to disagree about
+/// what is muted. It also means a mute moving sections - as the three surface
+/// skins just did - is one edit here rather than a hunt through two switches.
+///
+/// The two declared-and-unfilled slots have none, for the same reason they
+/// have no trim: nothing resolves to them, so a control over either would be a
+/// control over silence.
+[[nodiscard]] bool* LayerMute(AlgorithmConfig& config, SlotId slot);
+[[nodiscard]] const bool* LayerMute(const AlgorithmConfig& config, SlotId slot);
 
 }  // namespace rds

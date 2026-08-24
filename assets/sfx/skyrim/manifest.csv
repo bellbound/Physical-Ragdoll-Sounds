@@ -1,0 +1,36 @@
+file,slot,use,verdict,dur_ms,centroid,tilt,lomid,blocker,source,note
+skyrim_phy_body_large_h_01.wav,imp_body,split,RETRY,1959,1530,+27.6,21,"21 transients in lomid, slot wants 0-5",sound/fx/phy/body/large/h/phy_body_large_h_01.wav,"7 onsets, split first"
+skyrim_phy_body_large_h_02.wav,imp_body,split,RETRY,1976,1987,+26.4,26,"26 transients in lomid, slot wants 0-5",sound/fx/phy/body/large/h/phy_body_large_h_02.wav,"multi-contact, split first"
+skyrim_phy_body_large_h_03.wav,imp_body,split,RETRY,1687,1330,+30.0,24,"24 transients in lomid, slot wants 0-5",sound/fx/phy/body/large/h/phy_body_large_h_03.wav,"11 onsets, split first"
+skyrim_phy_body_large_l_01.wav,imp_body,split,RETRY,1582,1293,+30.6,17,"17 transients in lomid, slot wants 0-5",sound/fx/phy/body/large/l/phy_body_large_l_01.wav,"multi-contact, split first"
+skyrim_phy_body_large_l_02.wav,imp_body,split,RETRY,1596,1758,+27.5,20,"20 transients in lomid, slot wants 0-5",sound/fx/phy/body/large/l/phy_body_large_l_02.wav,"multi-contact, split first"
+skyrim_phy_body_dragon_dirt_h_01.wav,crunch_gran,direct,KEEP,1565,2899,+19.7,33,,sound/fx/phy/body/dragon/dirt/h/phy_body_dragon_dirt_h_01.wav,"centroid 2899, 33 lomid -- best found"
+skyrim_phy_body_dragon_dirt_h_02.wav,crunch_gran,direct,KEEP,2043,3763,+15.4,38,,sound/fx/phy/body/dragon/dirt/h/phy_body_dragon_dirt_h_02.wav,"centroid 3763, 38 lomid"
+skyrim_phy_body_dragon_dirt_h_03.wav,crunch_gran,direct,KEEP,1575,2985,+17.5,30,,sound/fx/phy/body/dragon/dirt/h/phy_body_dragon_dirt_h_03.wav,"centroid 2985, 30 lomid"
+skyrim_phy_snow_heavy_h_01.wav,crunch_gran,direct,KEEP,722,3322,+19.0,19,,sound/fx/phy/generic/snow/heavy/h/phy_snow_heavy_h_01.wav,"centroid 3322, 19 lomid"
+skyrim_phy_grass_heavy_h_01.wav,crunch_gran,direct,KEEP,610,4458,+9.1,18,,sound/fx/phy/generic/grass/heavy/h/phy_grass_heavy_h_01.wav,"centroid 4458, 18 lomid"
+skyrim_phy_grass_heavy_h_03.wav,crunch_gran,direct,KEEP,611,4293,+12.2,17,,sound/fx/phy/generic/grass/heavy/h/phy_grass_heavy_h_03.wav,"centroid 4293, 17 lomid"
+skyrim_phy_generic_dirt_medium_h_01.wav,crunch_gran,direct,KEEP,444,4026,+7.5,16,,sound/fx/phy/generic/dirt/medium/h/phy_generic_dirt_medium_h_01.wav,"centroid 4026, 16 lomid"
+skyrim_phy_generic_dirt_heavy_h_01.wav,surf_soft,direct,KEEP,518,3105,+18.1,17,,sound/fx/phy/generic/dirt/heavy/h/phy_generic_dirt_heavy_h_01.wav,"centroid 3105, tilt +18.1"
+skyrim_phy_generic_dirt_heavy_h_02.wav,surf_soft,direct,KEEP,525,2379,+19.5,14,,sound/fx/phy/generic/dirt/heavy/h/phy_generic_dirt_heavy_h_02.wav,"centroid 2379, tilt +19.5"
+skyrim_phy_generic_dirt_heavy_h_03.wav,surf_soft,direct,KEEP,603,2316,+20.2,14,,sound/fx/phy/generic/dirt/heavy/h/phy_generic_dirt_heavy_h_03.wav,"centroid 2316, tilt +20.2"
+skyrim_phy_generic_dirt_heavy_l_01.wav,surf_soft,direct,KEEP,419,2254,+20.3,13,,sound/fx/phy/generic/dirt/heavy/l/phy_generic_dirt_heavy_l_01.wav,"centroid 2254, tilt +20.3"
+skyrim_phy_generic_dirt_heavy_l_02.wav,surf_soft,direct,KEEP,507,1008,+31.3,17,,sound/fx/phy/generic/dirt/heavy/l/phy_generic_dirt_heavy_l_02.wav,"centroid 1008, tilt +31.3"
+skyrim_phy_generic_dirt_heavy_l_03.wav,surf_soft,direct,KEEP,511,2331,+20.5,12,,sound/fx/phy/generic/dirt/heavy/l/phy_generic_dirt_heavy_l_03.wav,"centroid 2331, tilt +20.5"
+skyrim_phy_generic_wood_medium_l_01.wav,surf_wood,direct,KEEP,245,1566,+14.3,9,,sound/fx/phy/generic/wood/medium/l/phy_generic_wood_medium_l_01.wav,"centroid 1566, 245 ms, near drop-in"
+skyrim_phy_generic_wood_medium_l_02.wav,surf_wood,direct,KEEP,247,1666,+14.7,8,,sound/fx/phy/generic/wood/medium/l/phy_generic_wood_medium_l_02.wav,"centroid 1666, 247 ms, near drop-in"
+skyrim_phy_generic_wood_medium_l_04.wav,surf_wood,direct,KEEP,252,1571,+11.7,8,,sound/fx/phy/generic/wood/medium/l/phy_generic_wood_medium_l_04.wav,"centroid 1571, 252 ms, near drop-in"
+skyrim_fst_wood_land_01.wav,surf_wood,direct,KEEP,502,2050,+13.1,15,,sound/fx/fst/wood/land/fst_wood_land_01.wav,body-weight landing on boards
+skyrim_fst_wood_land_02.wav,surf_wood,direct,KEEP,468,2118,+11.0,14,,sound/fx/fst/wood/land/fst_wood_land_02.wav,body-weight landing on boards
+skyrim_fst_wood_jumpdown_01.wav,surf_wood,direct,KEEP,1251,2475,+4.4,12,,sound/fx/fst/wood/jumpdown/fst_wood_jumpdown_01.wav,"centroid 2475, tilt +4.4"
+skyrim_fst_wood_jumpdown_02.wav,surf_wood,direct,KEEP,1059,2099,+13.2,14,,sound/fx/fst/wood/jumpdown/fst_wood_jumpdown_02.wav,"centroid 2099, tilt +13.2"
+skyrim_fst_wood_jumpdown_03.wav,surf_wood,direct,KEEP,1075,2252,+9.5,13,,sound/fx/fst/wood/jumpdown/fst_wood_jumpdown_03.wav,"centroid 2252, tilt +9.5"
+skyrim_phy_body_medium_wood_l_01.wav,head_impact,direct,KEEP,867,2165,+22.4,9,,sound/fx/phy/body/medium/wood/phy_body_medium_wood_l_01.wav,"centroid 2165, tilt +22.4, 10 onsets"
+skyrim_phy_body_medium_wood_l_02.wav,head_impact,direct,KEEP,1093,1980,+23.7,14,,sound/fx/phy/body/medium/wood/phy_body_medium_wood_l_02.wav,"centroid 1980, tilt +23.7"
+skyrim_phy_body_medium_wood_l_03.wav,head_impact,direct,KEEP,1026,2222,+20.3,13,,sound/fx/phy/body/medium/wood/phy_body_medium_wood_l_03.wav,"centroid 2222, tilt +20.3"
+skyrim_phy_generic_cloth_h_01.wav,settle_rest,direct,KEEP,826,2448,+12.2,8,,sound/fx/phy/generic/cloth/phy_generic_cloth_h_01.wav,"centroid 2448, 3 onsets"
+skyrim_phy_generic_cloth_h_02.wav,head_impact,direct,KEEP,713,3437,+3.0,9,,sound/fx/phy/generic/cloth/phy_generic_cloth_h_02.wav,centroid 3437 -- too bright for settle_rest's 3200
+skyrim_phy_generic_cloth_h_03.wav,settle_rest,direct,KEEP,741,2689,+11.7,10,,sound/fx/phy/generic/cloth/phy_generic_cloth_h_03.wav,centroid 2689
+skyrim_phy_generic_cloth_h_04.wav,settle_rest,direct,KEEP,686,2824,+7.6,11,,sound/fx/phy/generic/cloth/phy_generic_cloth_h_04.wav,centroid 2824
+skyrim_phy_generic_cloth_l_01.wav,settle_rest,direct,KEEP,358,2829,+7.0,8,,sound/fx/phy/generic/cloth/phy_generic_cloth_l_01.wav,centroid 2829
+skyrim_phy_generic_cloth_l_02.wav,settle_rest,direct,KEEP,384,2069,+17.1,8,,sound/fx/phy/generic/cloth/phy_generic_cloth_l_02.wav,"centroid 2069, tilt +17.1"

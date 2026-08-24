@@ -84,11 +84,35 @@ public:
     /// of a large struct.
     void SetCullRadius(float units);
 
+    /// How often the pose is published - 1 every tick, 0 never. Taken from the
+    /// algorithm config alongside the cull radius, and for the same reason:
+    /// Algorithm() returns a copy of a large struct and this is read per frame.
+    void SetBodySampleEveryNTicks(std::int32_t ticks);
+
     /// Detach every listener and drop every actor. Load screen, cell change.
     void Clear();
 
     /// Limb index to the node a voice can follow, for the player's own ragdoll.
     [[nodiscard]] RE::NiAVObject* BoneNode(ActorId actor, std::int32_t limbIndex) const;
+
+    /// The actor's 3D root, which is what an NPC's voices follow.
+    ///
+    /// Every voice follows a node now, because a world coordinate does not
+    /// survive: vanilla's own voice path and SkyrimNet's both end on
+    /// SetObjectToFollow and neither calls SetPosition once between them, and
+    /// ours - the only one placing by coordinate - was the one playing from the
+    /// middle of the cell.
+    [[nodiscard]] RE::NiAVObject* RootNode(ActorId actor) const;
+
+    /// Where the game thinks this actor is, in world units. False when it is not
+    /// tracked or has no 3D.
+    ///
+    /// Diagnostic only. It exists to answer the one question a placement log
+    /// cannot answer on its own: a voice five metres from the ears is either a
+    /// body five metres away or a body at arm's length whose contact points came
+    /// out wrong, and those two look identical until you have the body's own
+    /// position to hold them against.
+    [[nodiscard]] bool ActorPosition(ActorId actor, Vec3& out) const;
 
     /// Contacts the ring had to throw away. Non-zero means the margin was wrong.
     [[nodiscard]] std::uint64_t Dropped() const;
@@ -132,6 +156,8 @@ private:
     ListenerState m_listener;
     float m_frameTimeSec{};
     float m_cullRadius{2100.0f};
+    std::int32_t m_bodySampleEveryNTicks{1};
+    std::uint64_t m_tick{};
 
     mutable std::mutex m_mutex;
     std::unordered_map<ActorId, std::unique_ptr<Tracked>> m_actors;

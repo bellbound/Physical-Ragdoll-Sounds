@@ -31,6 +31,7 @@ using ini::EqualsIgnoreCase;
 using ini::ReadLines;
 using ini::SectionOf;
 using ini::SplitAssignment;
+using ini::Trim;
 
 [[nodiscard]] const ParamDesc* Find(std::span<const ParamDesc> params, std::string_view section,
                                     std::string_view key) {
@@ -42,26 +43,67 @@ using ini::SplitAssignment;
     return nullptr;
 }
 
-/// The tooltip, word-wrapped into `; ` comment lines. This is what makes a fresh
-/// install ship a file somebody can read rather than ninety numbers.
-void WriteTooltip(std::string& out, std::string_view tooltip) {
+/// The same, against the name a parameter used to have. Kept apart from Find so
+/// that every caller has to decide what a legacy hit means: the reader takes the
+/// value, the writer takes the line out.
+[[nodiscard]] const ParamDesc* FindLegacy(std::span<const ParamDesc> params,
+                                          std::string_view section, std::string_view key) {
+    for (const auto& p : params) {
+        if (!p.legacyKey.empty() && EqualsIgnoreCase(p.legacySection, section) &&
+            EqualsIgnoreCase(p.legacyKey, key)) {
+            return &p;
+        }
+    }
+    return nullptr;
+}
+
+/// One paragraph of a tooltip, word-wrapped into `; ` comment lines.
+void WriteTooltipParagraph(std::string& out, std::string_view text) {
     std::size_t cursor = 0;
-    while (cursor < tooltip.size()) {
-        std::size_t take = std::min(kCommentWrapColumn, tooltip.size() - cursor);
-        if (cursor + take < tooltip.size()) {
-            const auto slice = tooltip.substr(cursor, take + 1);
+    while (cursor < text.size()) {
+        std::size_t take = std::min(kCommentWrapColumn, text.size() - cursor);
+        if (cursor + take < text.size()) {
+            const auto slice = text.substr(cursor, take + 1);
             const auto space = slice.find_last_of(' ');
             if (space != std::string_view::npos && space > 0) {
                 take = space;
             }
         }
         out += "; ";
-        out += tooltip.substr(cursor, take);
+        out += text.substr(cursor, take);
         out += "\n";
         cursor += take;
-        while (cursor < tooltip.size() && tooltip[cursor] == ' ') {
+        while (cursor < text.size() && text[cursor] == ' ') {
             ++cursor;
         }
+    }
+}
+
+/// The tooltip, word-wrapped into `; ` comment lines. This is what makes a fresh
+/// install ship a file somebody can read rather than ninety numbers.
+///
+/// Paragraphs first, then wrapping inside each. A tooltip is also rendered by the
+/// testbench's slider panel, where a `\n` is just a line break and costs nothing -
+/// so the moment one is written the ini writer has to agree, or it emits the rest
+/// of the paragraph with no `; ` in front of it and the file stops being an ini.
+/// Wrapping the whole string as one run is what did that.
+void WriteTooltip(std::string& out, std::string_view tooltip) {
+    std::size_t start = 0;
+    while (start <= tooltip.size()) {
+        const auto brk = tooltip.find('\n', start);
+        const auto line = tooltip.substr(start, brk == std::string_view::npos ? brk : brk - start);
+        if (line.empty()) {
+            // A blank line between paragraphs stays blank, but as a comment: an
+            // actually empty line would end the block and orphan the key from
+            // the half of its description below it.
+            out += ";\n";
+        } else {
+            WriteTooltipParagraph(out, line);
+        }
+        if (brk == std::string_view::npos) {
+            break;
+        }
+        start = brk + 1;
     }
 }
 
@@ -115,6 +157,15 @@ std::size_t ConfigManager::LoadInto(const std::filesystem::path& file, void* roo
         }
         const ParamDesc* desc = Find(params, section, key);
         if (desc == nullptr) {
+            // ...or the name it had before it moved. A rename must not silently
+            // cost somebody a value they tuned by ear, and the next save writes
+            // the key out where it lives now.
+            desc = FindLegacy(params, section, key);
+            if (desc != nullptr) {
+                spdlog::debug("config: [{}] {} is now {}", section, key, QualifiedKey(*desc));
+            }
+        }
+        if (desc == nullptr) {
             // A key we removed should not cost a user their whole file, so it is
             // left exactly where it is and only mentioned at debug.
             spdlog::debug("config: ignoring unknown key [{}] {}", section, key);
@@ -144,6 +195,25 @@ std::size_t ConfigManager::LoadInto(const std::filesystem::path& file, void* roo
     return found;
 }
 
+std::string ConfigManager::ToIniText(const void* root, std::span<const ParamDesc> params,
+                                     std::string_view header) {
+    std::string out;
+    if (!header.empty()) {
+        out += std::format("; {}\n", header);
+        out += "; Written by Physical Ragdoll Sounds. Every key carries the comment that says\n";
+        out += "; what it changes perceptually; delete a key to go back to its default.\n\n";
+    }
+    std::string_view lastSection;
+    for (const ParamDesc& p : params) {
+        if (p.section != lastSection) {
+            lastSection = p.section;
+            out += std::format("\n[{}]\n\n", p.section);
+        }
+        WriteParam(out, root, p);
+    }
+    return out;
+}
+
 bool ConfigManager::SaveFrom(const std::filesystem::path& file, const void* root,
                              std::span<const ParamDesc> params, std::string_view header) {
     // Merge rather than regenerate. Every line the schema does not own - a
@@ -152,19 +222,32 @@ bool ConfigManager::SaveFrom(const std::filesystem::path& file, const void* root
     // recognise is rewritten. Anything missing is appended under its section
     // with its tooltip, which is what makes a partial file complete itself.
     const auto existing = ReadLines(file);
+    if (existing.empty()) {
+        // Nothing to merge with, so this is the whole file.
+        return ini::WriteFile(file, ToIniText(root, params, header));
+    }
 
     std::vector<bool> written(params.size(), false);
     std::string out;
 
-    if (existing.empty()) {
-        out += std::format("; {}\n", header);
-        out += "; Written by Physical Ragdoll Sounds. Every key carries the comment that says\n";
-        out += "; what it changes perceptually; delete a key to go back to its default.\n\n";
-    } else {
+    {
         std::string section;
+        // Comments and blank lines are held back rather than copied as they are
+        // read. A key that has since moved to another section takes the tooltip
+        // above it with it, and a paragraph left behind describing a key that is
+        // no longer under that header is worse than no comment at all.
+        std::vector<std::string> pending;
+        const auto flush = [&] {
+            for (const std::string& line : pending) {
+                out += line;
+                out += "\n";
+            }
+            pending.clear();
+        };
         for (const auto& raw : existing) {
             if (const auto sectionName = SectionOf(raw); !sectionName.empty()) {
                 section.assign(sectionName);
+                flush();
                 out += raw;
                 out += "\n";
                 continue;
@@ -175,16 +258,34 @@ bool ConfigManager::SaveFrom(const std::filesystem::path& file, const void* root
                 if (const ParamDesc* desc = Find(params, section, key); desc != nullptr) {
                     const auto index = static_cast<std::size_t>(desc - params.data());
                     written[index] = true;
+                    flush();
                     out += desc->type == ParamType::kString
                                ? std::format("{} = {}\n", desc->key, GetParamString(root, *desc))
                                : std::format("{} = {}\n", desc->key,
                                              FormatParam(*desc, GetParam(root, *desc)));
                     continue;
                 }
+                if (FindLegacy(params, section, key) != nullptr) {
+                    // The parameter has moved. Drop the old line and the comment
+                    // that introduced it; the append pass below writes it out
+                    // under the section it lives in now with a current tooltip.
+                    // Nothing is lost - the load that fed this save read the
+                    // value through the same legacy name.
+                    pending.clear();
+                    continue;
+                }
+            } else if (const std::string_view text = Trim(raw);
+                       text.empty() || text.front() == ';' || text.front() == '#') {
+                // A comment or a blank. Held until the line it introduces says
+                // whether it is still about anything.
+                pending.emplace_back(raw);
+                continue;
             }
+            flush();
             out += raw;
             out += "\n";
         }
+        flush();
         if (!out.empty() && out.back() != '\n') {
             out += "\n";
         }

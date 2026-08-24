@@ -6,7 +6,7 @@ says where each part lives, what the seams are, and which of them are load-beari
 | Doc | What it is |
 |---|---|
 | [00-Design.md](00-Design.md) | The design. Asset list, strategy list, the decisions and why |
-| [01-Reference-Analysis.md](01-Reference-Analysis.md) | Where the layer timings and level budgets come from |
+| [04-Reference-Analysis.md](04-Reference-Analysis.md) | Where the layer timings and level budgets come from |
 | **03-Implementation.md** (this) | The code shape. Seams, build layout, what each agent owns |
 | [02-SFX-Generation-Prompts.md](02-SFX-Generation-Prompts.md) | One text-to-SFX prompt per asset, written against 01's measurements |
 | [Research/](Research/) | The capture study. What the engine can tell us and how far it can be trusted |
@@ -83,8 +83,10 @@ wrong the moment the choice is something to audition.
 So there are two halves ([Sfx.h](core/include/rds/Sfx.h)):
 
 - **`SfxLibrary`** — `sounds/library/`, every sfx that exists, each with a `<file>.meta.ini` sidecar
-  carrying what the importer measured and what the user wrote in the note. The **filename** is the
-  identity; the display name is only ever shown, so renaming is free and cannot break an assignment.
+  carrying what the importer measured and when the file came in (`Imported`, unix seconds — the
+  browser sorts newest or oldest first on it, and anything older than the field falls back to the
+  audio file's own date). The **filename** is the identity; the display name is only ever shown, so
+  renaming is free and cannot break an assignment.
 - **`SfxAssignments`** — `RagdollSounds_SFX.ini`, one section per slot: which library files it plays,
   in order, and whether it `Looping`s. The order *is* the variant index a cue carries.
 
@@ -205,7 +207,7 @@ has tuned the algorithm, because there is nothing to tune it against otherwise:
 | `GameFeed` | Havok contact callback → lock-free ring → drained on the game thread | Copy `ImpactRecorder.cpp`'s shape. The callback runs on a Havok worker and **cannot** ask an actor whether it is ragdolling — publish that from the game thread into an atomic and read it with one relaxed load (07 §1) |
 | `TickPublisher` | Per-actor, per-tick: ragdoll phase, listener state, distance tier, terrain material | `RE::TES::GetLandMaterialType` is game-thread only |
 | `GameRenderer` | `ICueSink` → `BSSoundHandle` | On the new CommonLib fork: `GetSoundHandleByFile`, not `BuildSoundDataFromFile` |
-| `VanillaSuppression` | Null `sound1`/`sound2` on the body impact records at data load | Walk `PHYBodyMedium`, `PHYBodyLarge`, `PHYBodySmall`, `PHYBodyBones`, `PHYBodyMetalLarge`, `PHYBodyMetalSmall` plus the armour and meat sets — about eight distinct `BGSImpactData`. In-memory only; never reaches a save. Log every form touched |
+| `VanillaSuppression` | Null `sound1`/`sound2` on the body impact records at data load, and put them back on demand | Walk `PHYBodyMedium`, `PHYBodyLarge`, `PHYBodySmall`, `PHYBodyBones`, `PHYBodyMetalLarge`, `PHYBodyMetalSmall` plus the armour and meat sets — about eight distinct `BGSImpactData`. In-memory only; never reaches a save. Log every form touched |
 
 ---
 
@@ -215,22 +217,51 @@ One exe, ImGui + GLFW + miniaudio, video pre-decoded to frames by ffmpeg into `f
 only contact with the backend is `core/`'s public headers; if it ever needs more, the seam is wrong.
 
 - **Left panel** — the take's video where one exists, scrubbing in lock step with playback.
-  `video_time_ms = t_ms + offset`; fit the offset through the low-rtt rows of the `_sync.csv` rather
-  than taking the first, because over a long take the two clocks drift. The mp4s are cuts of a longer
-  OBS recording whose cut point is *not recorded anywhere*, so the offset needs a per-take nudge in
-  the UI that persists.
+  `video_time_ms = slope * t_ms + offset`, both fitted through the low-rtt rows of the `_sync.csv`
+  rather than off the first row, because over a long take the two clocks drift. Whether the fitted
+  offset can be used as it stands depends on where the mp4 came from, and the two cases are opposite:
+  - A take from `Research/` was recorded by QuickModMenuNG against an OBS recording that was usually
+    already running, and the mp4 is a clip cut out of it afterwards. The sync rows are that
+    recording's clock, the cut point is *not recorded anywhere*, so only the slope survives and the
+    offset needs a per-take nudge in the UI that persists (`framecache/video-offsets.ini`).
+  - A devbench take owns its recording: the testbench told OBS to start and to stop, so the mp4 is
+    the whole output with nothing cut off either end and the intercept **is** the offset. The take
+    says so in its sidecar's `obs:` block, and `RecordingInfo::videoIsWholeOutput` is what the UI
+    reads rather than guessing from the clip's length. Writing the sync track means crossing a
+    process boundary the in-game recorder never had to: `GameLink::GameClock` recovers the game's
+    session clock off the 1 Hz heartbeat, minimum-filtered, and each row pairs it with OBS's
+    `outputDuration` at the midpoint of the round trip.
 - **Right panel** — the config editor, built by walking `AlgorithmParams()`. Every change re-runs
   `RunOffline` and hot-swaps the mixed buffer at the current play position. Named configs save to
   `testbench/configs/*.ini` through `ConfigManager::SaveFrom`, so a testbench config *is* a shippable
   `RagdollSounds_Algorithm.ini`.
 - **Split mode** — copies the top config to the bottom and alternates A → B → A on each loop, with a
   "continue with this one" button per panel.
+- **Use Vanilla Audio** — a switch in the connection row, live only while a game is connected. It
+  sends `Msg::kAudioMode`, and the game answers by restoring vanilla's body impact sounds and muting
+  `GameRenderer` — both together, since either alone compares the mix against silence. Not gated by
+  "push config to the running game": which mix the game plays is not one of the overrides, and
+  letting the game run its own inis is exactly when the comparison is worth making. It is never
+  remembered between launches and never survives the link dropping.
 - **Keys** — `Num5` play, `Num4`/`Num6` previous/next recording, `Num8`/`Num2` previous/next config.
   (The brief said `Num8`/`Num6` for configs, but `Num6` is already next-recording; `Num8`/`Num2` is
   the up/down pair that matches `Num4`/`Num6` being left/right.)
 - **Loop** — auto-loop on by default with a toggle under the video, plus a draggable region on the
   timeline to loop a shorter section.
+- **Benchmark** — a button under the transport. Pauses playback, then replays the loaded take
+  through the backend for a wall-clock budget (default half a second, on a slider beside it) and
+  reports the *fastest* run: the noise here is one-sided, so the quickest run is the one with the
+  least of somebody else's work in it. Tracing off, because the game never traces and the
+  transport's own "RunOffline + mix" number is mostly the cost of filling the timeline. Split A/B
+  measures both configs back to back and prints the percentage between them, which is the only
+  form the answer is worth anything in — an absolute figure off a `RelWithDebInfo` build is not a
+  frame budget. Synchronous, and therefore a visible freeze: a background thread would need its own
+  copy of the recording and the bank (`RunOffline` mutates both) and would be measuring against a
+  UI that is drawing at the same time. `testbench/src/Bench.{h,cpp}`.
 - **`--verify`** — headless, runs `Verify()` over every recording and exits non-zero on a failure.
+- **`--bench`** — the benchmark button's headless twin, over every take (`--take` for one,
+  `--config` for a config). For the question the button cannot ask: *did this commit make the
+  engine slower*, which is about two builds rather than two configs.
 
 ### The sfx panel and the library window
 
@@ -266,7 +297,7 @@ comes back as a badge; the only blocking case is a file nothing can decode, whic
 ### Everything unsaved, and Ctrl+S
 
 There are four things that can be unsaved — config A, config B, the assignment ini, and any sfx names
-or notes — and the top bar says so with one marker. `Ctrl+S` writes all of them, and works while a
+or mutes — and the top bar says so with one marker. `Ctrl+S` writes all of them, and works while a
 text box has the keyboard, because that is exactly when you reach for it.
 
 A config **save writes the next iteration** rather than over the file it loaded: `config_22_08_4`

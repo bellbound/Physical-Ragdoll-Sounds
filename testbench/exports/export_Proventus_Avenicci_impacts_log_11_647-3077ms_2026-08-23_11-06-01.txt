@@ -1,0 +1,1104 @@
+TAKE
+  stem            Proventus_Avenicci_impacts_log_11
+  note            requested-capture light-armour-fall (11/13): light armour, dropped from 3m
+  actor           Proventus Avenicci
+  cell            Dragonsreach
+  duration        6819 ms
+  impacts         122 (dropped 0, complete yes)
+  playhead        2955 ms
+  seed            1
+  config          config_22_08_14 (side 0)
+
+WINDOW - this export covers the loop region only
+  region          647 - 3077 ms  (2430 ms of 6819)
+  phase at start  animated (ragdoll_rebuilt, set at 538 ms)
+  NOTE  TIMELINE, CUES and DECISIONS below are cut to this window. SOUND BANK
+        and FUNNEL are the whole take - the funnel counters are accumulated
+        over the run and cannot be re-cut after the fact.
+
+VIDEO
+  file            Proventus_Avenicci_impacts_log_11.mp4
+  clip length     10800 ms at 30.00 fps, decoded
+  offset in use   +3677 ms   (video position = take time + offset)
+  window in video 4324 - 6754 ms  (4.32 - 6.75 s)
+  window frames   130 - 203 at 30.00 fps
+  sync fit        slope 1.000734, intercept 148228 ms, drift +0.73 ms/s, min rtt 0 ms
+  NOTE  `offset in use` is the measured value from framecache/video-offsets.ini,
+        which overrides the fit above.
+
+CONFIG - values differing from default
+  Phase:fSettleEnergyFloor=80 (default 45)
+  Phase:fSettleQuietMs=0 (default 300)
+  Arbitration:fRateCapMs=43 (default 46)
+  Arbitration:fRateCapOverrideDb=16 (default 6)
+  Arbitration:fBurstWindowMs=110 (default 300)
+  Intensity:fSpeedRefHigh=510 (default 960)
+  Intensity:fDynamicRangeDb=15 (default 35)
+  Intensity:fCurveExponent=1.2 (default 0.75)
+  Intensity:fSoftClipKnee=0.25 (default 0.85)
+  Intensity:fMassWeight=0.9 (default 0.35)
+  Intensity:fObliterateFrac=2.7451 (default 1.46)
+  PostIntensity:fExtraRangeDb=-7.5 (default 0)
+  PostIntensity:fCurveExponent=2.4 (default 1)
+  Limbs:bMassDeterminesLoudness=1 (default 0)
+  Limbs:fBodyMass=3.5 (default 5)
+  Limbs:fRotationRefRatio=1.1 (default 1)
+  ImpactComposite:fSubGainAtMaxDb=-6 (default 0)
+  HeadImpact:fGateFrac=0.32 (default 0.31)
+  HeadImpact:fGainDb=-12.5 (default -2)
+  HeadImpact:fHeadDownBonus=0 (default 0.25)
+  HeadImpact:bLeadEnabled=1 (default 0)
+  HeadImpact:fLeadClearMs=0 (default 250)
+  HeadImpact:fLeadHandGraceMs=220 (default 200)
+  HeadImpact:fLeadGateBonus=0.55 (default 0.45)
+  HeadImpact:fLeadGainDb=9.5 (default 9)
+  HeadImpact:fLeadCrunchGateFrac=0.88 (default 0.55)
+  HeadImpact:bCompanyEnabled=1 (default 0)
+  HeadImpact:bRefundEnabled=1 (default 0)
+  HeadImpact:fRefundGateFrac=1.6 (default 1.5)
+  HeadImpact:fRefundBurstGapFrac=0.95 (default 1)
+  CrunchGore:fCrunchGateFrac=0.9804 (default 0.52)
+  CrunchGore:fCrunchCertainFrac=1.37 (default 0.73)
+  CrunchGore:fCrunchHysteresisFrac=0.1373 (default 0.08)
+  CrunchGore:fGoreGateFrac=0.6863 (default 1.46)
+  CrunchGore:fCrunchGainDb=-10 (default -4)
+  ScrapeLoop:bEnabled=0 (default 1)
+  ScrapeLoop:fMinTangentSpeed=660 (default 120)
+  ScrapeLoop:fStartFadeMs=310 (default 60)
+  ScrapeLoop:fStopFadeMs=840 (default 140)
+  ScrapeLoop:fMinDurationMs=100 (default 120)
+  ScrapeLoop:fGainDb=-18.5 (default -20)
+  SettleClose:bEnabled=0 (default 1)
+  SettleClose:fGainDb=-27 (default -16)
+  SettleClose:fDelayMs=70 (default 120)
+  Mix:fMasterGainDb=2 (default 0)
+  Mix:fVoiceFloorDb=-100 (default -48)
+  Player:fSubTrimDb=0 (default -9)
+  Slots:iRngSeed=1 (default 0)
+  Layers:bFoleyCloth=0 (default 1)
+  Layers:bAirWhoosh=0 (default 1)
+
+SOUND BANK
+  imp_transient  3/3 files, wav, 120 ms
+  imp_body       3/3 files, wav, 240 ms
+  imp_sub        2/2 files, wav, 300 ms
+  surf_wood      2/2 files, wav, 190 ms
+  surf_stone     2/2 files, wav, 124 ms
+  surf_soft      2/2 files, wav, 250 ms
+  limb_tap       4/4 files, wav, 74 ms
+  crunch_gran    2/2 files, wav, 400 ms
+  gore_wet       2/2 files, wav, 400 ms
+  scrape_loop    1/1 files, wav, 3000 ms
+  foley_cloth    1/1 files, wav, 3000 ms
+  air_whoosh     1/1 files, wav, 2000 ms
+  head_impact    2/2 files, wav, 300 ms
+  settle_rest    2/2 files, wav, 400 ms
+  grunt_impact   declared and unfilled
+  scream_big     declared and unfilled
+
+FUNNEL - contacts in, cues out (WHOLE TAKE, not the window)
+  events read           566
+  contacts              62
+    rejected below floor 27
+    rejected blow-up     4
+    mirrored self-hit    28
+    manifold collapsed   1
+    routed to foley bed  22
+  proposed cues         75
+    dropped rate cap     12
+    dropped chain merge  0
+    dropped masking      0
+    dropped burst cap    24
+    dropped voice cap    0
+    muted by layer       31
+    head budget refunds  0
+  emitted               15 in 5 bursts
+  first cue             901 ms
+  last cue              2827 ms
+  peak contact          854.6 u/s
+
+AUDIO
+  4027 ms at 48000 Hz, 193287 frames
+  peak 0.100 heard, 0.100 before the limiter (limiter on)
+
+CUES BY SLOT IN THE WINDOW - 15 cues
+  imp_transient  3
+  surf_soft      3
+  imp_body       3
+  imp_sub        3
+  crunch_gran    1
+  limb_tap       2
+
+TIMELINE - state, contacts and cues in one column
+  (a cue's `seq` is the contact row that produced it)
+
+    889.2 ms  STATE     ragdoll_start          phase=ragdoll
+    889.2 ms  STATE     knock_explode_lead_in  phase=ragdoll
+    901.2 ms    contact  NPC COM [COM ]             8.9 u/s  tan  350.0  body  305.6  ang   25.9  DeadBip  seq 80
+    901.2 ms    contact  NPC L Hand [LHnd]          8.9 u/s  tan  350.0  body  221.5  ang   18.3  DeadBip  seq 81
+    901.2 ms    contact  NPC R Thigh [RThg]       108.1 u/s  tan   76.2  body  247.1  ang    5.4  DeadBip  seq 82
+    901.2 ms    contact  NPC L Thigh [LThg]       108.1 u/s  tan   76.2  body  251.0  ang    7.6  DeadBip  seq 83
+    901.2 ms    contact  NPC Spine [Spn0]         259.2 u/s  tan  469.0  body  357.9  ang    5.7  DeadBip  seq 84
+    901.2 ms    contact  NPC L Hand [LHnd]        259.2 u/s  tan  469.0  body  221.5  ang   18.3  DeadBip  seq 85
+    901.2 ms      CUE    imp_transient  play   -13.4 dB  pitch 0.97  composite        PrimaryImpact int 0.24  seq 85
+    901.2 ms    contact  NPC Spine1 [Spn1]         37.4 u/s  tan  896.2  body  340.7  ang    5.1  DeadBip  seq 86
+    901.2 ms    contact  NPC L Forearm [LLar]      37.4 u/s  tan  896.2  body  347.8  ang   33.6  DeadBip  seq 87
+    901.2 ms    contact  NPC Spine2 [Spn2]        152.9 u/s  tan  874.8  body  172.7  ang   11.7  DeadBip  seq 88
+    901.2 ms    contact  NPC L Forearm [LLar]     152.9 u/s  tan  874.8  body  347.8  ang   33.6  DeadBip  seq 89
+    901.2 ms    contact  NPC R Forearm [RLar]      18.2 u/s  tan  498.0  body  134.9  ang   17.1  DeadBip  seq 90
+    901.2 ms    contact  NPC Spine [Spn0]          18.2 u/s  tan  498.0  body  357.9  ang    5.7  DeadBip  seq 91
+    901.2 ms    contact  NPC R Forearm [RLar]     154.3 u/s  tan  470.1  body  134.9  ang   17.1  DeadBip  seq 92
+    901.2 ms    contact  NPC Spine2 [Spn2]        154.3 u/s  tan  470.1  body  172.7  ang   11.7  DeadBip  seq 93
+    901.2 ms    contact  NPC R Hand [RHnd]         48.0 u/s  tan  393.6  body  139.9  ang   12.8  DeadBip  seq 94
+    901.2 ms    contact  NPC COM [COM ]            48.0 u/s  tan  393.6  body  305.6  ang   25.9  DeadBip  seq 95
+    901.2 ms    contact  NPC R Hand [RHnd]        273.4 u/s  tan  273.7  body  139.9  ang   12.8  DeadBip  seq 96
+    901.2 ms    contact  NPC Spine [Spn0]         273.4 u/s  tan  273.7  body  357.9  ang    5.7  DeadBip  seq 97
+    909.6 ms      CUE    surf_soft      play   -15.8 dB  pitch 0.97  surface          PrimaryImpact int 0.24  seq 85
+    911.1 ms  STATE     knock_explode          phase=ragdoll
+    917.5 ms      CUE    imp_body       play   -11.8 dB  pitch 0.97  composite        PrimaryImpact int 0.24  seq 85
+    970.0 ms      CUE    imp_sub        play   -29.4 dB  pitch 0.97  composite        PrimaryImpact int 0.24  seq 85
+    986.4 ms    contact  NPC R Foot [Rft ]         16.8 u/s  tan  262.6  body  225.0  ang   14.3  DeadBip  seq 136
+    986.4 ms    contact  NPC L Calf [LClf]         16.8 u/s  tan  262.6  body   86.8  ang    9.2  DeadBip  seq 137
+   1049.6 ms    contact  NPC R Calf [RClf]        140.0 u/s  tan  145.9  body  195.2  ang    7.7  DeadBip  seq 150
+   1049.6 ms    contact  NPC L Calf [LClf]        140.0 u/s  tan  145.9  body  129.7  ang    8.1  DeadBip  seq 151
+   1049.6 ms    contact  NPC R Calf [RClf]        150.5 u/s  tan  247.7  body  195.2  ang    7.7  DeadBip  seq 152
+   1049.6 ms    contact  NPC L Foot [Lft ]        150.5 u/s  tan  247.7  body   33.7  ang   15.7  DeadBip  seq 153
+   1049.6 ms    contact  NPC R Foot [Rft ]         85.6 u/s  tan  450.0  body  176.2  ang   27.8  DeadBip  seq 154
+   1049.6 ms    contact  NPC L Calf [LClf]         85.6 u/s  tan  450.0  body  129.7  ang    8.1  DeadBip  seq 155
+   1109.9 ms    contact  NPC R Thigh [RThg]        15.6 u/s  tan   19.2  body  193.3  ang    4.7  DeadBip  seq 165
+   1109.9 ms    contact  NPC L Thigh [LThg]        15.6 u/s  tan   19.2  body  193.5  ang    4.8  DeadBip  seq 166
+   1643.0 ms    contact  NPC L Foot [Lft ]        536.4 u/s  tan   31.7  body  538.9  ang    1.8  Static  seq 186
+   1643.0 ms      CUE    imp_transient  play   -30.0 dB  pitch 0.84  composite        Settle       int 1.00  seq 186
+   1643.7 ms    contact  NPC L Calf [LClf]        328.8 u/s  tan   84.4  body  379.7  ang    5.9  Static  seq 189
+   1643.7 ms    contact  NPC L Calf [LClf]        328.8 u/s  tan   74.7  body  379.7  ang    5.9  Static  seq 190
+   1643.9 ms    contact  NPC L Foot [Lft ]        168.8 u/s  tan  575.8  body  429.3  ang   42.6  Static  seq 191
+   1652.7 ms      CUE    surf_soft      play   -18.0 dB  pitch 0.84  surface          Settle       int 1.00  seq 186
+   1660.6 ms      CUE    imp_body       play   -14.0 dB  pitch 0.84  composite        Settle       int 1.00  seq 186
+   1663.0 ms      CUE    crunch_gran    play   -22.0 dB  pitch 1.00  crunch           Settle       int 1.00  seq 186
+   1663.9 ms    contact  NPC R Foot [Rft ]        536.5 u/s  tan    7.4  body  543.3  ang    3.0  Static  seq 196
+   1684.5 ms    contact  NPC L Calf [LClf]        451.7 u/s  tan  144.0  body  165.0  ang   25.0  Static  seq 197
+   1684.5 ms    contact  NPC L Calf [LClf]        451.7 u/s  tan  103.5  body  165.0  ang   25.0  Static  seq 198
+   1684.8 ms    contact  NPC L Foot [Lft ]        194.2 u/s  tan  383.4  body  269.1  ang   33.1  Static  seq 203
+   1685.0 ms    contact  NPC L Thigh [LThg]        95.9 u/s  tan  231.4  body  213.4  ang   16.1  Static  seq 204
+   1685.0 ms    contact  NPC R Thigh [RThg]       131.3 u/s  tan  515.8  body  563.5  ang    7.4  DeadBip  seq 205
+   1685.0 ms    contact  NPC L Thigh [LThg]       131.3 u/s  tan  515.8  body  213.4  ang   16.1  DeadBip  seq 206
+   1685.0 ms    contact  NPC R Calf [RClf]        256.6 u/s  tan   91.8  body  393.4  ang   17.0  Static  seq 207
+   1685.0 ms    contact  NPC R Calf [RClf]        267.6 u/s  tan  104.8  body  393.4  ang   17.0  Static  seq 208
+   1685.0 ms    contact  NPC R Calf [RClf]        256.6 u/s  tan   64.9  body  393.4  ang   17.0  Static  seq 209
+   1685.0 ms    contact  NPC R Foot [Rft ]        243.0 u/s  tan  186.5  body  253.0  ang   29.1  Static  seq 210
+   1685.0 ms    contact  NPC R Foot [Rft ]        243.0 u/s  tan  138.4  body  253.0  ang   29.1  Static  seq 211
+   1685.3 ms    contact  NPC R Foot [Rft ]        212.1 u/s  tan  230.4  body  138.3  ang   32.4  Static  seq 215
+   1704.0 ms    contact  NPC R Thigh [RThg]       563.0 u/s  tan  145.9  body  607.3  ang    5.2  Static  seq 217
+   1704.0 ms    contact  NPC R Thigh [RThg]       563.0 u/s  tan  141.8  body  607.3  ang    5.2  Static  seq 218
+   1704.0 ms    contact  NPC R Calf [RClf]        537.5 u/s  tan  149.8  body  256.9  ang   24.3  Static  seq 219
+   1704.0 ms    contact  NPC R Calf [RClf]        537.5 u/s  tan  136.8  body  256.9  ang   24.3  Static  seq 220
+   1704.4 ms    contact  NPC COM [COM ]           406.9 u/s  tan   77.1  body  451.2  ang   23.6  Static  seq 222
+   1707.5 ms      CUE    imp_sub        play   -18.0 dB  pitch 0.84  composite        Settle       int 1.00  seq 186
+   1725.1 ms    contact  NPC R Forearm [RLar]     242.0 u/s  tan  323.7  body  408.0  ang   30.3  DeadBip  seq 231
+   1725.1 ms    contact  NPC Spine1 [Spn1]        242.0 u/s  tan  323.7  body  194.6  ang   22.3  DeadBip  seq 232
+   1744.9 ms    contact  NPC L Foot [Lft ]        128.5 u/s  tan  234.7  body  151.8  ang   21.5  Static  seq 236
+   1745.2 ms    contact  NPC L Thigh [LThg]        98.6 u/s  tan  178.3  body  193.4  ang    2.3  Static  seq 237
+   1745.2 ms    contact  NPC R Foot [Rft ]         45.7 u/s  tan   89.8  body   28.8  ang   17.8  Static  seq 238
+   1766.9 ms    contact  NPC COM [COM ]             5.9 u/s  tan    9.3  body   60.3  ang    9.8  Static  seq 249
+   1766.9 ms    contact  NPC R Forearm [RLar]      65.1 u/s  tan  334.2  body  227.3  ang   25.4  DeadBip  seq 250
+   1766.9 ms    contact  NPC Spine2 [Spn2]         65.1 u/s  tan  334.2  body   94.7  ang    7.6  DeadBip  seq 251
+   1766.9 ms    contact  NPC L Hand [LHnd]        854.6 u/s  tan  571.5  body  824.6  ang   52.5  DeadBip  seq 252
+   1766.9 ms    contact  NPC L Thigh [LThg]       854.6 u/s  tan  571.5  body  116.2  ang    3.9  DeadBip  seq 253
+   1766.9 ms    contact  NPC L Hand [LHnd]        733.1 u/s  tan  777.1  body  824.6  ang   52.5  DeadBip  seq 254
+   1766.9 ms    contact  NPC L Calf [LClf]        733.1 u/s  tan  777.1  body  147.9  ang    3.9  DeadBip  seq 255
+   1766.9 ms    contact  NPC R Hand [RHnd]        149.8 u/s  tan  702.3  body  386.4  ang   38.4  Static  seq 256
+   1787.1 ms    contact  NPC L Hand [LHnd]         47.4 u/s  tan   41.2  body  352.3  ang   39.0  DeadBip  seq 265
+   1787.1 ms    contact  NPC L Thigh [LThg]        47.4 u/s  tan   41.2  body   57.6  ang    8.2  DeadBip  seq 266
+   1787.1 ms    contact  NPC R Hand [RHnd]        368.4 u/s  tan  448.0  body  357.6  ang   60.0  DeadBip  seq 267
+   1787.1 ms    contact  NPC R Thigh [RThg]       368.4 u/s  tan  448.0  body   98.7  ang    3.6  DeadBip  seq 268
+   1808.8 ms    contact  NPC L Thigh [LThg]        22.5 u/s  tan  341.9  body   31.9  ang    4.6  DeadBip  seq 275
+   1808.8 ms    contact  NPC L Forearm [LLar]      22.5 u/s  tan  341.9  body  332.0  ang   14.8  DeadBip  seq 276
+   1808.8 ms    contact  NPC L Forearm [LLar]     230.8 u/s  tan  181.9  body  332.0  ang   14.8  DeadBip  seq 277
+   1808.8 ms    contact  NPC Spine2 [Spn2]        230.8 u/s  tan  181.9  body   90.5  ang   11.5  DeadBip  seq 278
+   1830.1 ms    contact  NPC Spine1 [Spn1]        132.5 u/s  tan  267.0  body   67.1  ang    9.5  DeadBip  seq 290
+   1830.1 ms    contact  NPC L Forearm [LLar]     132.5 u/s  tan  267.0  body  223.5  ang   12.6  DeadBip  seq 291
+   1830.1 ms    contact  NPC R Hand [RHnd]         26.0 u/s  tan  278.1  body   68.4  ang   48.3  Static  seq 292
+   1873.5 ms    contact  NPC R Hand [RHnd]         27.5 u/s  tan  132.9  body  136.1  ang    7.8  DeadBip  seq 303
+   1873.5 ms    contact  NPC R Thigh [RThg]        27.5 u/s  tan  132.9  body   11.4  ang    0.8  DeadBip  seq 304
+   1916.2 ms    contact  NPC R Forearm [RLar]      15.6 u/s  tan   31.2  body   83.4  ang    5.1  DeadBip  seq 309
+   1916.2 ms    contact  NPC Spine1 [Spn1]         15.6 u/s  tan   31.2  body   22.6  ang    1.6  DeadBip  seq 310
+   1937.5 ms    contact  NPC R Foot [Rft ]         46.8 u/s  tan  147.5  body   73.2  ang    7.0  Static  seq 313
+   2000.3 ms    contact  NPC R Thigh [RThg]        19.1 u/s  tan    5.4  body    9.2  ang    0.8  DeadBip  seq 321
+   2000.3 ms    contact  NPC L Thigh [LThg]        19.1 u/s  tan    5.4  body    4.4  ang    0.6  DeadBip  seq 322
+   2020.8 ms    contact  NPC R Hand [RHnd]         35.3 u/s  tan  209.9  body  107.8  ang   12.9  Static  seq 325
+   2020.8 ms      CUE    limb_tap       play   -24.5 dB  pitch 0.84  tap              Settle       int 0.01  seq 325
+   2102.1 ms    contact  NPC L Forearm [LLar]      12.1 u/s  tan   95.6  body   83.5  ang    8.9  DeadBip  seq 335
+   2102.1 ms    contact  NPC Spine2 [Spn2]         12.1 u/s  tan   95.6  body   85.0  ang    3.5  DeadBip  seq 336
+   2102.5 ms    contact  NPC R Forearm [RLar]      74.6 u/s  tan   50.6  body   90.6  ang    2.0  Static  seq 338
+   2122.7 ms    contact  NPC R Hand [RHnd]         11.1 u/s  tan   17.9  body   54.6  ang    6.9  Static  seq 341
+   2184.7 ms    contact  NPC L Hand [LHnd]         91.5 u/s  tan  119.3  body  117.7  ang    9.8  DeadBip  seq 346
+   2184.7 ms    contact  NPC Spine2 [Spn2]         91.5 u/s  tan  119.3  body   89.5  ang    3.6  DeadBip  seq 347
+   2226.5 ms    contact  NPC R Forearm [RLar]      50.3 u/s  tan   55.8  body   74.2  ang    3.8  Static  seq 350
+   2289.8 ms    contact  NPC R UpperArm [RUar]     91.5 u/s  tan   18.7  body   95.2  ang    2.7  Static  seq 354
+   2350.9 ms    contact  NPC R Forearm [RLar]      40.3 u/s  tan   18.5  body    4.7  ang    0.9  DeadBip  seq 360
+   2350.9 ms    contact  NPC Spine1 [Spn1]         40.3 u/s  tan   18.5  body   50.2  ang    1.4  DeadBip  seq 361
+   2371.2 ms    contact  NPC R Hand [RHnd]         39.8 u/s  tan   26.0  body    2.4  ang    1.0  DeadBip  seq 364
+   2371.2 ms    contact  NPC Spine1 [Spn1]         39.8 u/s  tan   26.0  body   55.5  ang    1.3  DeadBip  seq 365
+   2411.7 ms    contact  NPC R Forearm [RLar]      19.6 u/s  tan   48.7  body   10.5  ang    2.6  DeadBip  seq 371
+   2411.7 ms    contact  NPC Spine [Spn0]          19.6 u/s  tan   48.7  body   33.7  ang    2.2  DeadBip  seq 372
+   2452.6 ms    contact  NPC R Hand [RHnd]         21.5 u/s  tan   31.0  body    5.7  ang    1.2  DeadBip  seq 376
+   2452.6 ms    contact  NPC Spine [Spn0]          21.5 u/s  tan   31.0  body   28.3  ang    2.2  DeadBip  seq 377
+   2492.8 ms    contact  NPC R Thigh [RThg]        11.7 u/s  tan    9.4  body   15.0  ang    0.6  Static  seq 384
+   2492.8 ms    contact  NPC R Forearm [RLar]      28.5 u/s  tan   20.5  body    5.3  ang    2.5  DeadBip  seq 385
+   2492.8 ms    contact  NPC Spine2 [Spn2]         28.5 u/s  tan   20.5  body   76.7  ang    3.8  DeadBip  seq 386
+   2492.8 ms    contact  NPC L Hand [LHnd]        231.1 u/s  tan  104.7  body  241.8  ang    9.0  Static  seq 387
+   2492.8 ms      CUE    imp_transient  play   -28.3 dB  pitch 0.84  composite        Settle       int 0.34  seq 387
+   2503.5 ms      CUE    surf_soft      play   -28.9 dB  pitch 0.84  surface          Settle       int 0.34  seq 387
+   2513.6 ms    contact  NPC Spine2 [Spn2]         40.7 u/s  tan   34.4  body   72.7  ang    3.0  DeadBip  seq 393
+   2513.6 ms    contact  NPC R Hand [RHnd]         40.7 u/s  tan   34.4  body    4.5  ang    1.0  DeadBip  seq 394
+   2513.6 ms    contact  NPC R Forearm [RLar]      11.5 u/s  tan   38.0  body    8.3  ang    3.5  DeadBip  seq 395
+   2513.6 ms    contact  NPC R Thigh [RThg]        11.5 u/s  tan   38.0  body   12.2  ang    0.4  DeadBip  seq 396
+   2513.8 ms      CUE    imp_body       play   -24.9 dB  pitch 0.84  composite        Settle       int 0.34  seq 387
+   2553.8 ms      CUE    imp_sub        play   -40.9 dB  pitch 0.84  composite        Settle       int 0.34  seq 387
+   2616.4 ms    contact  NPC L Forearm [LLar]      74.7 u/s  tan   47.4  body   94.3  ang    8.2  Static  seq 405
+   2637.1 ms    contact  NPC L Hand [LHnd]         25.8 u/s  tan   86.6  body   63.3  ang   14.2  Static  seq 408
+   2658.0 ms    contact  NPC L Forearm [LLar]      10.3 u/s  tan   41.1  body   67.7  ang    4.6  DeadBip  seq 411
+   2658.0 ms    contact  NPC Spine2 [Spn2]         10.3 u/s  tan   41.1  body   61.5  ang    4.2  DeadBip  seq 412
+   2700.6 ms    contact  NPC L UpperArm [LUar]     72.3 u/s  tan   55.2  body   85.3  ang    4.2  Static  seq 416
+   2701.0 ms    contact  NPC Head [Head]           99.2 u/s  tan  101.3  body  110.4  ang    5.7  Static  seq 419
+   2721.7 ms    contact  NPC R Calf [RClf]          5.1 u/s  tan   13.6  body   17.4  ang    1.7  Static  seq 421
+   2722.2 ms    contact  NPC L Forearm [LLar]      24.0 u/s  tan   28.1  body   53.0  ang    8.7  Static  seq 423
+   2764.2 ms    contact  NPC COM [COM ]            13.5 u/s  tan    2.1  body   22.8  ang    2.4  Static  seq 427
+   2764.2 ms    contact  NPC L Thigh [LThg]        21.4 u/s  tan    1.0  body   21.3  ang    2.5  Static  seq 428
+   2786.2 ms    contact  NPC L Forearm [LLar]      26.3 u/s  tan   16.6  body   30.8  ang    2.3  Static  seq 429
+   2826.8 ms    contact  NPC L Forearm [LLar]      28.9 u/s  tan   33.7  body   29.6  ang    3.5  Static  seq 432
+   2826.8 ms      CUE    limb_tap       play   -24.5 dB  pitch 1.11  tap              Settle       int 0.00  seq 432
+   2867.9 ms    contact  NPC L Hand [LHnd]         20.5 u/s  tan   27.5  body   18.6  ang    1.9  DeadBip  seq 436
+   2867.9 ms    contact  NPC Spine2 [Spn2]         20.5 u/s  tan   27.5  body   18.9  ang    0.8  DeadBip  seq 437
+   2906.0 ms    contact  NPC Head [Head]           18.9 u/s  tan   31.8  body   30.5  ang    1.0  DeadBip  seq 441
+   2906.0 ms    contact  NPC L Hand [LHnd]         18.9 u/s  tan   31.8  body   10.9  ang    1.7  DeadBip  seq 442
+
+CUES
+     time  slot           op       gain  pitch  reason           phase          int   limb     site  seq
+    901.2  imp_transient  play    -13.4   0.97  composite        PrimaryImpact  0.24     16     hand   85
+    909.6  surf_soft      play    -15.8   0.97  surface          PrimaryImpact  0.24     16     hand   85
+    917.5  imp_body       play    -11.8   0.97  composite        PrimaryImpact  0.24     16     hand   85
+    970.0  imp_sub        play    -29.4   0.97  composite        PrimaryImpact  0.24     16     hand   85
+   1643.0  imp_transient  play    -30.0   0.84  composite        Settle        1.00      7     foot  186
+   1652.7  surf_soft      play    -18.0   0.84  surface          Settle        1.00      7     foot  186
+   1660.6  imp_body       play    -14.0   0.84  composite        Settle        1.00      7     foot  186
+   1663.0  crunch_gran    play    -22.0   1.00  crunch           Settle        1.00      7     foot  186
+   1707.5  imp_sub        play    -18.0   0.84  composite        Settle        1.00      7     foot  186
+   2020.8  limb_tap       play    -24.5   0.84  tap              Settle        0.01     17     hand  325
+   2492.8  imp_transient  play    -28.3   0.84  composite        Settle        0.34     16     hand  387
+   2503.5  surf_soft      play    -28.9   0.84  surface          Settle        0.34     16     hand  387
+   2513.8  imp_body       play    -24.9   0.84  composite        Settle        0.34     16     hand  387
+   2553.8  imp_sub        play    -40.9   0.84  composite        Settle        0.34     16     hand  387
+   2826.8  limb_tap       play    -24.5   1.11  tap              Settle        0.00     14  forearm  432
+
+DECISIONS - every contact that reached arbitration, and what became of it
+    901.2 ms  seq    96  limb 17    273.4 u/s  int 0.23  PrimaryImpact rate cap 0<44
+   1643.7 ms  seq   189  limb  5    328.8 u/s  int 0.77  Settle       rate cap 1<43
+   1643.7 ms  seq   190  limb  5    328.8 u/s  int 0.77  Settle       rate cap 1<43
+   1663.9 ms  seq   196  limb  8    536.5 u/s  int 0.99  Settle       rate cap 21<43
+   1684.5 ms  seq   197  limb  5    451.7 u/s  int 0.99  Settle       rate cap 42<43
+   1704.0 ms  seq   217  limb  2    563.0 u/s  int 1.00  Settle       burst full
+   1684.5 ms  seq   198  limb  5    451.7 u/s  int 0.99  Settle       rate cap 42<43
+   1685.0 ms  seq   208  limb  4    267.6 u/s  int 0.60  Settle       rate cap 42<43
+   1685.0 ms  seq   207  limb  4    256.6 u/s  int 0.57  Settle       rate cap 42<43
+   1685.0 ms  seq   209  limb  4    256.6 u/s  int 0.57  Settle       rate cap 42<43
+   1685.0 ms  seq   204  limb  1     95.9 u/s  int 0.23  Settle       rate cap 42<43
+   1685.0 ms  seq   210  limb  8    243.0 u/s  int 0.16  Settle       rate cap 42<43
+   1685.0 ms  seq   211  limb  8    243.0 u/s  int 0.16  Settle       rate cap 42<43
+   1704.0 ms  seq   218  limb  2    563.0 u/s  int 1.00  Settle       burst full
+   1704.0 ms  seq   219  limb  4    537.5 u/s  int 1.00  Settle       burst full
+   1704.0 ms  seq   220  limb  4    537.5 u/s  int 1.00  Settle       burst full
+   1704.4 ms  seq   222  limb  0    406.9 u/s  int 1.00  Settle       burst full
+   1745.2 ms  seq   237  limb  1     98.6 u/s  int 0.19  Settle       burst full
+   1745.2 ms  seq   238  limb  8     45.7 u/s  int 0.01  Settle       burst full
+   1766.9 ms  seq   252  limb 16    854.6 u/s  int 0.71  Settle       burst gap
+   1766.9 ms  seq   254  limb 16    733.1 u/s  int 0.68  Settle       burst gap
+   1766.9 ms  seq   256  limb 17    149.8 u/s  int 0.09  Settle       burst gap
+   1787.1 ms  seq   267  limb 17    368.4 u/s  int 0.24  Settle       burst gap
+   1830.1 ms  seq   292  limb 17     26.0 u/s  int 0.00  Settle       burst gap
+   1937.5 ms  seq   313  limb  8     46.8 u/s  int 0.01  Settle       burst gap
+   2102.5 ms  seq   338  limb 15     74.6 u/s  int 0.03  Settle       burst full
+   2226.5 ms  seq   350  limb 15     50.3 u/s  int 0.02  Settle       burst gap
+   2289.8 ms  seq   354  limb 12     91.5 u/s  int 0.08  Settle       burst gap
+   2616.4 ms  seq   405  limb 14     74.7 u/s  int 0.03  Settle       burst gap
+   2637.1 ms  seq   408  limb 16     25.8 u/s  int 0.00  Settle       burst gap
+   2700.6 ms  seq   416  limb 10     72.3 u/s  int 0.05  Settle       burst gap
+   2701.0 ms  seq   419  limb 13     99.2 u/s  int 0.20  Settle       head lead 1ms 1.00 gate 73 LED
+   2701.0 ms  seq   419  limb 13     99.2 u/s  int 0.20  Settle       burst gap
+   2701.0 ms  seq   419  limb 13     99.2 u/s  int 0.20  Settle       burst gap
+   2722.2 ms  seq   423  limb 14     24.0 u/s  int 0.00  Settle       burst gap
+   2786.2 ms  seq   429  limb 14     26.3 u/s  int 0.00  Settle       burst gap
+   2764.2 ms  seq   428  limb  1     21.4 u/s  int 0.00  Settle       burst gap
+
+
+CONFIG INI - the config this export was rendered through, in full
+  config_22_08_14 - matches the file of that name
+  Paste this block into RagdollSounds_Algorithm.ini and the mod plays what this
+  export is a report of. Every key carries what it changes perceptually.
+
+; ----------------------------------------------------------------------------
+; RagdollSounds_Algorithm.ini - the sound engine
+; Written by Physical Ragdoll Sounds. Every key carries the comment that says
+; what it changes perceptually; delete a key to go back to its default.
+
+
+[Ingest]
+
+; The quietest contact allowed to make any sound at all. Raise it and the small taps that fill out
+; a tumble disappear; lower it and the settle at the end of a fall starts chattering.
+fMinImpactSpeed = 20
+
+; How far the solver's closing speed and our own reconstruction of it may differ before the
+; contact is treated as a physics explosion and thrown away. Lower is stricter: too low and real
+; hard landings go silent.
+fBlowupDisagreeFrac = 0.1
+
+; Backstop for contacts with no reconstruction to check against. Anything faster is discarded as
+; impossible, so setting it low makes the hardest hits in the game the only ones that never play.
+fBlowupSpeedCeiling = 1000
+
+; The same backstop for spin. A genuine armoured landing spins a limb to 60 rad/s, so anything
+; near that discards real impacts.
+fBlowupAngularCeiling = 200
+
+; Half of all contacts are one limb touching another limb of the same body. Below this they only
+; thicken the cloth bed; above it they play as real impacts. Drop it and a ragdoll rattles against
+; itself constantly.
+fSelfContactThreshold = 250
+
+; Every limb-on-own-limb contact is reported twice, once from each limb. Off, they all play twice
+; and the whole mix doubles at the moment of landing.
+bDropMirroredSelfContacts = 1
+
+; How large a gap between contact reports means a new frame started. Only matters on replay; the
+; measured split is one microsecond inside a frame against 20 ms between.
+fFrameGapMs = 2
+
+; One collision surface reported at several points becomes one contact at the strongest of them.
+; Off, a flat landing on a floor plays several times over.
+bCollapseManifolds = 1
+
+; How much faster a contact must be sliding along a surface than into it before it is heard as a
+; scrape rather than a thud. Lower sends more of a tumble to the scrape loop and takes the punch
+; out of it.
+fGrazeRatio = 1.5
+
+; Above this closing speed a contact is always a thud, however much it is also sliding. Raise it
+; and hard skids go quiet as the scrape path swallows them; lower it and genuine slides start
+; thudding.
+fGrazeMaxImpactSpeed = 220
+
+
+[Phase]
+
+; How far off the ground the body has to be before the airborne rise starts. Too low and the
+; whoosh fires during an ordinary shove.
+fAirborneMinHeight = 40
+
+; And for how long, so a body that bounces once does not read as a fall.
+fAirborneMinTimeMs = 120
+
+; How big a share of the fall's energy a contact must carry to count as the hero moment. Higher
+; means fewer knockdowns get a hero treatment and more of them read as a flat tumble.
+fPrimaryImpactEnergyFrac = 0.35
+
+; How long the hero moment stays open for its peers. A faceplant genuinely has a knee, a chest and
+; a head arriving inside a couple of hundred milliseconds; shorten this and only the first of them
+; is loud.
+fPrimaryImpactWindowMs = 220
+
+; How fast a body has to be travelling along the ground before the slide phase opens and the
+; grinding loop is allowed.
+fSlideMinTangentSpeed = 120
+
+; And for how long, so a single glancing blow does not read as a slide.
+fSlideMinDurationMs = 150
+
+; The energy the fall has to drop below before it is considered over. Raise it and knockdowns
+; close early, cutting off the last real bounce; lower it and the closing cue arrives late.
+fSettleEnergyFloor = 80
+
+; How much quiet is needed before the event closes. This is what stops a fall that pauses
+; mid-tumble playing its closing cue too early.
+fSettleQuietMs = 0
+
+; Silence held after a ragdoll ends, covering the blend back to animation. A guess: every capture
+; take was paralysed and none of them ever got up.
+fGetUpBlendMs = 400
+
+; How loud the moment of being knocked over is, before anything has landed.
+fLaunchTrimDb = -6
+
+; How many sounds the launch may spend at once.
+iLaunchMaxCues = 2
+
+; How loud anything is while the body is in the air. Should be well down: the airborne section is
+; anticipation, not event.
+fAirborneTrimDb = -9
+
+; How many sounds may play while airborne.
+iAirborneMaxCues = 1
+
+; The hero moment's own trim. This is the reference every other phase is quieter than, so moving
+; it moves the whole knockdown.
+fPrimaryImpactTrimDb = 0
+
+; How many grains the hero burst may contain. The references measure three to five.
+iPrimaryImpactMaxCues = 5
+
+; How loud the rolling section after the first landing is.
+fTumbleTrimDb = -3
+
+; How many grains a tumble burst may contain.
+iTumbleMaxCues = 4
+
+; How loud the impacts during a slide are. The grinding loop has its own gain.
+fSlideTrimDb = -6
+
+; How many one-shots may punctuate a slide, for the moments a limb catches.
+iSlideMaxCues = 2
+
+; The last twenty contacts of every knockdown are settles and should be nearly silent. This one
+; number is what keeps a fall from ending in a rattle.
+fSettleTrimDb = -14
+
+; How many sounds the settle may spend. One is the design.
+iSettleMaxCues = 1
+
+
+[Arbitration]
+
+; The shortest gap allowed between any two impact onsets, whatever limb they came from. Below
+; about 46 ms extra onsets stop adding detail and start adding mud; well above it a knockdown
+; starts to sound sparse and deliberate.
+fRateCapMs = 43
+
+; How much louder than the impact holding the rate cap a new one must be to get through anyway.
+; Lower lets a busy crash keep more of its hits; raise it towards 60 to switch the override off
+; and let the cap always win.
+fRateCapOverrideDb = 16
+
+; How long one limb chain stays claimed by its strongest contact. This is what turns a hand, a
+; wrist and an elbow landing together into one arm flop.
+fChainMergeWindowMs = 60
+
+; How far under the loudest recent sound a proposal has to be before it is dropped outright rather
+; than played quietly. Small values let everything through and the landing turns to porridge;
+; large values leave only the heroes.
+fMaskDropBelowDb = 12
+
+; How fast the ear is assumed to recover after a loud hit. Slower means a big landing keeps the
+; following second quiet.
+fMaskDecayDbPerSec = 60
+
+; How many sounds one audible moment is built from. The references measure three to five; more
+; reads as a machine gun rather than as an impact with texture.
+iBurstMaxGrains = 5
+
+; How long one burst may last before it has to end. This plus the grain count is the shape of an
+; audible moment.
+fBurstWindowMs = 110
+
+; The silence enforced between audible moments. This is the single biggest lever on whether a
+; three-second tumble reads as four events or as thirty.
+fBurstMinGapMs = 300
+
+; During a hero moment, place every layer at one point. Several points read as several events; one
+; point reads as one event with detail.
+bSpatialCollapseOnHero = 1
+
+; How long the collapse holds before the sound spreads back out across the limbs for the tumble.
+fSpatialCollapseWindowMs = 200
+
+; How many frames every window is worth as well as its millisecond floor, so the system behaves
+; the same at 24 fps and at 144. Zero pins every window to its floor and makes the mod frame-rate
+; dependent.
+fFrameScaleK = 2
+
+
+[Intensity]
+
+; The contact speed that maps to the bottom of the loudness range. Anything at or under it is as
+; quiet as the mod goes.
+fSpeedRefLow = 20
+
+; The contact speed that maps to full level. A guess, not a measurement: the take that would have
+; established it was discarded. Lower it and ordinary knockdowns get loud; raise it and nothing
+; ever reaches the top of the range.
+fSpeedRefHigh = 510
+
+; The whole span from the quietest contact to the loudest, in decibels. The references use about
+; 35; a naive loudness curve gives 60 and sounds wrong at both ends - shouty at the top, inaudible
+; at the bottom.
+fDynamicRangeDb = 15
+
+; Where the loudness sits between the two anchors. Under 1 fills the middle out and makes ordinary
+; contacts more present; over 1 keeps everything quiet until it is genuinely hard.
+fCurveExponent = 1.2
+
+; Where the curve stops being straight and starts compressing, so another mod's absurd impulse
+; gets loud rather than rejected. A silent obliterate is the worst possible outcome.
+fSoftClipKnee = 0.25
+
+; How much a limb's own size makes it louder. At zero a fingertip and a torso at the same speed
+; sound identical; high values make torso landings dominate everything.
+fMassWeight = 0.9
+
+; The same, from the limb's physical bounding radius rather than its mass. This is the half that
+; still works on a skeleton we do not recognise.
+fRadiusWeight = 0.2
+
+; Where a contact stops being a fall and the gore tier opens, as a multiple of the loud anchor.
+; Above 1 is above anything the mod treats as loud, which is where it belongs; under 1 and
+; ordinary hard landings start coming apart.
+fObliterateFrac = 2.7451
+
+
+[PostIntensity]
+
+; Widens or narrows the gap between the quietest contact and the loudest, after every layer has
+; been chosen. Unlike the dynamic range above it moves loudness only - the same contact is still
+; built from the same layers at the same pitch.
+fExtraRangeDb = -7.5
+
+; Where the level sits between the two anchors, on top of the curve above. Under 1 brings ordinary
+; contacts forward without giving them a heavier stack; over 1 holds them back without making them
+; thinner. 1 changes nothing.
+fCurveExponent = 2.4
+
+; Compresses the top of the level range so an absurd impulse gets loud rather than enormous, while
+; still being built as the obliterate it is. 1 is off.
+fSoftClipKnee = 1
+
+
+[SlotGain]
+
+; The bright contact click, on its own. The one to reach for when the attack reads as a tick
+; rather than as a hit.
+fImpTransient = 0
+
+; The low-mid flesh and mass. Carries most of what a body sounds like, so a decibel here is
+; audible on every impact in the mod.
+fImpBody = 0
+
+; The late pitched boom - the loudest layer and the whole of the gnarl. Down a couple of decibels
+; if the mod is booming through a soundbar.
+fImpSub = 0
+
+; The hollow knock, alone. Wood is the surface most likely to arrive louder than the other two,
+; because a hollow knock is easy to record hot.
+fSurfWood = 0
+
+; The hard short skin, alone. Short files read quiet at the same peak, so this is usually the one
+; that needs lifting.
+fSurfStone = 0
+
+; The dull skin, and the one anything unresolved falls back to - so it plays far more often than
+; the other two and is worth setting last.
+fSurfSoft = 0
+
+; The burst filler. Quiet and dry by design: lift it and a tumble turns busy, drop it and the gaps
+; between the real impacts open up.
+fLimbTap = 0
+
+; The granular bone break. Loud enough to be a fact about what happened, not so loud that it
+; becomes the impact.
+fCrunchGran = 0
+
+; The squelch, obliterate tier only. It plays rarely enough that it is easy to leave far too hot
+; without ever noticing.
+fGoreWet = 0
+
+; The grinding loop. Sits about 20 dB under the impacts; if it reads as a hiss rather than as a
+; rumble the file is wrong, not the gain.
+fScrapeLoop = 0
+
+; The cloth bed. It is what papers over the one-shots, so it wants to be felt as continuity rather
+; than heard as a sound.
+fFoleyCloth = 0
+
+; The airborne rise. Anticipation, not event - lift it and every knockdown announces itself before
+; it has landed.
+fAirWhoosh = 0
+
+; The skull accent. Rare and unmissable is the brief, and it rides on a full composite already, so
+; it needs less than it looks like it does.
+fHeadImpact = 0
+
+; The closing flop. Quiet enough to read as a full stop rather than as one more impact.
+fSettleRest = 0
+
+
+[Limbs]
+
+; Off, how loud an impact is depends on which limb touched - and a foot is quiet even when the
+; whole body lands on it. On, it depends on how much of the body is actually arriving, judged by
+; how much the limb is travelling rather than swinging.
+bMassDeterminesLoudness = 1
+
+; How loud a landing that brings the whole body with it is, on the same scale as the limb table (a
+; foot is 1, a thigh 7, the trunk 7.5). Every fully coupled contact uses this whatever limb it
+; came through, which is what makes a feet-first and a hip-first landing at the same speed sound
+; alike.
+fBodyMass = 3.5
+
+; How much spin counts as a limb swinging on its own rather than being carried. Lower and more
+; contacts are treated as flails and go quiet; higher and even a whipping arm is priced as the
+; body landing.
+fRotationRefRatio = 1.1
+
+; How far towards the whole-body mass a coupled contact is allowed to go. At 0 the toggle above
+; does nothing; at 1 a body landing is priced entirely as a body.
+fCouplingWeight = 1
+
+; A limb moving slower than this delivers nothing however straight its path is. Stops a body
+; settling slowly onto the floor being priced as a landing.
+fMinBodySpeed = 120
+
+
+[ImpactComposite]
+
+; The core layer stack. Off, the mod plays only accents and loops and every impact loses its body.
+bEnabled = 1
+
+; When the bright contact click lands. This is the reference everything else is measured from and
+; should stay at zero.
+fTransientOffsetMs = 0
+
+; When the wood, stone or soft colour arrives. Close to the transient, or it stops reading as the
+; same event.
+fSurfaceOffsetMs = 8
+
+; When the low-mid flesh and mass arrives. Measured at 8-34 ms in the references.
+fBodyOffsetMs = 20
+
+; When the pitched boom arrives. The single most important number in the mod: at 65 ms an impact
+; reads as mass, at 0 it reads as a click with a thud stuck to it, and past 120 ms it stops
+; belonging to the impact at all.
+fSubOffsetMs = 65
+
+; A few milliseconds of variation on each layer so no two composites have exactly the same
+; envelope. Large values smear the shape instead of varying it.
+fOffsetScatterMs = 4
+
+; How much of the stack is the bright click on the lightest contact. Light contacts are almost all
+; transient.
+fTransientGainAtMinDb = -5
+
+; And on the heaviest, where it only rides on top of the sub.
+fTransientGainAtMaxDb = -18
+
+; How much flesh a light contact has.
+fBodyGainAtMinDb = -8
+
+; And a heavy one.
+fBodyGainAtMaxDb = -2
+
+; How much boom a light tap gets. Should be almost none, or every tap sounds like a cannon.
+fSubGainAtMinDb = -30
+
+; And a hard landing, where it is the loudest thing in the stack. This is where the gnarl comes
+; from.
+fSubGainAtMaxDb = -6
+
+; How audible the surface colour is on a light contact.
+fSurfaceGainAtMinDb = -12
+
+; And on a heavy one. If the surface reads as a separate sound rather than as colour, it is too
+; loud.
+fSurfaceGainAtMaxDb = -6
+
+; Random pitch spread per voice. This is what stops thirteen files sounding like thirteen files.
+; Past about three semitones it starts sounding like a pitch trick.
+fPitchScatterSemis = 2.5
+
+; How far down a heavy impact is pitched relative to a light one. Negative reads as heavier and
+; bigger for free.
+fPitchIntensityBiasSemis = -3
+
+; The hard limit on the two above put together, so nothing ever sounds obviously transposed.
+fPitchMaxSemis = 3
+
+
+[HeadImpact]
+
+; Head contacts get their own accent on top of the composite. Off, a head landing is just another
+; limb.
+bEnabled = 1
+
+; How hard a head has to hit before the accent fires, as a multiple of the loud anchor - so it
+; stays where it is in the range when the anchor moves. Low values put a skull crack on every roll
+; of the neck.
+fGateFrac = 0.32
+
+; How loud the head accent is against the stack.
+fGainDb = -12.5
+
+; How much more willing the gate is when the head is already the low point of the body - a
+; faceplant rather than a knock.
+fHeadDownBonus = 0
+
+; Tell a dive from a sprawl by how long the body had been clear of the ground when the head
+; arrived, rather than by how fast the head was going. Off, a head that lands first and a head
+; that lands last sound the same at the same speed.
+bLeadEnabled = 1
+
+; How long the rest of the body must have been off the ground for the head to count as leading.
+; Short values call the end of an ordinary sprawl a dive; long ones only fire on a real fall from
+; height.
+fLeadClearMs = 0
+
+; A hand touching down with the head is the arm you threw out in front of the dive, not proof the
+; body was already down. Off, one hand landing in the same frame as the skull collapses the lead
+; to nothing and the rule never fires. Hands still count for the company rule either way.
+bLeadExcludeHands = 1
+
+; The window of forgiveness, so larger forgives more. A hand inside it belongs to this strike;
+; older than it and the hand counts as an ordinary limb again, so a body that broke its fall on
+; one arm and clipped its head a second later does not read as a dive. Zero forgives nothing and
+; leaves the toggle above doing nothing.
+fLeadHandGraceMs = 220
+
+; How much lower the gate sits for a head that led the body in, as a fraction of the gate. This is
+; what lets a slow faceplant through a gate a fast sprawl needed its speed to clear.
+fLeadGateBonus = 0.55
+
+; Added to the accent for a head that fully led the body in, and scaled down to nothing for one
+; that did not. The whole point of the rule is that this is large and still costs an ordinary
+; landing almost nothing.
+fLeadGainDb = 9.5
+
+; The crunch gate a led head is held to instead of the global one, as a multiple of the loud
+; anchor. This is what puts a crunch on a dive that is slower than sprawls which do not crunch.
+; Zero leaves the crunch gate alone.
+fLeadCrunchGateFrac = 0.88
+
+; How often a led head over that gate actually crunches. One means every time; lower keeps a dive
+; from sounding scripted. The global crunch ramp is not used here - it runs up to the certain
+; speed and would leave a dive at the bottom of it.
+fLeadCrunchProbability = 1
+
+; A fully-led head impact stops being an accessory and becomes its own onset. Off, the accent
+; still dies with whatever composite the arbitrator dropped, which is how a 537 u/s skull landing
+; makes no sound at all.
+bLeadClaimsOnset = 1
+
+; Quieten a head that arrives inside a pile of other limbs. A head at the end of a spine whip is
+; the fastest thing in the frame and the least of the collision; this is the head-specific half of
+; the effective-mass problem.
+bCompanyEnabled = 1
+
+; More other limbs than this hitting the world in the same frame and the head is treated as part
+; of a sprawl. Zero damps any head that does not land alone.
+iCompanyMaxPeers = 2
+
+; How much faster than the fastest limb beside it the head must be to still count as the strike.
+; Below this it is damped however few limbs are touching.
+fCompanyLeadFrac = 1.3
+
+; How much the gate rises for a head inside a pile, as a fraction of itself.
+fCompanyGateFrac = 0.2
+
+; How far the accent drops for a head inside a pile.
+fCompanyDampDb = -9
+
+; Let a hard head landing buy back some of the arbitration budget the rest of the fall already
+; spent. Off, the loudest contact in a take can be silenced by a thigh tap that opened a burst a
+; moment earlier.
+bRefundEnabled = 1
+
+; How far clear of its own gate a head contact must be to earn a refund, as a multiple of that
+; gate. The gate already moves with the lead and company rules, so this rides on top of whatever
+; they decided.
+fRefundGateFrac = 1.6
+
+; Extra grains inside the burst the contact lands in. This is the half of the refund that answers
+; a drop marked `burst full`.
+iRefundGrains = 1
+
+; How much of the silence the arbitrator insists on between bursts is waived. One waives it
+; entirely. This is the half that answers a drop marked `burst gap`, which is what silences a head
+; landing arriving between two bursts.
+fRefundBurstGapFrac = 0.95
+
+; Whether a refunded contact also ignores the global rate cap - what answers a drop marked `rate
+; cap`. On, a skull landing 20 ms after a foot is still its own sound.
+bRefundIgnoreRateCap = 1
+
+; The ceiling per knockdown, so a head bouncing down a staircase cannot buy the whole budget back
+; one bounce at a time.
+iRefundMaxPerEvent = 1
+
+
+[CrunchGore]
+
+; The granular bone-break layer. This is most of what makes the mod gnarly.
+bCrunchEnabled = 1
+
+; The wet layer, above the obliterate tier. Nothing a fall can produce reaches it.
+bGoreEnabled = 1
+
+; Where a crunch becomes possible, as a multiple of the loud anchor. An ordinary shove peaks at
+; about half of it and a three-metre fall at three quarters, so the default has an ordinary
+; knockdown crack occasionally and a real fall crack always.
+fCrunchGateFrac = 0.9804
+
+; Where a crunch becomes guaranteed, on the same scale. The span between this and the gate is the
+; probability ramp - soften a gate with probability, never with volume. At or below the gate it is
+; a hard threshold instead.
+fCrunchCertainFrac = 1.37
+
+; How likely a crunch is at the gate itself, before the ramp adds anything. At zero the bottom of
+; the ramp is dead and crunches really start well above where the gate says; at one the ramp is
+; bypassed and the gate is hard.
+fCrunchGateProbability = 0.15
+
+; How far back below the gate the impact has to fall before another crunch is possible, on the
+; same scale as the gate, so it does not flicker on and off during a tumble.
+fCrunchHysteresisFrac = 0.1373
+
+; The ceiling per knockdown, so a long tumble does not turn into a bag of breaking sticks.
+iMaxCrunchesPerEvent = 3
+
+; Where the wet layer opens, as a multiple of the loud anchor. Should sit above anything a fall
+; can produce, and the obliterate point has to be cleared as well.
+fGoreGateFrac = 0.6863
+
+; How loud a crunch is against the impact it rides on.
+fCrunchGainDb = -10
+
+; How loud the wet layer is.
+fGoreGainDb = -6
+
+
+[ScrapeLoop]
+
+; The sustained grinding loop for a body dragging along a surface.
+bEnabled = 0
+
+; How fast the limb has to be travelling along the surface for the loop to be worth starting.
+fMinTangentSpeed = 660
+
+; How gently the grind arrives. Too short and it clicks in at the start of a slide.
+fStartFadeMs = 310
+
+; How gently it leaves. Longer than the fade in, or a slide ends abruptly.
+fStopFadeMs = 840
+
+; How long the contact has to persist before a loop opens, so a single glancing blow does not
+; start one.
+fMinDurationMs = 100
+
+; How far a body must travel along a surface to open the slide loop, if it gets there before the
+; time above. A fast skid covers ground in a few frames; without this only slow grinding ever
+; counted as a slide.
+fMinDistance = 45
+
+; How far the body slides before the loop reaches full level. Short, and a glancing skid already
+; sounds like being dragged; long, and only a proper slide is fully audible.
+fFadeInDistance = 160
+
+; How far under its level the loop starts before distance walks it up. At 0 the fade is off and
+; the loop opens at full level.
+fFadeInFloorDb = -15
+
+; How loud the grind sits under the impacts. The references put a slide 15-25 dB under them.
+fGainDb = -18.5
+
+; The sliding speed the loop is quietest at.
+fSpeedForMinGain = 120
+
+; And the speed it reaches full level at, so the grind tracks the slide rather than sitting at one
+; level throughout.
+fSpeedForMaxGain = 600
+
+; How much faster the grind plays as the slide speeds up. A little sells the acceleration; a lot
+; sounds like a tape being spooled.
+fPitchPerThousandUnits = 0.15
+
+
+[MotionFoley]
+
+; The continuous cloth bed under everything. It is what papers over the one-shots and makes a fall
+; sound like one continuous thing.
+bEnabled = 1
+
+; How loud the bed is. The references put it 30-36 dB under the hero hit; bring it up and it stops
+; being a bed and starts being a sound.
+fBedGainDb = -33
+
+; The body speed the bed is quietest at.
+fSpeedForMinGain = 30
+
+; And the speed it reaches full level at, so the cloth tracks how fast the body is actually
+; moving.
+fSpeedForMaxGain = 500
+
+; The anticipation whoosh while a body is in the air. On by default at a low level: it tells the
+; ear something is about to land.
+bAirborneRise = 1
+
+; How loud the whoosh is. It should be felt rather than heard.
+fAirborneRiseGainDb = -24
+
+; Drop the bed for a moment just before a big landing so the hit lands harder. Three of four
+; reference clips do it, which is not enough to be sure it was deliberate, so it ships off and is
+; meant to be tuned by ear.
+bPreImpactDuck = 0
+
+; How far the bed drops for the duck. The references measure 8-15 dB.
+fPreImpactDuckDb = -10
+
+; How long before the landing the duck starts.
+fPreImpactDuckMs = 70
+
+
+[SettleClose]
+
+; One quiet cue when the fall is over. Falls that just trail off feel unfinished.
+bEnabled = 0
+
+; How loud the closing flop is. It is punctuation, not an event.
+fGainDb = -27
+
+; How long after the body goes quiet the closing cue lands. Too soon and it sounds like another
+; impact; too late and the fall has already been forgotten.
+fDelayMs = 70
+
+
+[Mix]
+
+; The whole mod's level against the rest of the game. With vanilla's body impacts suppressed there
+; is nothing to sit next to, so this calibrates against footsteps and combat - and there is no bus
+; control in this engine, so it is the only lever.
+fMasterGainDb = 2
+
+; Global trim on the bright contact layer. Up for clicky and present, down for distant and soft.
+fTransientTrimDb = 0
+
+; Global trim on the flesh-and-mass layer.
+fBodyTrimDb = 0
+
+; Global trim on the pitched boom. The one control most worth touching if the mod feels either
+; weightless or overbearing.
+fSubTrimDb = 0
+
+; Global trim on the wood, stone and soft colour. Up makes the floor material obvious; down makes
+; every surface sound the same, which is what vanilla does.
+fSurfaceTrimDb = 0
+
+; Global trim on the small filler taps that give a burst its texture.
+fGrainTrimDb = 0
+
+; Global trim on the scrape and cloth loops.
+fLoopTrimDb = 0
+
+; Below this a sound is not worth a voice and is dropped before the cap ever sees it. Raise it to
+; keep the voice budget for things that can actually be heard.
+fVoiceFloorDb = -100
+
+
+[Player]
+
+; Whether your own ragdoll makes any sound at all.
+bEnabled = 1
+
+; At arm's length collapsing every layer to one point stops helping and starts sounding like the
+; audio is inside your head, so your own limbs carry their own sounds.
+bAttachToBones = 1
+
+; A 30 Hz boom at zero distance through headphones is overwhelming, and in VR low frequency is
+; felt as much as heard. This pulls it back for your own falls only.
+fSubTrimDb = 0
+
+; You are the one moving and the view already tells you, so the anticipation whoosh is off for
+; your own falls.
+bSkipAirborneWhoosh = 1
+
+; Your own ragdoll's level, separate from everyone else's.
+fMasterGainDb = -3
+
+
+[Distance]
+
+; Inside this everything plays: composites, grains, loops and bed. About ten metres.
+fFullRadius = 700
+
+; Between the two radii only the hero composites play - nobody resolves the detail at that range.
+; Beyond it the actor is dropped entirely, which is what keeps a battlefield of ragdolls from ever
+; becoming a performance question.
+fSimplifiedRadius = 2100
+
+
+[Slots]
+
+; Pick variants out of a shuffled bag rather than at random. Random repeats itself immediately,
+; and an immediate repeat is exactly what people notice.
+bShuffleBag = 1
+
+; 0 seeds from the clock, which is what the game wants. Any other value makes every run identical,
+; which is what an A/B between two configs needs so it compares the configs and not two dice
+; rolls.
+iRngSeed = 1
+
+
+[Layers]
+
+; The contact itself - bright, fast, and the quietest layer of the stack. Mute it and an impact
+; loses its edge but keeps its weight.
+bImpTransient = 1
+
+; Low-mid flesh and mass, arriving ~20 ms in. The main body of the sound at ordinary intensities,
+; where the sub has not taken over yet.
+bImpBody = 1
+
+; The late pitched boom, ~65 ms in. The design's central claim is that this one layer is what
+; makes a hit read as mass rather than contact - mute it and the gnarl should leave with it. If it
+; does not, the balance is wrong, not the timing.
+bImpSub = 1
+
+; The hollow knock layered on when a body lands on wood. Mute the three surf_* slots together to
+; hear how much of the mix is surface identity at all.
+bSurfWood = 1
+
+; The hard, short skin for stone. Vanilla plays the same dirt sample for stone, ice and carpet
+; alike, so this is one of the differences the mod exists to make.
+bSurfStone = 1
+
+; The dull skin, and the fallback for every surface we cannot resolve - which today means all
+; natural ground, since no dirt, grass or snow contact exists in the capture set.
+bSurfSoft = 1
+
+; The burst filler: quiet, dry, heavily pitch-scattered taps that give a burst its three to five
+; grains. Mute it to hear the bursts reduced to their hero hits alone.
+bLimbTap = 1
+
+; The granular low-mid crackle that is what a bone break actually is - ten times the transient
+; density of a plain thud in that band, not a snap sample.
+bCrunchGran = 1
+
+; The wet squelch, obliterate tier only. The fastest way to check the gore gate is not opening on
+; ordinary knockdowns.
+bGoreWet = 1
+
+; The sliding rumble. Worth muting often: nothing in the capture set is actually a slide, so this
+; is the layer most likely to be firing when it should not.
+bScrapeLoop = 1
+
+; The continuous cloth bed under everything, 30-36 dB down. Mute it to hear how much work it does
+; papering over the one-shots - the references say a great deal.
+bFoleyCloth = 0
+
+; The airborne anticipation rise. Mute it to judge whether the fall still reads as a fall without
+; being told one is coming.
+bAirWhoosh = 0
+
+; The dull skull thud with its granular edge. Mute it to check the head gate is firing on head
+; contacts and not on everything that happens to be moving fast.
+bHeadImpact = 1
+
+; The soft final flop that closes the event. Mute it and falls should audibly trail off
+; unfinished, which is the whole reason it exists.
+bSettleRest = 1
+
+; ----------------------------------------------------------------------------

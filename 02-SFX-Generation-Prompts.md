@@ -1,6 +1,6 @@
 # 02 — Generation prompts for the 29 assets
 
-One prompt per file, written against the measurements in `01-Reference-Analysis.md` and the asset
+One prompt per file, written against the measurements in `04-Reference-Analysis.md` and the asset
 list in `00-Design.md`. These are for a text-to-SFX model (ElevenLabs Sound Effects, Stable Audio,
 AudioGen, ElevenLabs-style APIs). Nothing here asks the model to imitate Skate 3 audio — the
 prompts describe the *shape* the analysis measured.
@@ -152,12 +152,21 @@ beat, single hit, dry` — then expect to fix the pitch curve manually anyway.
 
 Short, characterful, and **quiet**. They colour the composite; they do not carry it.
 
-### `surf_wood` ×2 — 120–200 ms, hollow knock
+### `surf_wood` ×3 — 120–200 ms, hollow knock
 
 | File | Prompt |
 |---|---|
 | `surf_wood_01` | `single hollow knock on a thick wooden plank floor, dull woody resonance, short, close mic, dry studio foley, no reverb` |
 | `surf_wood_02` | `heavy thud on old creaking wooden boards, hollow box resonance with a faint plank rattle, single hit, close mic, dry studio foley, no reverb` |
+| `surf_wood_03` | `dull impact on damp rotten timber lying on soil, soft woody knock, dead and thick with a faint fibrous crackle, single hit, close mic, dry studio foley, no reverb` |
+
+`surf_wood_03` is the **damped** wood, asked for to sit between `surf_wood`'s hollow knock and
+`surf_soft`'s dead thump. What makes the other two read as wood is the *cavity* — "plank floor",
+"boards", "box resonance" all say there is air behind the surface. Take the cavity away and keep
+the species and you land in the middle, which is why the prompt says timber on soil. Add
+`hollow box resonance, drum, cavity, plank rattle, creak` to the negative prompt for it, and avoid
+`soft` and `muffled` outright: both pull cloth and pillow into the render and lose the woody knock
+that is the point of the layer.
 
 ### `surf_stone` ×2 — 100–160 ms, hard and short
 
@@ -393,7 +402,7 @@ one.
 `make` applies the post-pass. See `tools/README.md`. The list below is what it checks and why.
 
 Before a file goes in the pack, it passes all of these. Each maps to a measurement in
-`01-Reference-Analysis.md`.
+`04-Reference-Analysis.md`.
 
 - [ ] Mono, 44.1 kHz, 16-bit, no DC offset
 - [ ] First sample is the attack — **zero leading silence**, zero crossing start
