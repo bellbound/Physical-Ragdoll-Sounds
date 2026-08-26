@@ -1,11 +1,16 @@
 #include "GameFeed.h"
 
+#include "rds/ConfigManager.h"
+
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
+
+#include "HiggsLink.h"
+#include "VanillaGate.h"
 
 namespace rds::game {
 namespace {
@@ -89,6 +94,28 @@ void StoreVector(Vec3& out, const RE::hkVector4& v, float scale) {
     return ActorPhase::kAnimated;
 }
 
+/// Does this actor take vanilla's body impacts away from it this tick?
+///
+/// The rule is "wherever we are answering for the sound", and it is deliberately
+/// the same three-way the contact gate above uses - see VanillaGate.h. `kRagdoll`
+/// because we are playing those collisions ourselves. `kAnimated` only under
+/// animated mode, for the same reason. `kGetUp` for a different one: we play
+/// nothing there, but the blend from simulation back to animation drives the
+/// ragdoll bodies through contacts that no fall produced, and vanilla renders
+/// them as a burst of body impacts that has never sounded like anything but a
+/// bug.
+[[nodiscard]] bool ClaimsVanillaImpacts(ActorPhase phase, bool animatedMode) {
+    switch (phase) {
+        case ActorPhase::kRagdoll:
+        case ActorPhase::kGetUp:
+            return true;
+        case ActorPhase::kAnimated:
+            return animatedMode;
+        default:
+            return false;
+    }
+}
+
 /// Which armour slot covers a body site.
 ///
 /// An axis of timbre only, never of physics (07 section 11) - armour changes what
@@ -126,13 +153,24 @@ void StoreVector(Vec3& out, const RE::hkVector4& v, float scale) {
 /// A site with nothing in its own slot falls back to the body piece rather than
 /// reporting bare: a cuirass with no separate gauntlets still means the forearm
 /// is not bare skin, and reading it as bare would pick the wrong timbre for the
-/// most common case in the game.
-[[nodiscard]] Coverage CoverageForSite(RE::Actor& actor, LimbSite site) {
+/// most common case in the game. `Armor:bInheritFromBody` turns that off, for
+/// the case it gets wrong - heavy boots on an otherwise naked body, where the
+/// rest should read naked.
+///
+/// The nameless-and-weightless test is the other half, and it is the one that
+/// decides whether `armor_bare` ever fires on a modded body at all. TNG's skin
+/// is a real TESObjectARMO occupying five slots, so without it a stripped
+/// subject reads as *clothed on five sites*. The recording loader has always
+/// applied this rule - it is the data dictionary's, in `CoverageFrom` - and the
+/// live path did not, which meant a take replayed in the testbench and the same
+/// body in the game disagreed about what it was wearing.
+[[nodiscard]] Coverage CoverageForSite(RE::Actor& actor, LimbSite site,
+                                       const ArmorConfig& armor) {
     using Slot = RE::BGSBipedObjectForm::BipedObjectSlot;
     const Slot slot = SlotForSite(site);
 
     auto* worn = actor.GetWornArmor(slot);
-    if (worn == nullptr && slot != Slot::kBody) {
+    if (worn == nullptr && slot != Slot::kBody && armor.inheritFromBody) {
         worn = actor.GetWornArmor(Slot::kBody);
     }
     if (worn == nullptr) {
@@ -143,6 +181,15 @@ void StoreVector(Vec3& out, const RE::hkVector4& v, float scale) {
     }
     if (worn->IsLightArmor()) {
         return Coverage::kLight;
+    }
+    // Neither heavy nor light, so it is clothing - unless it is nameless and
+    // weightless, which is what a body-replacer's skin looks like from here.
+    if (armor.bareIsNaked) {
+        const char* name = worn->GetName();
+        const bool nameless = name == nullptr || *name == '\0';
+        if (nameless && worn->weight <= 0.0f) {
+            return Coverage::kBare;
+        }
     }
     return Coverage::kCloth;
 }
@@ -277,10 +324,17 @@ public:
         // THE GATE. One relaxed load, and the only reason the mod does not play
         // impacts while NPCs walk around: the ragdoll bodies are there and
         // colliding the whole time an actor is animated.
+        //
+        // `GameIntegration:bAnimatedMode` opens it deliberately, and is a second
+        // relaxed load off the same publication rather than a look at the config:
+        // this is a Havok worker thread inside the solver and it may not take a
+        // lock. An actor with no publication at all is still refused, because
+        // there is then nothing that says the gate was ever opened.
         const auto phase = m_pub != nullptr
                                ? static_cast<ActorPhase>(m_pub->phase.load(std::memory_order_relaxed))
                                : ActorPhase::kUnknown;
-        if (phase != ActorPhase::kRagdoll) {
+        if (phase != ActorPhase::kRagdoll &&
+            !(m_pub != nullptr && m_pub->hearAnimated.load(std::memory_order_relaxed))) {
             return;
         }
 
@@ -457,9 +511,21 @@ void GameFeed::Install() {
 
 void GameFeed::SetCullRadius(float units) { m_cullRadius = std::max(1.0f, units); }
 
+void GameFeed::SetGameIntegration(const GameIntegrationConfig& game) {
+    m_animatedMode = game.animatedMode;
+    // The rustle is built out of the pose and the air time is measured from it,
+    // so an animated actor is only worth sampling when one of those two is on.
+    // The slide is not in the list: it opens off graze contacts, and where there
+    // is no pose the motion axis falls back exactly as it does on a take
+    // recorded before the sidecar existed.
+    m_animatedPose = game.animatedMode && (game.animatedRustle || game.animatedAirTime);
+}
+
 void GameFeed::SetBodySampleEveryNTicks(std::int32_t ticks) {
     m_bodySampleEveryNTicks = std::max(0, ticks);
 }
+
+void GameFeed::PushEvent(const FeedEvent& event) { m_ring.Push(event); }
 
 std::uint64_t GameFeed::Dropped() const { return m_ring.Dropped(); }
 
@@ -508,6 +574,11 @@ void GameFeed::BuildProfile(Tracked& tracked, RE::Actor& actor) {
 
     profile.limbs.clear();
     profile.limbs.reserve(tracked.ragdoll.limbs.size());
+    // Once per profile, not once per limb: Algorithm() hands back a copy on
+    // purpose, so that the caller cannot be reading a config that is being
+    // reloaded under it, and eighteen of those per knockdown is a real cost for
+    // two booleans.
+    const ArmorConfig armor = ConfigManager::Get().Algorithm().armor;
     for (const RagdollBody& body : tracked.ragdoll.limbs) {
         LimbInfo limb;
         limb.boneName = body.name;
@@ -515,7 +586,7 @@ void GameFeed::BuildProfile(Tracked& tracked, RE::Actor& actor) {
         // order is the vanilla humanoid skeleton and nothing else.
         limb.site = SiteFromBoneName(body.name);
         limb.chain = ChainFromBoneName(body.name);
-        limb.coverage = CoverageForSite(actor, limb.site);
+        limb.coverage = CoverageForSite(actor, limb.site, armor);
         limb.havokMass = body.mass;
         limb.radius = body.radius;
         limb.bodyId = reinterpret_cast<std::uint64_t>(body.body.get());
@@ -532,6 +603,11 @@ bool GameFeed::ShouldTrack(RE::Actor& actor, float distanceSq) const {
     }
     if (!actor.Is3DLoaded()) {
         return false;
+    }
+    // Animated mode wants everybody inside the radius, on their feet or not -
+    // there is no knockdown to wait for when the knockdown is not the point.
+    if (m_animatedMode) {
+        return true;
     }
     // Knocked covers the lead-in states as well as the ragdoll itself, which is
     // what gets the listeners on in time: attaching only once IsInRagdollState is
@@ -568,6 +644,18 @@ void GameFeed::PublishTick(float frameTimeSec) {
 
     std::lock_guard lock{m_mutex};
 
+    // Refilled from scratch every tick, because a claim is a statement about
+    // this tick and an actor can leave the set by getting up, by walking out of
+    // the radius or by having their 3D taken away. Empty until the commit below.
+    BeginVanillaGate();
+
+    // Both hands, once. HIGGS is asked twice a tick rather than twice per tracked
+    // actor, and it answers 0 for an empty hand, for a grabbed crate, and for
+    // every call at all outside VR - so the comparison below is the same two
+    // integers whatever the runtime is.
+    const std::uint32_t heldLeft = higgs::HeldActorId(true);
+    const std::uint32_t heldRight = higgs::HeldActorId(false);
+
     const Vec3 ears = m_listener.position;
     const auto distanceSqTo = [&ears](const RE::NiPoint3& p) {
         const float dx = p.x - ears.x;
@@ -596,6 +684,9 @@ void GameFeed::PublishTick(float frameTimeSec) {
         tracked->ref = RE::NiPointer<RE::TESObjectREFR>{actor};
         BuildProfile(*tracked, *actor);
         tracked->pub.tracked.store(true, std::memory_order_relaxed);
+        // Before the listeners go on, not on the refresh pass below: the gate has
+        // to be right from the first contact this actor's new listeners see.
+        tracked->pub.hearAnimated.store(m_animatedMode, std::memory_order_relaxed);
 
         for (std::size_t i = 0; i < tracked->ragdoll.limbs.size(); ++i) {
             tracked->listeners.push_back(std::make_unique<LimbListener>(
@@ -632,7 +723,8 @@ void GameFeed::PublishTick(float frameTimeSec) {
             continue;
         }
 
-        const float distSq = distanceSqTo(actor->GetPosition());
+        const RE::NiPoint3 position = actor->GetPosition();
+        const float distSq = distanceSqTo(position);
         if (distSq > m_cullRadius * m_cullRadius) {
             PushState(m_ring, it->first, "actor_gone");
             Detach(tracked);
@@ -650,6 +742,14 @@ void GameFeed::PublishTick(float frameTimeSec) {
         // Phase first: the callback reads this and everything else in the tick is
         // downstream of it being right.
         tracked.pub.phase.store(static_cast<std::uint8_t>(phase), std::memory_order_relaxed);
+        tracked.pub.hearAnimated.store(m_animatedMode, std::memory_order_relaxed);
+
+        // And the same answer to the impact manager, which cannot ask an actor
+        // anything: where we are answering for the sound, vanilla's body impacts
+        // are dropped, and nowhere else.
+        if (ClaimsVanillaImpacts(phase, m_animatedMode)) {
+            AddVanillaGate(position.x, position.y, position.z);
+        }
 
         // The engine opens a knockdown on ragdoll_start and closes it on
         // ragdoll_end or knock_get_up. Without these it would acquire the actor on
@@ -659,6 +759,7 @@ void GameFeed::PublishTick(float frameTimeSec) {
         if (phase != tracked.lastPhase) {
             if (phase == ActorPhase::kRagdoll) {
                 PushState(m_ring, it->first, "ragdoll_start");
+                tracked.held = false;
             } else if (tracked.lastPhase == ActorPhase::kRagdoll) {
                 PushState(m_ring, it->first,
                           phase == ActorPhase::kGetUp ? "knock_get_up" : "ragdoll_end");
@@ -666,10 +767,29 @@ void GameFeed::PublishTick(float frameTimeSec) {
             tracked.lastPhase = phase;
         }
 
+        // Whether the player has this body in their hands, on the same terms as
+        // the phase: game thread only, published on the edge, and through the
+        // ring so it keeps its place in time against the contacts either side of
+        // it. `AccumDamage:bRequireHeld` is the one rule that reads it.
+        //
+        // The `ragdoll_start` above clears `held` rather than leaving it, because
+        // that transition hands the engine a *fresh* runtime for this actor with
+        // the flag cleared - so a body already in the player's hands when it went
+        // limp has to be reported held again or it never would be.
+        const bool held = (heldLeft != 0 && it->first == heldLeft) ||
+                          (heldRight != 0 && it->first == heldRight);
+        if (held != tracked.held) {
+            PushState(m_ring, it->first, held ? "held_start" : "held_stop");
+            tracked.held = held;
+        }
+
         // The pose, on the same terms and for the same reason: game-thread only,
         // and the engine cannot measure a fall without it. Skipped while the
-        // actor is on its feet, so a village of walking NPCs costs nothing.
-        if (m_bodySampleEveryNTicks > 0 && phase != ActorPhase::kAnimated &&
+        // actor is on its feet, so a village of walking NPCs costs nothing -
+        // unless animated mode has something that wants it, which is the price
+        // of a rustle or an air time on a body that never fell over.
+        if (m_bodySampleEveryNTicks > 0 &&
+            (phase != ActorPhase::kAnimated || m_animatedPose) &&
             m_tick % static_cast<std::uint64_t>(m_bodySampleEveryNTicks) == 0) {
             PushLimbSamples(m_ring, tracked.ragdoll, it->first, phase);
         }
@@ -707,7 +827,11 @@ void GameFeed::PublishTick(float frameTimeSec) {
         // Stop listening once they are back on their feet and have stayed there.
         // Not immediately: a tumble can report animated for a tick in the middle,
         // and re-attaching costs the world write lock.
-        if (phase == ActorPhase::kAnimated) {
+        //
+        // Animated mode never lets go on these grounds - being on their feet is
+        // the case it exists to hear - so an actor is untracked there only by
+        // leaving the cull radius or losing their 3D, both handled above.
+        if (phase == ActorPhase::kAnimated && !m_animatedMode) {
             if (++tracked.idleTicks > kIdleTicksBeforeUntrack) {
                 Detach(tracked);
                 spdlog::debug("feed: untracking {:08X}, back on their feet", it->first);
@@ -720,6 +844,8 @@ void GameFeed::PublishTick(float frameTimeSec) {
 
         ++it;
     }
+
+    CommitVanillaGate();
 }
 
 bool GameFeed::Drain(TimeMs untilMs, std::vector<FeedEvent>& out) {
@@ -827,6 +953,9 @@ void GameFeed::Clear() {
         Detach(*tracked);
     }
     m_actors.clear();
+    // Nobody is tracked, so nobody is claiming - and a load screen is exactly
+    // where a stale claim would sit over a spot the player later walks past.
+    ClearVanillaGate();
     // Safe now: every producer has been detached above.
     m_ring.Reset();
     m_scratch.clear();

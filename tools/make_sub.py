@@ -9,6 +9,13 @@ than prompted. The pitch curve comes straight off the measured sweeps in
 with 8-15 dB of tonality (a pitched element, not filtered noise).
 
     python tools/make_sub.py [--out DIR]
+
+--scale renders variant 01's curve at other pitches instead of the two pack variants, so a
+ladder can be auditioned before anything is picked. The whole triple moves together -- start,
+mid and floor -- because it is the sweep that is being transposed, not its shape. Nothing in
+this mode is named imp_sub_NN, so it cannot overwrite the pack:
+
+    python tools/make_sub.py --scale 1.2 1.4 1.6 --rate 48000 --out takes/_sub_ladder
 """
 
 import argparse
@@ -20,16 +27,27 @@ import numpy as np
 
 SR = 48000  # render rate; --rate sets what ffmpeg resamples to, alongside the rest of the pack
 
-# (variant, start Hz, mid Hz, floor Hz, length ms, drive)
+# (variant, start Hz, mid Hz, floor Hz, length ms, drive, punch ms, tail amp, tail ms)
 # 01 is the default boom. 02 starts lower and sweeps slower so it reads bigger; it doubles
 # as headroom for the runtime pitch scaling, which stays within +/-3 semitones.
+#
+# The last three are the amplitude envelope, and they are what decides how long the boom
+# hangs around after the punch: `punch ms` and `tail ms` are each the time that leg takes
+# to fall 20 dB, and `tail amp` is how far under the punch the slow leg starts.
+#
+# 03 and 04 are the short pair, measured against GTA 4 rather than Skate 3. GTA's low band
+# is 40 dB down 55 ms after its peak; 01/02 take 164 ms, because the 0.10/260 ms tail
+# outlives the punch from about 60 ms on and decays at a third of the rate. Same sweep,
+# same drive - only the tail is cut, so they stay the same sound, just without the hang.
 VARIANTS = [
-    (1, 150.0, 42.0, 26.0, 300.0, 4.5),
-    (2, 110.0, 34.0, 22.0, 380.0, 5.0),
+    (1, 150.0, 42.0, 26.0, 300.0, 4.5, 0.040, 0.10, 0.260),
+    (2, 110.0, 34.0, 22.0, 380.0, 5.0, 0.040, 0.10, 0.260),
+    (3, 150.0, 42.0, 26.0, 220.0, 4.5, 0.028, 0.03, 0.070),
+    (4, 110.0, 34.0, 22.0, 260.0, 5.0, 0.028, 0.03, 0.070),
 ]
 
 
-def sweep(start, mid, floor, ms, drive):
+def sweep(start, mid, floor, ms, drive, punch_ms=0.040, tail_amp=0.10, tail_ms=0.260):
     n = int(SR * ms / 1000.0)
     t = np.arange(n) / SR
     dur = ms / 1000.0
@@ -54,8 +72,8 @@ def sweep(start, mid, floor, ms, drive):
     # sounding long after the punch is gone -- without it the sweep smears across the band
     # and measures 4-7 dB of tonality against the references' 8-14.
     atk = int(SR * 0.003)
-    punch = np.exp(-t * (20 / 8.686) / 0.040)
-    tail = 0.10 * np.exp(-t * (20 / 8.686) / 0.260)
+    punch = np.exp(-t * (20 / 8.686) / punch_ms)
+    tail = tail_amp * np.exp(-t * (20 / 8.686) / tail_ms)
     env = punch + tail
     env[:atk] *= np.linspace(0, 1, atk)
     env *= np.cos(np.linspace(0, np.pi / 2, n)) ** 0.5   # settle the tail into silence
@@ -82,14 +100,29 @@ def main():
     ap.add_argument("--rate", type=int, default=44100,
                     help="output sample rate (default 44100; 48000 skips the downsample "
                          "and ships the native render)")
+    ap.add_argument("--only", nargs="+", metavar="NAME",
+                    help="render only these pack variants, e.g. imp_sub_03 imp_sub_04, so "
+                         "regenerating a new one cannot rewrite a shipped file")
+    ap.add_argument("--scale", type=float, nargs="+", metavar="MULT",
+                    help="transpose variant 01's sweep by these multipliers and write those "
+                         "instead of the pack variants, named imp_sub_<start>hz")
     args = ap.parse_args()
     out = args.out or os.path.join(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))), "assets", "sfx")
     os.makedirs(out, exist_ok=True)
 
-    for var, start, mid, floor, ms, drive in VARIANTS:
-        y = sweep(start, mid, floor, ms, drive)
-        final = os.path.join(out, f"imp_sub_{var:02d}.wav")
+    if args.scale:
+        _, b_start, b_mid, b_floor, b_ms, b_drive, b_pu, b_ta, b_tm = VARIANTS[0]
+        jobs = [(f"imp_sub_{round(b_start * m)}hz", b_start * m, b_mid * m, b_floor * m,
+                 b_ms, b_drive, b_pu, b_ta, b_tm) for m in args.scale]
+    else:
+        jobs = [(f"imp_sub_{var:02d}", start, mid, floor, ms, drive, pu, ta, tm)
+                for var, start, mid, floor, ms, drive, pu, ta, tm in VARIANTS
+                if not args.only or f"imp_sub_{var:02d}" in args.only]
+
+    for name, start, mid, floor, ms, drive, pu, ta, tm in jobs:
+        y = sweep(start, mid, floor, ms, drive, pu, ta, tm)
+        final = os.path.join(out, f"{name}.wav")
         tmp = final + ".tmp.wav"
         w = wave.open(tmp, "wb")
         w.setnchannels(1)

@@ -82,7 +82,7 @@ void MixVoice(std::span<const float> source, std::ptrdiff_t startFrame, float ga
 }
 
 bool MixComposite(std::span<const Cue> cues, PcmCache& cache, const MixParams& params,
-                  MixBuffer& out) {
+                  MixBuffer& out, std::optional<TimeMs> timeBaseMs) {
     out.samples.clear();
     out.sampleRate = params.sampleRate;
     out.rawPeak = 0.0f;
@@ -94,18 +94,24 @@ bool MixComposite(std::span<const Cue> cues, PcmCache& cache, const MixParams& p
         return false;
     }
 
-    // Frame zero is the earliest cue. Everything downstream - the blob, the
+    // Frame zero is the earliest cue, unless the caller named the instant - see
+    // the header for why the game does. Everything downstream - the blob, the
     // handle, the start time we schedule against - is relative to this instant.
     TimeMs earliest = cues.front().timeMs;
     for (const Cue& cue : cues) {
         earliest = std::min(earliest, cue.timeMs);
     }
+    // Never later than the earliest cue: a base past a cue would place it at a
+    // negative frame, and MixVoice would swallow it rather than say so.
+    if (timeBaseMs) {
+        earliest = std::min(earliest, *timeBaseMs);
+    }
     out.startMs = earliest;
 
     // How long the buffer has to be: the latest layer's offset plus its own
     // length, capped. Measured from the sources rather than the slot briefs,
-    // because a stand-in and the wav that replaces it are not the same length and
-    // a buffer sized from the brief truncates whichever is longer.
+    // because a recording is only ever roughly the length its brief asked for
+    // and a buffer sized from the brief truncates whichever ran long.
     double neededMs = 0.0;
     float loudest = -1000.0f;
     for (const Cue& cue : cues) {

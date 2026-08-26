@@ -60,6 +60,20 @@ SPEC = {
                           peaks_lomid=(0, 6), tilt_max=-6, hf_loss=8, peak_dbfs=-1.5),
     "imp_body":      dict(len=(150, 250), hpf=120, decay20=(15, 200), centroid=(800, 4200),
                           peaks_lomid=(0, 5), tilt=4, peak_dbfs=-1.5),
+    # Declared with the slot rather than after it, so limb takes are never graded
+    # against the torso's numbers -- which is exactly what happened to scrape_limb
+    # (see its note below) and is the reason this row exists before a single file
+    # does. Shorter and higher than imp_body, and the tilt is the load-bearing
+    # difference: imp_body wants tilt >= +4 because a torso is bass-led, so this
+    # takes the same number as a *ceiling*. A take that passes imp_body's bass
+    # test is a torso take, whatever it was recorded for.
+    #
+    # UNMEASURED. Every other row here was calibrated against Example/*.wav or
+    # against real takes; this one is read off the brief in Slots.md and the
+    # manifest's own length, and should be re-derived from the first three real
+    # recordings rather than trusted.
+    "imp_body_limb": dict(len=(120, 200), hpf=120, decay20=(10, 160), centroid=(1200, 5200),
+                          peaks_lomid=(0, 5), tilt_max=4, peak_dbfs=-1.5),
     "imp_sub":       dict(len=(250, 400), hpf=0, decay20=(15, 120), centroid=(20, 400),
                           peak_dbfs=-1.0),
     "surf_wood":     dict(len=(120, 200), hpf=120, decay20=(20, 160), centroid=(400, 3000),
@@ -68,6 +82,18 @@ SPEC = {
                           tilt_max=-2, peak_dbfs=-1.5),
     "surf_soft":     dict(len=(150, 250), hpf=120, decay20=(15, 200), centroid=(300, 3200),
                           tilt=3, peak_dbfs=-1.5),
+    # The armour skins. No reference measurement behind these yet - the bands are
+    # the manifest's lengths and the character line's intent - so `eval` judges a
+    # new armour file against a brief rather than against a reference, and the
+    # numbers should be revisited the first time one of these is recorded.
+    "armor_bare":    dict(len=(80, 200), hpf=120, decay20=(10, 150), centroid=(300, 3000),
+                          peak_dbfs=-1.5),
+    "armor_cloth":   dict(len=(100, 250), hpf=120, decay20=(15, 200), centroid=(300, 4000),
+                          peak_dbfs=-1.5),
+    "armor_light":   dict(len=(100, 250), hpf=150, decay20=(15, 250), centroid=(800, 6000),
+                          peak_dbfs=-1.5),
+    "armor_heavy":   dict(len=(120, 300), hpf=150, decay20=(20, 300), centroid=(1200, 8000),
+                          tilt=-2, peak_dbfs=-1.5),
     "limb_tap":      dict(len=(40, 100), hpf=200, decay20=(3, 60), centroid=(600, 9000),
                           peaks_lomid=(0, 4), peak_dbfs=-1.5),
     "scrape_grain":  dict(len=(150, 500), hpf=120, decay20=(40, 400), centroid=(300, 6000),
@@ -89,10 +115,40 @@ SPEC = {
     # count of 65/s, which used a different threshold than count_peaks here.
     "scrape_loop":   dict(len=(1500, 3000), hpf=0, loop=True, tilt=5, tilt_max=19,
                           grains=(8, 40), steady=(2.5, 8.0), peak_dbfs=-1.5),
-    "foley_cloth":   dict(len=(1500, 3000), hpf=120, loop=True, steady=(0.5, 5.0),
-                          max_transient=6, peak_dbfs=-1.5),
-    "air_whoosh":    dict(len=(1000, 2000), hpf=0, loop=True, centroid=(50, 2000),
-                          steady=(0.5, 6.0), peak_dbfs=-1.5),
+    # Slots.md section 3, Loops. scrape_limb is NOT scrape_loop turned down: a small
+    # contact patch, so the low shelf comes off (tilt ceiling, no floor) and the grit
+    # rate roughly doubles. It was declared in SlotManifest.cpp and Slots.md but had no
+    # SPEC entry, so every limb-drag take could only be graded against scrape_loop --
+    # whose +5 tilt floor and 8-40 grain band a limb scrape is designed to fail.
+    "scrape_limb":   dict(len=(1500, 3000), hpf=0, loop=True, tilt_max=8,
+                          grains=(25, 120), steady=(2.0, 8.0), peak_dbfs=-1.5),
+    # The surface variants take their base slot's numbers unchanged; only the colour
+    # differs, and each declares its base as a fallback in SlotManifest.cpp.
+    "scrape_body_wood":  dict(len=(1500, 3000), hpf=0, loop=True, tilt=5, tilt_max=19,
+                              grains=(8, 40), steady=(2.5, 8.0), peak_dbfs=-1.5),
+    "scrape_body_stone": dict(len=(1500, 3000), hpf=0, loop=True, tilt=5, tilt_max=19,
+                              grains=(8, 40), steady=(2.5, 8.0), peak_dbfs=-1.5),
+    "scrape_limb_wood":  dict(len=(1500, 3000), hpf=0, loop=True, tilt_max=8,
+                              grains=(25, 120), steady=(2.0, 8.0), peak_dbfs=-1.5),
+    "scrape_limb_stone": dict(len=(1500, 3000), hpf=0, loop=True, tilt_max=8,
+                              grains=(25, 120), steady=(2.0, 8.0), peak_dbfs=-1.5),
+    # The bed, and the one loop here graded against the *opposite* of the grinds' tilt
+    # window. A grind is asked to have a low shelf at all (+5 to +19, "not a hiss"); this
+    # is asked to have almost nothing else, which is only coherent because it never plays
+    # alone -- it is one voice under a grind that supplies the mid and the top, and the
+    # pair is what should land on GTA 4's +10 to +21.
+    #
+    # No `grains`. Counting grit peaks in the layer whose entire definition is having none
+    # would fail every correct file, and the density it would be measuring belongs to the
+    # grind. `steady` is air_whoosh's band rather than a grind's, for the same reason the
+    # whoosh has it: a bump in a featureless loop becomes a pulse the moment it repeats,
+    # and there is no grit here to hide one under.
+    #
+    # Longer than 3 s is allowed, unlike every other loop, because the bed rides on its own
+    # voice under the grinds and a length that shares a period with theirs stacks the two
+    # seams -- see the note on VARIANTS in tools/make_rumble.py.
+    "scrape_loop_rumble": dict(len=(1500, 4000), hpf=0, loop=True, tilt=20,
+                               centroid=(20, 1200), steady=(0.5, 6.0), peak_dbfs=-1.5),
 }
 
 # First 20 characters of each prompt in 02-SFX-Generation-Prompts.md, which is what the
@@ -118,7 +174,7 @@ PROMPT_HEADS = {
     "a heavy wet slap of ": "gore_wet", "a wet thick squelch ": "gore_wet",
     "hard flat impact aga": "surf_stone", "hard flat impact of ": "surf_stone",
     "quick impact crushin": "crunch_gran",
-    "a steady soft rustle": "foley_cloth", "a heavy object glide": "scrape_loop",
+    "a heavy object glide": "scrape_loop",
     "a dull heavy thump a": "imp_body",
     # 17:19-17:30 arrivals
     "single hard knuckle ": "imp_transient",
@@ -140,7 +196,7 @@ PROMPT_HEADS = {
     "bone crack impact co": "imp_body",
     "heavy body dragged s": "scrape_loop", "body dragged slowly": "scrape_loop",
     "heavy limp body drag": "scrape_loop",
-    "human body dragged s": "scrape_loop", "continuous soft rust": "foley_cloth",
+    "human body dragged s": "scrape_loop",
     "low soft air movemen": "air_whoosh",
     "heavy melon wrapped": "head_impact", "hard blunt blow to a": "head_impact",
     "heavy limp body sett": "settle_rest", "loose fabric and a h": "settle_rest",
@@ -154,9 +210,11 @@ PROMPT_HEADS = {
 def infer_slot(path):
     """Slot from a `<slot>_NN.wav` name, else from the generator's prompt-prefix name."""
     stem = os.path.splitext(os.path.basename(path))[0]
-    for slot in SPEC:
-        if stem.startswith(slot):
-            return slot
+    # Longest match wins: scrape_limb is a prefix of scrape_limb_wood/_stone, so a
+    # first-match scan files every surface variant under the base slot.
+    hit = max((s for s in SPEC if stem.startswith(s)), key=len, default=None)
+    if hit:
+        return hit
     key = re.sub(r"[^a-z0-9]+", " ", stem.lower()).strip()[:20].rstrip()
     for head, slot in PROMPT_HEADS.items():
         if key.startswith(head[:len(key)]) or head.startswith(key[:len(head)]):

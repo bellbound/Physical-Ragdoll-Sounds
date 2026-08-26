@@ -37,14 +37,26 @@ namespace rds {
 
 /// Something measured at import that the file may want fixing for.
 ///
-/// Never fatal. The design's own delivery rules (Slots.md §5) are what these
-/// check, and a file that breaks one is still worth hearing - a body layer with
-/// 40 ms of lead-in is a timing bug, not a silence. `blocking` marks the one
-/// class that is: a file the decoder could not read at all.
+/// Mostly not fatal. The design's own delivery rules (Slots.md §5) are what
+/// these check, and a file that breaks one is still worth hearing - a body layer
+/// with 40 ms of lead-in is a timing bug, not a silence. Two flags mark the
+/// exceptions, and they are different in kind:
+///
+///   `blocking`  the decoder could not read it. There is no sound here at all.
+///   `dead`      it plays, and nothing anyone can do makes it usable: the
+///               samples are already flat-topped, the hiss is 29 dB under the
+///               hero, the two channels are different takes. Slots.md's own
+///               language for this is "the take is dead" - the answer is to
+///               re-source or regenerate, never to process.
+///
+/// Everything else is advisory, and everything the import pass can fix is fixed
+/// on the way in rather than reported - so a warning that is here at all is one
+/// that survived the repair.
 struct SfxWarning {
     std::string code;    ///< short badge text, e.g. "lead-in"
     std::string detail;  ///< the whole sentence, shown on hover
     bool blocking{};     ///< true only when the file cannot be played at all
+    bool dead{};         ///< true when it plays but cannot be made right
 };
 
 /// One file in the library, plus everything known about it.
@@ -81,6 +93,40 @@ struct SfxEntry {
     /// slot and the browser sorts them to the bottom of the list.
     bool disabled{};
 
+    // ── the corrections. Yours, like `name` and `disabled` ───────────────────
+    //
+    // A correction to *the recording*, which is why it lives here and not on the
+    // assignment. `RagdollSounds_SFX.ini`'s own header draws that line already:
+    // a mute "is about the sound, not about one entry in the list", while a
+    // condition "is about one entry in `Sfx`, not about the sound". A scrape
+    // loop pitched too low is wrong wherever it is used, so it is corrected once
+    // - exactly like `disabled`, which suspends a sound everywhere at once.
+    //
+    // If two slots genuinely want one file at two levels, that is a decision
+    // about the slots and `SlotGain:f<Slot>` is the control for it.
+    //
+    // Both are identities at their defaults, so a library that has never been
+    // touched sounds exactly as it did.
+
+    /// Playback rate, x. 1 is the file as recorded; 1.09 is it a semitone and a
+    /// half up. Multiplies the pitch the engine already chose - the per-cue
+    /// scatter, the intensity bias and the armour bias - rather than replacing
+    /// it, so a correction and a variation stay separate things.
+    ///
+    /// **This changes a one-shot's length**, because pitch here is resampling
+    /// and not a formant shift. `EffectiveDurationMs()` is the number to check a
+    /// length spec against; `durationMs` stays what the container says.
+    float pitch{1.0f};
+
+    /// Level, dB. Applied at Stage 5 with the other trims.
+    ///
+    /// It cannot change what was chosen, and that is structural rather than a
+    /// promise: the bank does not resolve a layer to a *file* until `Emit`, long
+    /// after Stage 4 has sorted, rate-capped and burst-shaped. There is no path
+    /// by which this number could reach `Proposal::levelDb`. See `config.md` -
+    /// "this wav is hot" is that file's own example of a Trim.
+    float trimDb{};
+
     // ── what the container says ──────────────────────────────────────────────
     int sampleRate{};
     int channels{};
@@ -104,6 +150,54 @@ struct SfxEntry {
     float steadyDb{};     ///< envelope spread over the live part
     float grainsPerSec{};  ///< peak rate, for the scrape
 
+    // ── the technical rule-outs. All measured the way tools/sfx.py and
+    //    tools/triage_batch.py measure them, because their thresholds are what
+    //    03-Asset-Status.md §7 ruled four cuts out on ────────────────────────
+
+    /// Peak minus the quietest 50 ms in front of the attack, in dB. `sfx.py`'s
+    /// `snr`, and its 30 dB gate is what dropped `twisting…gristle_variation2`.
+    /// 99 when there is no pre-roll long enough to measure it in, which is not
+    /// the same as clean and is why the sentinel is high rather than 0.
+    float noiseFloorDb{99.0f};
+
+    /// Percentage of samples sitting inside a full-scale flat top.
+    ///
+    /// The one level fault the import pass cannot repair. Gain moves a peak; it
+    /// does not put back the tops of waves that were squared off before the file
+    /// was written, and the odd-harmonic buzz that leaves is what "clipped"
+    /// should have always meant here. Nothing is a peak over -0.2 dBFS any more:
+    /// that is a headroom question and headroom is normalised on the way in.
+    float clipPct{};
+    /// How many separate flat tops. The discriminator, not the percentage: a
+    /// decaying sub sweep touches its own maximum once and a clipped impact
+    /// touches it on every crest for as long as it is loud.
+    int clipRuns{};
+
+    /// Contacts at least 46 ms apart and within 32 dB of the loudest - the
+    /// reference rate floor from 04-Reference-Analysis.md §2, which is where two
+    /// impacts stop resolving as two. More than one is not a fault: it is what
+    /// `sfx.py split` exists for, and all four shipped `limb_tap` files came out
+    /// of it.
+    int contacts{};
+
+    /// The loudest thing after the hero contact, relative to it, and when.
+    ///
+    /// 03-Asset-Status.md §7: 39 takes in 100 carry one of these, 21-34 dB down
+    /// and usually a bright debris wash. Left in, it lands on top of whatever
+    /// the engine schedules next and reads as a flam. 0 for neither.
+    float satelliteDb{};
+    float satelliteAtMs{};
+
+    /// Energy above 16 kHz against the 2.5-8 kHz band, in dB. Far down means the
+    /// file was upsampled or heavily lossy whatever its container claims - the
+    /// one thing a 48 kHz conversion cannot put back.
+    float topOctaveDb{};
+
+    /// FNV-1a over the decoded samples. Two library files with the same hash are
+    /// the same sound under two names, which 03-Asset-Status.md §7 hit twice in
+    /// one batch of 102.
+    std::uint64_t contentHash{};
+
     /// True when this measures as a sustained texture rather than an event:
     /// steady envelope, matched seam, no single dominant transient. A looping
     /// slot plays these whole and repeats them, so they are judged as loops and
@@ -116,8 +210,26 @@ struct SfxEntry {
     std::vector<SlotId> suggested;
 
     [[nodiscard]] bool Blocked() const;
+    /// Carries a warning nothing can repair. Still assignable - the library
+    /// never refuses - but the honest answer to one of these is another file.
+    [[nodiscard]] bool Dead() const;
     /// The stem, which is what a fresh import names it.
     [[nodiscard]] std::string Stem() const;
+
+    /// How long this file actually plays for, `pitch` included.
+    ///
+    /// The number a length spec has to be checked against. `durationMs` is what
+    /// the container says and stays that way; pitch here is resampling, so a
+    /// one-shot corrected to 1.09x is 8 % shorter than the wav on disk - and a
+    /// spec, a slot's min/max, or `03-Asset-Status.md`'s tables read against the
+    /// container length would all be grading a file that is not what plays.
+    [[nodiscard]] float EffectiveDurationMs() const {
+        return pitch > 0.0f ? durationMs / pitch : durationMs;
+    }
+
+    /// True when either correction is doing anything. The ordinary case is
+    /// neither, and both are identities there.
+    [[nodiscard]] bool Corrected() const { return pitch != 1.0f || trimDb != 0.0f; }
 };
 
 /// `2026-08-23 19:41` in local time, for an `importedAt`. Empty for 0, which is
@@ -184,9 +296,20 @@ private:
 };
 
 /// What one slot plays.
+///
+/// A row of `files` is a *placement*, not a sound: the same wav may sit on the
+/// slot twice - once plain, once tagged for one kind of contact - and the two
+/// are different entries with different conditions. That is what "this is
+/// slot-based, not sound-effect-based" means, and it is why everything about a
+/// condition below is addressed by position and never by filename.
 struct SlotAssignment {
     /// Library filenames, in order. The order is the variant index a cue
     /// carries, so re-ordering this changes which file a given cue plays.
+    ///
+    /// A name may appear more than once. Two placements of one file are two
+    /// candidates the picker treats separately, which is what lets one
+    /// recording be both a plain member of the set and the one tagged for
+    /// plate.
     std::vector<std::string> files;
 
     /// Files that are on this slot and must never be picked, by filename.
@@ -201,10 +324,73 @@ struct SlotAssignment {
     /// sound *everywhere* and drops it out of the slot's variant list
     /// altogether: this one is a decision about this slot.
     ///
+    /// By name, so a file placed twice on one slot is muted in both places at
+    /// once: a mute says "not this sound, here", and the two placements are the
+    /// same sound. Unlike a condition, which is about what a *position* on the
+    /// slot is for, there is nothing a per-placement mute could express that
+    /// taking the placement off the slot does not already say.
+    ///
     /// Saved, and read by the game. A slot with every file muted goes silent
-    /// rather than falling back to a procedural stand-in - muting something is
-    /// not a request to synthesise a replacement for it.
+    /// rather than falling back to what it would play with no files at all -
+    /// muting something is not a request to find a replacement for it.
     std::vector<std::string> muted;
+
+    /// What each placement asks of the contact before it is a candidate,
+    /// parallel to `files` and one entry per row of it.
+    ///
+    /// By position and never by filename. A filename is not an identity here:
+    /// the same wav may be on the slot twice, and a condition keyed on the name
+    /// would land on both copies - which is one recording claiming to be both
+    /// the plain option and the plate-only one, and shows up in the panel as
+    /// the same file listed twice under the same heading. The runtime has
+    /// always been positional (`SoundBank::SlotFiles::conditions`); this is the
+    /// same list.
+    ///
+    /// Short - or empty, which is the shipping case - means the rest are
+    /// unconditional, so a pack from before conditions existed loads and
+    /// behaves the same. A condition is a *preference*: if nothing satisfies it
+    /// the slot plays its full set rather than going silent. Silencing a file is
+    /// `muted`, which is stored separately precisely so the two cannot be
+    /// confused.
+    std::vector<VariantCondition> conditions;
+
+    /// The condition on the placement at `index`, unconditional when it has
+    /// none and when `index` is past the end.
+    [[nodiscard]] VariantCondition ConditionAt(std::size_t index) const;
+
+    /// Tag the placement at `index`, or clear its tag when `condition` asks
+    /// nothing. Out of range does nothing.
+    void SetConditionAt(std::size_t index, VariantCondition condition);
+
+    /// Put `file` on the slot as a new placement, tagged or not. The only way
+    /// files grow, so `conditions` cannot fall out of step with it.
+    void Add(std::string file, VariantCondition condition = {});
+
+    /// Change which file the placement at `index` plays.
+    ///
+    /// The condition stays: a tag is what this position on the slot is *for* -
+    /// "the stone one" - and changing which recording serves it does not change
+    /// the job. The mute does not: it went with the sound that was here.
+    void ReplaceAt(std::size_t index, std::string file);
+
+    /// Take the placement at `index` off the slot, with its condition, and drop
+    /// the mute when that was the last placement of the file.
+    void RemoveAt(std::size_t index);
+
+    /// One condition per placement, trimming or padding as needed. Called after
+    /// anything that sets `files` wholesale, which is the parsers.
+    void NormalizeConditions();
+
+    /// How a written file names the placement at `index`: the filename, or
+    /// `file.wav#2` when the slot places that name more than once. The suffix
+    /// is 1-based and only ever appears where it has to, so a slot without
+    /// duplicates writes exactly what it always wrote.
+    [[nodiscard]] std::string PlacementTag(std::size_t index) const;
+
+    /// The placement such a tag names, or -1 when nothing on the slot matches.
+    /// A bare name means the first placement of it, which is how a file written
+    /// before duplicates were expressible still reads correctly.
+    [[nodiscard]] int PlacementOf(std::string_view tag) const;
 
     /// Whether this slot's sound is a sustained texture the engine repeats.
     ///

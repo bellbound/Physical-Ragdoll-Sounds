@@ -6,7 +6,8 @@ AudioGen, ElevenLabs-style APIs). Nothing here asks the model to imitate Skate 3
 prompts describe the *shape* the analysis measured.
 
 **Read section 1 before generating anything.** The prompts alone will not produce shippable files;
-the post-pass is half the work, and two slots should not be prompted at all.
+the post-pass is half the work, and **three** slots should not be prompted at all - `imp_sub`,
+`scrape_loop_rumble` (`tools/make_rumble.py`) and the two voice slots, which want a person.
 
 ---
 
@@ -19,7 +20,12 @@ at **precise envelopes, sub-bass, and length under ~300 ms**. So:
 
 - Prompt for the *material and gesture*, then cut the envelope yourself in the editor.
 - Never trust the model to give you the bottom octave. Every impact file gets its sub from
-  `imp_sub`, which is **synthesised, not prompted** (see §4).
+  `imp_sub`, which is **synthesised, not prompted** (see §4). The same goes for the slide's
+  `scrape_loop_rumble` bed, and for the same reason twice over: a model will not give a clean
+  bottom octave, and asked for "low rumble" it returns a *designed* sound with an arc and a
+  climax in it. A bed must have neither - it loops, so any shape in it becomes a pulse.
+  `tools/make_rumble.py` builds it in the frequency domain, which also makes the loop seamless
+  by construction rather than by editing.
 - Most APIs have a minimum duration around 0.5–1 s. Generate long, keep the first 60–400 ms.
 
 ### Fixed output format
@@ -259,16 +265,56 @@ check the band balance actually tilts downward. Target ~65 grain peaks per secon
 smooth rather than granular, layer a second take at −6 dB with a slight pitch offset. Sits 15–25 dB
 under the impacts.
 
-### `foley_cloth` ×1 — 1.5–3 s, no transients
+### `scrape_limb` ×1 — 1.5–3 s
+
+**One limb dragging, not a small body.** This is the other half of the two-loop split and the
+easiest one to get wrong by treating it as `scrape_loop` turned down: a quiet rumble is a quiet
+*body*, and what a trailing foot makes is not a small version of that. It is a small **contact
+patch** — almost no low shelf, and grit that catches roughly twice as often per second because
+there is so much less surface smoothing it out.
 
 ```
-continuous soft rustle of heavy woollen cloak fabric moving, steady gentle friction, no
-impacts, no footsteps, close mic, dry studio foley, no reverb
+one boot toe dragged slowly across rough stone flags, light dry scraping friction, small
+contact patch, frequent fine grit catching and releasing, thin and dry, no low rumble, no
+hiss, steady continuous, close mic, dry studio foley, no reverb
 ```
 
-*Post:* this is part of the continuous bed, which the analysis puts **30–36 dB under the hero
-hit**. Remove any peak that stands more than 6 dB above the bed — a transient here will poke
-through the mix at the moment everything else is quiet.
+Generate 8–10 s so there is a stable window to cut from.
+
+*Post:* trim to a seamless 2 s. **High-pass 180 Hz** — the weight belongs to `scrape_loop` and
+having it here twice is what makes a dragging foot sound like a dragging corpse. Target 25–120
+grain peaks per second. It should sit well under the body grind: a single foot only just audible at
+conversational distance, closer to the cloth bed than to the slide.
+
+### `scrape_grain` ×3 — 150–500 ms
+
+**One catch.** The moment a limb snags on something mid-slide and lets go again. A slide's whole
+character is its irregularity, and the loop has none — this is the coarse half of the sixty-five
+grit peaks a second the references measured.
+
+It has to sound like the slide it interrupted rather than like a small separate impact, so it is
+built from the same grit rather than from a tap: bite, then a rough tail that decays back into the
+grind still playing underneath. Generate them **neutral** — the engine pitch-scatters them.
+
+```
+a single short snag of a heavy weight dragging over rough stone, one catch and release, coarse
+grit tearing then dying away, dry and rough, no impact, no thud, one event only, close mic,
+dry studio foley, no reverb
+```
+
+*Post:* no fade-in — the bite is the first sample. 6–40 low-mid transients, centroid
+300–6000 Hz.
+
+### The surface variants — `scrape_body_wood`, `scrape_body_stone`, `scrape_limb_wood`, `scrape_limb_stone`
+
+Same brief as their base slot with the floor swapped: **boards** hollower and more resonant,
+**flagstone** harder and grittier. Take the base prompt and replace `rough stone slabs` /
+`rough stone flags` with `dry wooden floorboards` or `smooth worked flagstone`, and keep everything
+after the surface identical so the two are comparable.
+
+These are the cheapest files in the pack to skip. Each one declares the base loop as its fallback,
+so an unrecorded surface plays the default grind — the mod is never silent for want of one, and
+adding one later is a file drop with no code change and no ini edit.
 
 ### `air_whoosh` ×1 — 1–2 s, low airy movement
 
@@ -389,7 +435,8 @@ preserves it needs no new table entry and no `--slot` flag.
 | 2 | `imp_body` ×3 | The mass |
 | 3 | `imp_transient` ×3 | The contact |
 | 4 | `limb_tap` ×3 | Turns single hits into bursts |
-| 5 | `scrape_loop`, `foley_cloth` | The bed and the slide |
+| 5 | `scrape_loop` | The slide |
+| 6 | `scrape_limb`, `scrape_grain` | What stops the slide sounding like a noise generator |
 
 Then the remaining 16 fill in, and slot fallback means a missing one is a quieter mod, not a broken
 one.
@@ -415,6 +462,7 @@ Before a file goes in the pack, it passes all of these. Each maps to a measureme
 - [ ] Loops seamless over four consecutive passes
 - [ ] `crunch_gran` shows 15+ distinct transients in 250–800 Hz
 - [ ] `scrape_loop` band balance tilts **downward**, sub above air
+- [ ] `scrape_limb` does **not** — it is high-passed at 180 Hz and carries no weight of its own
 - [ ] Bright slots tilt **upward** after their high-pass — centroid alone will not catch a
       bass-led take, so check tilt and how much level the file loses to the high-pass
 - [ ] The three composite layers, played at 0 / +20 / +65 ms, read as **one** sound and not as three

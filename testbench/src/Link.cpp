@@ -153,11 +153,17 @@ void GameLink::PushAudioMode(bool useVanillaAudio) {
 void GameLink::BeginCapture() {
     {
         std::lock_guard lock{m_mutex};
-        m_capture = LiveCapture{};
-        m_capturedContacts = 0;
         // Whatever profiles the session already sent, carried into the take:
         // the game sends one per actor per attach, and an actor tracked before
-        // the record button was pressed would otherwise have none.
+        // the record button was pressed would otherwise have none. Moved out
+        // before the reset and put back after it, because a plain
+        // `m_capture = LiveCapture{}` is what threw them away - and a take with
+        // no profile is a take with no actor name and no limb table, every limb
+        // cell in the impacts view reading "?".
+        auto profiles = std::move(m_capture.profiles);
+        m_capture = LiveCapture{};
+        m_capture.profiles = std::move(profiles);
+        m_capturedContacts = 0;
         m_capture.startMs = m_snapshot.lastEventMs;
     }
     m_capturing.store(true, std::memory_order_relaxed);
@@ -168,6 +174,10 @@ LiveCapture GameLink::EndCapture() {
     std::lock_guard lock{m_mutex};
     LiveCapture out = std::move(m_capture);
     m_capture = LiveCapture{};
+    // The take keeps its own copy and the session keeps the originals: those
+    // actors are still attached, and the next take needs their limb tables just
+    // as much as this one did.
+    m_capture.profiles = out.profiles;
     m_capturedContacts = 0;
     return out;
 }
@@ -175,7 +185,9 @@ LiveCapture GameLink::EndCapture() {
 void GameLink::CancelCapture() {
     m_capturing.store(false, std::memory_order_relaxed);
     std::lock_guard lock{m_mutex};
+    auto profiles = std::move(m_capture.profiles);
     m_capture = LiveCapture{};
+    m_capture.profiles = std::move(profiles);
     m_capturedContacts = 0;
 }
 

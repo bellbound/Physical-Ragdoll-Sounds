@@ -5,6 +5,7 @@
 #include <fstream>
 #include <format>
 
+#include "App.h"
 #include "Mixer.h"
 #include "Video.h"
 
@@ -87,8 +88,8 @@ std::string CueFile(const rds::SoundBank* bank, const rds::Cue& cue) {
     if (bank == nullptr || !bank->Get(cue.slot, cue.variant, resolved)) {
         return "-";
     }
-    if (resolved.procedural || resolved.path.empty()) {
-        return "(procedural)";
+    if (resolved.path.empty()) {
+        return "(no recording)";
     }
     return std::filesystem::path(resolved.path).stem().string();
 }
@@ -217,7 +218,9 @@ std::filesystem::path WriteExport(const ExportRequest& r, const std::filesystem:
     // what gets read: ninety keys at their defaults say nothing, and the six
     // that moved are the answer to "what is this take being heard through".
     out << "\nCONFIG - values differing from default\n";
-    const auto deltas = rds::Deltas(r.config, rds::AlgorithmParams());
+    // Opened surfaces only: a closed class holds its parent's values, so
+    // listing it would report one edit to stone as four changes.
+    const auto deltas = rds::Deltas(r.config, App::AlgorithmAndOpenedSurfaces(*r.config));
     if (deltas.empty()) {
         out << "  (all defaults)\n";
     } else {
@@ -234,11 +237,18 @@ std::filesystem::path WriteExport(const ExportRequest& r, const std::filesystem:
             rds::ResolvedSound s{};
             const bool any = r.bank->Get(slot.id, 0, s);
             if (!any) {
-                out << std::format("  {:<14} declared and unfilled\n", slot.name);
+                // Either declared and unfilled by design, or unrecorded and
+                // silent. `HasSound` is what tells the two apart, because it
+                // walks the fallback the way the engine does.
+                out << std::format("  {:<14} {}\n", slot.name,
+                                   r.bank->HasSound(slot.id)
+                                       ? std::format("0/{} files, plays {}", slot.expectedVariants,
+                                                     rds::ToString(r.bank->PlaysAs(slot.id)))
+                                       : std::format("0/{} files, nothing to play",
+                                                     slot.expectedVariants));
             } else {
-                out << std::format("  {:<14} {}/{} files, {}, {:.0f} ms\n", slot.name, n,
-                                   slot.expectedVariants, s.procedural ? "procedural" : "wav",
-                                   s.lengthMs);
+                out << std::format("  {:<14} {}/{} files, wav, {:.0f} ms\n", slot.name, n,
+                                   slot.expectedVariants, s.lengthMs);
             }
         }
     }
@@ -253,13 +263,12 @@ std::filesystem::path WriteExport(const ExportRequest& r, const std::filesystem:
     out << std::format("    rejected blow-up     {}\n", s.rejectedBlowup);
     out << std::format("    mirrored self-hit    {}\n", s.droppedMirror);
     out << std::format("    manifold collapsed   {}\n", s.collapsedManifold);
-    out << std::format("    routed to foley bed  {}\n", s.routedToFoley);
+    out << std::format("    self-contacts dropped {}\n", s.droppedSelfContact);
     out << std::format("  proposed cues         {}\n", s.proposedCues);
     out << std::format("    dropped rate cap     {}\n", s.droppedRateCap);
     out << std::format("    dropped chain merge  {}\n", s.droppedChainMerge);
     out << std::format("    dropped masking      {}\n", s.droppedMasking);
     out << std::format("    dropped burst cap    {}\n", s.droppedBurstCap);
-    out << std::format("    dropped voice cap    {}\n", s.droppedVoiceCap);
     out << std::format("    muted by layer       {}\n", s.mutedCues);
     out << std::format("    compressed by class  {}\n", s.compressedCues);
     out << std::format("  hero moments          {} (+{} re-anchored)\n", s.heroes,
@@ -267,18 +276,13 @@ std::filesystem::path WriteExport(const ExportRequest& r, const std::filesystem:
     // What the head's floor relief bought. Zero with the option switched on says the
     // threshold is out of reach, which the hero count on its own cannot tell you.
     out << std::format("    on head relief       {}\n", s.heroHeadRelief);
-    out << std::format("    settle in flight     {}\n", s.settleInFlight);
     // Flights something was pushing. Not a fault on its own - a leashed actor
     // hauled off a balcony is a legitimate thing to happen - but if this is
     // non-zero and the landing after it sounded thin, this is the first line to
     // read.
     out << std::format("    driven flights       {}\n", s.drivenFlights);
-    // Slides found, and how many of them were interrupted rather than ending in
-    // friction or in flight. A take with slides and no slide impacts is a take
-    // where the body always ran out of speed on its own; the difference is the
-    // collision the contact stream never reported.
+    // Slides the entry test found at all.
     out << std::format("  slides                {}\n", s.slides);
-    out << std::format("    ended on an impact   {}\n", s.slideImpacts);
     out << std::format("  emitted               {} in {} bursts\n", s.emittedCues, s.bursts);
     out << std::format("  first cue             {:.0f} ms\n", s.firstCueMs);
     out << std::format("  last cue              {:.0f} ms\n", s.lastCueMs);
@@ -393,7 +397,8 @@ std::filesystem::path WriteExport(const ExportRequest& r, const std::filesystem:
                "  export is a report of. Every key carries what it changes perceptually.\n";
         out << "\n"
                "; ----------------------------------------------------------------------------\n";
-        out << rds::ConfigManager::ToIniText(r.config, rds::AlgorithmParams(),
+        out << rds::ConfigManager::ToIniText(r.config,
+                                             App::AlgorithmAndOpenedSurfaces(*r.config),
                                              "RagdollSounds_Algorithm.ini - the sound engine");
         out << "; ----------------------------------------------------------------------------\n";
     }

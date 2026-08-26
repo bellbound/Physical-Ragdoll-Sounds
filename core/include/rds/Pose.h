@@ -32,7 +32,15 @@
 namespace rds::pose {
 
 inline constexpr char kMagic[8] = {'R', 'D', 'S', 'P', 'O', 'S', 'E', '1'};
-inline constexpr std::uint32_t kVersion = 1;
+/// What this build writes. v2 appends `LimbRecordExt` to each limb; v1 files are
+/// still read, with those fields left at zero.
+///
+/// The magic keeps its trailing '1' deliberately: it identifies the *format
+/// family*, not the version, and changing it would make every existing sidecar
+/// unrecognisable rather than merely older. `Header::version` is what says which
+/// one this is, and `Header::limbStride` is what makes reading either safe.
+inline constexpr std::uint32_t kVersion = 2;
+inline constexpr std::uint32_t kVersionMin = 1;
 
 /// Little-endian, MSVC x64 - the same assumption Link.h already makes about the
 /// wire. Field order is chosen so every struct is padding-free; the asserts
@@ -70,11 +78,33 @@ struct LimbRecord {
     float vel[3]{};
 };
 
+/// What v2 added, written immediately after each `LimbRecord`.
+///
+/// A trailing extension rather than two more fields inside `LimbRecord`, and
+/// that is the whole reason both versions can be read by one build: `limbStride`
+/// is read from the header and any bytes past what the reader understands are
+/// skipped, so a v1 file - every take recorded so far - loads with these two
+/// left at zero rather than being refused or misparsed.
+///
+/// They exist because the garment layer's rotation term had nothing to read.
+/// `angularSpeed` is published on every live limb sample and always has been;
+/// the sidecar simply never stored it, so the term measured 0 on the whole
+/// corpus while being live in the game - a testbench that cannot reproduce what
+/// the game does, which is the one thing the seam rule forbids.
+struct LimbRecordExt {
+    float angularSpeed{};  ///< rad/s
+    float radius{};        ///< objectRadius, units. Turns radians into surface speed
+};
+
 static_assert(sizeof(Header) == 32, "the pose header is a fixed 32 bytes on disk");
 static_assert(sizeof(FrameHeader) == 12, "the frame header is a fixed 12 bytes on disk");
 static_assert(sizeof(LimbRecord) == 28, "a limb record is a fixed 28 bytes on disk");
+static_assert(sizeof(LimbRecordExt) == 8, "the v2 extension is a fixed 8 bytes on disk");
 
-inline constexpr std::uint32_t kLimbStride = sizeof(LimbRecord);
+/// What this build writes. A v1 file has 28 and is still read.
+inline constexpr std::uint32_t kLimbStride = sizeof(LimbRecord) + sizeof(LimbRecordExt);
+/// The smallest stride any version this build understands can have.
+inline constexpr std::uint32_t kLimbStrideV1 = sizeof(LimbRecord);
 
 /// A per-tick pose sample, as opposed to the two snapshots the older captures
 /// carry in their CSV at `ragdoll_start` and `ragdoll_end`.

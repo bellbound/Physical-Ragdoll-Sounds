@@ -8,7 +8,6 @@
 #include <fstream>
 #include <string_view>
 
-#include "rds/Synth.h"
 
 namespace rds {
 namespace {
@@ -205,8 +204,8 @@ PcmBuffer ReadWavMono(const std::string& path, int targetRate) {
     // ReadLayout walks to the end of the chunk list, so the stream is sitting on
     // eof and failbit by the time it returns. seekg does not clear failbit for
     // you - it is a no-op on a failed stream - and without this the read below
-    // quietly returns nothing and every file in the pack falls back to its
-    // stand-in with only a warn line to say so.
+    // quietly returns nothing and every file in the pack decodes to silence with
+    // only a log line to say so.
     file.clear();
 
     std::vector<std::uint8_t> raw(static_cast<std::size_t>(layout.dataBytes));
@@ -328,25 +327,16 @@ const PcmBuffer& PcmCache::Get(SlotId slot, std::uint8_t variant) {
     buffer.sampleRate = m_sampleRate;
 
     ResolvedSound sound{};
-    if (m_bank != nullptr && m_bank->Get(slot, variant, sound)) {
-        if (!sound.procedural && !sound.path.empty()) {
-            buffer = ReadWavMono(sound.path, m_sampleRate);
-            if (buffer.Empty()) {
-                // The bank measured this file at load, so a failure here is the
-                // file changing under us, or a format the length walk tolerated
-                // and the sample walk did not. Say so once and stand in for it,
-                // rather than dropping the layer and leaving a hole in the stack.
-                spdlog::warn("pcm: {} could not be decoded; standing in for {} variant {}",
-                             sound.path, ToString(slot), variant);
-            }
-        }
+    if (m_bank != nullptr && m_bank->Get(slot, variant, sound) && !sound.path.empty()) {
+        buffer = ReadWavMono(sound.path, m_sampleRate);
         if (buffer.Empty()) {
-            const SynthBuffer synth = Synthesise(sound, static_cast<float>(m_sampleRate));
-            buffer.samples = synth.samples;
+            // The bank measured this file at load, so a failure here is the file
+            // changing under us, or a format the length walk tolerated and the
+            // sample walk did not. Loud, because it is now the difference
+            // between a layer and no layer: there is no stand-in behind it.
             buffer.sampleRate = m_sampleRate;
-            buffer.procedural = true;
-        } else {
-            buffer.procedural = false;
+            spdlog::error("pcm: {} could not be decoded; {} variant {} will not sound",
+                          sound.path, ToString(slot), variant);
         }
     }
 

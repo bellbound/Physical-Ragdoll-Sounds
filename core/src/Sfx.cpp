@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cctype>
 #include <chrono>
@@ -121,11 +122,18 @@ namespace {
     }
     w.code.assign(ini::Trim(text.substr(0, bar)));
     std::string_view rest = ini::Trim(text.substr(bar + 1));
-    // A second bar carries the blocking flag, which is absent on almost every
-    // warning and so is not worth a key of its own.
+    // A second bar carries the severity, which is absent on almost every warning
+    // and so is not worth a key of its own. `1` is the original blocking flag
+    // and is still written that way; `dead` is the second class, and sidecars
+    // that predate it simply have neither.
     const auto second = rest.find('|');
     if (second != std::string_view::npos) {
-        w.blocking = ToBool(ini::Trim(rest.substr(second + 1)));
+        const std::string_view flag = ini::Trim(rest.substr(second + 1));
+        if (ini::EqualsIgnoreCase(flag, "dead")) {
+            w.dead = true;
+        } else {
+            w.blocking = ToBool(flag);
+        }
         rest = ini::Trim(rest.substr(0, second));
     }
     w.detail.assign(rest);
@@ -140,6 +148,10 @@ namespace {
 
 bool SfxEntry::Blocked() const {
     return std::ranges::any_of(warnings, [](const SfxWarning& w) { return w.blocking; });
+}
+
+bool SfxEntry::Dead() const {
+    return std::ranges::any_of(warnings, [](const SfxWarning& w) { return w.dead; });
 }
 
 std::string SfxEntry::Stem() const { return fs::path(file).stem().string(); }
@@ -276,9 +288,9 @@ bool SfxLibrary::SaveMeta(const SfxEntry& entry) const {
     std::string out;
     out += "; Physical Ragdoll Sounds - sfx metadata\n";
     out += "; Written by the testbench when this file was imported or edited. Everything under\n";
-    out += "; [Measured] is what the importer measured; Name and Disabled are yours.\n";
-    out += "; Deleting this file loses the measurements, the import date and the mute - not\n";
-    out += "; the sound.\n\n";
+    out += "; [Measured] is what the importer measured; Name, Disabled, Pitch and TrimDb\n";
+    out += "; are yours. Deleting this file loses the measurements, the import date, the\n";
+    out += "; mute and the corrections - not the sound.\n\n";
 
     out += "[Sfx]\n";
     out += std::format("Name = {}\n", EscapeLine(entry.name));
@@ -290,7 +302,18 @@ bool SfxLibrary::SaveMeta(const SfxEntry& entry) const {
     }
     out += std::format("Imported = {}\n", entry.importedAt);
     out += std::format("Loops = {}\n", entry.loops ? 1 : 0);
-    out += std::format("Disabled = {}\n\n", entry.disabled ? 1 : 0);
+    out += std::format("Disabled = {}\n", entry.disabled ? 1 : 0);
+    // The corrections. Written every time rather than only when set, because a
+    // key that appears when it is non-default is a key nobody knows exists.
+    out += "; Corrections to this recording, applied wherever it is used. Pitch is a playback\n";
+    out += "; rate (1 = as recorded) and it changes a one-shot's length; TrimDb is level only,\n";
+    out += "; applied after arbitration, so it can never change which cue was chosen.\n";
+    out += std::format("Pitch = {:.4f}\n", entry.pitch);
+    out += std::format("TrimDb = {:.2f}\n", entry.trimDb);
+    if (entry.pitch != 1.0f) {
+        out += std::format("; plays for {:.1f} ms at this pitch\n", entry.EffectiveDurationMs());
+    }
+    out += "\n";
 
     out += "[Format]\n";
     out += std::format("SampleRate = {}\n", entry.sampleRate);
@@ -314,6 +337,20 @@ bool SfxLibrary::SaveMeta(const SfxEntry& entry) const {
     out += std::format("SteadyDb = {:.2f}\n", entry.steadyDb);
     out += std::format("GrainsPerSec = {:.1f}\n\n", entry.grainsPerSec);
 
+    out += "; The technical rule-outs, on tools/triage_batch.py's thresholds: hiss under 30 dB\n";
+    out += "; down, a squared-off waveform, a second contact riding under the hero, and a top\n";
+    out += "; octave that is not there. Hash is over the samples, so the same sound under two\n";
+    out += "; names has the same one.\n";
+    out += "[Technical]\n";
+    out += std::format("NoiseFloorDb = {:.1f}\n", entry.noiseFloorDb);
+    out += std::format("ClipPct = {:.3f}\n", entry.clipPct);
+    out += std::format("ClipRuns = {}\n", entry.clipRuns);
+    out += std::format("Contacts = {}\n", entry.contacts);
+    out += std::format("SatelliteDb = {:.1f}\n", entry.satelliteDb);
+    out += std::format("SatelliteAtMs = {:.0f}\n", entry.satelliteAtMs);
+    out += std::format("TopOctaveDb = {:.1f}\n", entry.topOctaveDb);
+    out += std::format("ContentHash = {:016x}\n\n", entry.contentHash);
+
     out += "; Slots this suits, best first. A suggestion the browser sorts on, never a rule -\n";
     out += "; anything can be assigned to anything.\n";
     out += "[Suggested]\n";
@@ -324,12 +361,14 @@ bool SfxLibrary::SaveMeta(const SfxEntry& entry) const {
     }
     out += std::format("Slots = {}\n\n", ini::JoinList(names));
 
-    out += "; What the file breaks, as `code|detail` - or `code|detail|1` for the one class\n";
-    out += "; that cannot be played at all. None of these stop it being assigned.\n";
+    out += "; What the file breaks, as `code|detail` - `code|detail|1` for the one class that\n";
+    out += "; cannot be played at all, and `code|detail|dead` for the ones that play and cannot\n";
+    out += "; be repaired. None of these stop it being assigned.\n";
     out += "[Warnings]\n";
     for (const SfxWarning& w : entry.warnings) {
+        const char* severity = w.blocking ? "|1" : (w.dead ? "|dead" : "");
         out += std::format("Warning = {}|{}{}\n", EscapeLine(w.code), EscapeLine(w.detail),
-                           w.blocking ? "|1" : "");
+                           severity);
     }
 
     return ini::WriteFile(MetaPathFor(PathOf(entry.file)), out);
@@ -358,6 +397,15 @@ bool SfxLibrary::LoadMeta(const fs::path& wav, SfxEntry& out) {
             else if (ini::EqualsIgnoreCase(key, "Imported")) out.importedAt = ToInt64(value);
             else if (ini::EqualsIgnoreCase(key, "Loops")) out.loops = ToBool(value);
             else if (ini::EqualsIgnoreCase(key, "Disabled")) out.disabled = ToBool(value);
+            // Clamped on the way in, not on the way out: a hand-edited 0 would
+            // divide by zero in EffectiveDurationMs and a hand-edited 50 would
+            // resample a 240 ms impact into a 5 ms tick. The bounds are the
+            // browser's slider range, so a file edited by hand and a file edited
+            // in the panel cannot end up in different places.
+            else if (ini::EqualsIgnoreCase(key, "Pitch"))
+                out.pitch = std::clamp(static_cast<float>(ToDouble(value)), 0.5f, 2.0f);
+            else if (ini::EqualsIgnoreCase(key, "TrimDb"))
+                out.trimDb = std::clamp(static_cast<float>(ToDouble(value)), -24.0f, 12.0f);
         } else if (ini::EqualsIgnoreCase(section, "Format")) {
             if (ini::EqualsIgnoreCase(key, "SampleRate")) out.sampleRate = ToInt(value);
             else if (ini::EqualsIgnoreCase(key, "Channels")) out.channels = ToInt(value);
@@ -375,6 +423,24 @@ bool SfxLibrary::LoadMeta(const fs::path& wav, SfxEntry& out) {
             else if (ini::EqualsIgnoreCase(key, "SeamDb")) out.seamDb = static_cast<float>(ToDouble(value));
             else if (ini::EqualsIgnoreCase(key, "SteadyDb")) out.steadyDb = static_cast<float>(ToDouble(value));
             else if (ini::EqualsIgnoreCase(key, "GrainsPerSec")) out.grainsPerSec = static_cast<float>(ToDouble(value));
+        } else if (ini::EqualsIgnoreCase(section, "Technical")) {
+            if (ini::EqualsIgnoreCase(key, "NoiseFloorDb")) out.noiseFloorDb = static_cast<float>(ToDouble(value));
+            else if (ini::EqualsIgnoreCase(key, "ClipPct")) out.clipPct = static_cast<float>(ToDouble(value));
+            else if (ini::EqualsIgnoreCase(key, "ClipRuns")) out.clipRuns = ToInt(value);
+            else if (ini::EqualsIgnoreCase(key, "Contacts")) out.contacts = ToInt(value);
+            else if (ini::EqualsIgnoreCase(key, "SatelliteDb")) out.satelliteDb = static_cast<float>(ToDouble(value));
+            else if (ini::EqualsIgnoreCase(key, "SatelliteAtMs")) out.satelliteAtMs = static_cast<float>(ToDouble(value));
+            else if (ini::EqualsIgnoreCase(key, "TopOctaveDb")) out.topOctaveDb = static_cast<float>(ToDouble(value));
+            else if (ini::EqualsIgnoreCase(key, "ContentHash")) {
+                // Hex, and 16 digits of it overflow every signed parser in this
+                // file - so it is the one field read on its own.
+                const std::string_view hex = ini::Trim(value);
+                std::uint64_t parsed = 0;
+                if (std::from_chars(hex.data(), hex.data() + hex.size(), parsed, 16).ec ==
+                    std::errc{}) {
+                    out.contentHash = parsed;
+                }
+            }
         } else if (ini::EqualsIgnoreCase(section, "Suggested")) {
             if (ini::EqualsIgnoreCase(key, "Slots")) {
                 out.suggested.clear();
@@ -429,6 +495,112 @@ std::size_t SfxAssignments::AssignedSlots() const {
     return count;
 }
 
+VariantCondition SlotAssignment::ConditionAt(std::size_t index) const {
+    return index < conditions.size() ? conditions[index] : VariantCondition{};
+}
+
+void SlotAssignment::SetConditionAt(std::size_t index, VariantCondition condition) {
+    if (index >= files.size()) {
+        return;
+    }
+    NormalizeConditions();
+    conditions[index] = condition;
+}
+
+void SlotAssignment::Add(std::string file, VariantCondition condition) {
+    files.push_back(std::move(file));
+    NormalizeConditions();
+    conditions.back() = condition;
+}
+
+void SlotAssignment::ReplaceAt(std::size_t index, std::string file) {
+    if (index >= files.size()) {
+        return;
+    }
+    const std::string was = files[index];
+    files[index] = std::move(file);
+    // The mute went with the sound, not with the position - unless another
+    // placement of that sound is still here, in which case the mute is still
+    // about something on the slot and stays.
+    if (std::ranges::none_of(files, [&](const std::string& name) {
+            return ini::EqualsIgnoreCase(name, was);
+        })) {
+        Unmute(was);
+    }
+    NormalizeConditions();
+}
+
+void SlotAssignment::RemoveAt(std::size_t index) {
+    if (index >= files.size()) {
+        return;
+    }
+    const std::string gone = files[index];
+    NormalizeConditions();
+    files.erase(files.begin() + static_cast<std::ptrdiff_t>(index));
+    conditions.erase(conditions.begin() + static_cast<std::ptrdiff_t>(index));
+    // Unless the same file is still on the slot elsewhere, in which case the
+    // mute is still about a sound that is here.
+    if (std::ranges::none_of(files, [&](const std::string& name) {
+            return ini::EqualsIgnoreCase(name, gone);
+        })) {
+        Unmute(gone);
+    }
+}
+
+void SlotAssignment::NormalizeConditions() { conditions.resize(files.size()); }
+
+std::string SlotAssignment::PlacementTag(std::size_t index) const {
+    if (index >= files.size()) {
+        return {};
+    }
+    const std::string& name = files[index];
+    std::size_t seen = 0;
+    std::size_t total = 0;
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        if (ini::EqualsIgnoreCase(files[i], name)) {
+            ++total;
+            if (i <= index) {
+                ++seen;
+            }
+        }
+    }
+    return total > 1 ? std::format("{}#{}", name, seen) : name;
+}
+
+int SlotAssignment::PlacementOf(std::string_view tag) const {
+    std::string_view name = ini::Trim(tag);
+    // The whole tag as a filename first, because a wav is allowed to have a `#`
+    // in its name and the suffix must not eat one. Only a tag that names
+    // nothing on the slot is read as `name#N`.
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        if (ini::EqualsIgnoreCase(files[i], name)) {
+            return static_cast<int>(i);
+        }
+    }
+    std::size_t want = 1;
+    if (const std::size_t hash = name.rfind('#'); hash != std::string_view::npos) {
+        const std::string_view digits = ini::Trim(name.substr(hash + 1));
+        std::size_t parsed = 0;
+        if (!digits.empty() &&
+            std::ranges::all_of(digits, [](unsigned char c) { return std::isdigit(c) != 0; })) {
+            for (const char c : digits) {
+                parsed = parsed * 10 + static_cast<std::size_t>(c - '0');
+            }
+            if (parsed >= 1) {
+                want = parsed;
+                name = ini::Trim(name.substr(0, hash));
+            }
+        }
+    }
+    std::size_t seen = 0;
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        if (ini::EqualsIgnoreCase(files[i], name) && ++seen == want) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
 bool SlotAssignment::Muted(std::string_view file) const {
     return std::ranges::any_of(
         muted, [&](const std::string& name) { return ini::EqualsIgnoreCase(name, file); });
@@ -466,8 +638,14 @@ std::size_t SfxAssignments::Forget(std::string_view file) {
     std::size_t slots = 0;
     for (SlotAssignment& slot : m_slots) {
         const std::size_t was = slot.files.size();
-        std::erase_if(slot.files,
-                      [&](const std::string& name) { return ini::EqualsIgnoreCase(name, file); });
+        // Backwards, so each removal takes its own condition with it and the
+        // ones still to come keep the index they are being visited at. Every
+        // placement of the file goes: Forget is the sound leaving the library.
+        for (std::size_t i = slot.files.size(); i-- > 0;) {
+            if (ini::EqualsIgnoreCase(slot.files[i], file)) {
+                slot.RemoveAt(i);
+            }
+        }
         // The mute goes whether or not the slot named the file: a mute that
         // outlives its sound is exactly the thing Unmute exists to prevent, and
         // a slot can only be carrying one here if something already went wrong.
@@ -485,6 +663,15 @@ bool SfxAssignments::operator==(const SfxAssignments& other) const {
             m_slots[i].files != other.m_slots[i].files ||
             m_slots[i].muted != other.m_slots[i].muted) {
             return false;
+        }
+        // Per placement rather than as two vectors: a short `conditions` means
+        // the rest are plain, so an untagged slot that has been normalised and
+        // one that has not are the same assignment and must not light the
+        // unsaved marker.
+        for (std::size_t f = 0; f < m_slots[i].files.size(); ++f) {
+            if (!(m_slots[i].ConditionAt(f) == other.m_slots[i].ConditionAt(f))) {
+                return false;
+            }
         }
     }
     return true;
@@ -527,7 +714,7 @@ void SfxAssignments::SeedFromNames(const SfxLibrary& library) {
         if (!slot.Empty() && std::ranges::find(slot.files, c.file) != slot.files.end()) {
             continue;
         }
-        slot.files.push_back(c.file);
+        slot.Add(c.file);
         ++filled;
     }
     if (filled != 0) {
@@ -547,6 +734,15 @@ std::size_t SfxAssignments::Load(const fs::path& file) {
     std::string section;
     const SlotDesc* current = nullptr;
     std::size_t assigned = 0;
+    // Held back until the whole file is read, because a condition names a
+    // placement and the placements are `Sfx` - which a hand-written section is
+    // free to put second. Resolving as we go would make the order of two lines
+    // in a text file the difference between a tag landing and vanishing.
+    struct PendingConditions {
+        bool present{};
+        std::vector<std::string> entries;
+    };
+    std::array<PendingConditions, static_cast<std::size_t>(SlotId::kCount)> pending{};
     for (const std::string& raw : lines) {
         if (const auto header = ini::SectionOf(raw); !header.empty()) {
             section.assign(header);
@@ -570,13 +766,65 @@ std::size_t SfxAssignments::Load(const fs::path& file) {
         SlotAssignment& slot = For(current->id);
         if (ini::EqualsIgnoreCase(key, "Sfx")) {
             slot.files = ini::SplitList(value);
+            // The tags named positions in the list this line just replaced.
+            slot.conditions.clear();
             if (!slot.files.empty()) {
                 ++assigned;
             }
         } else if (ini::EqualsIgnoreCase(key, "Muted")) {
             slot.muted = ini::SplitList(value);
+        } else if (ini::EqualsIgnoreCase(key, "Conditions")) {
+            PendingConditions& hold = pending[Index(current->id)];
+            hold.present = true;
+            hold.entries = ini::SplitList(value);
         } else if (ini::EqualsIgnoreCase(key, "Looping")) {
             slot.looping = ToBool(value, current->isLoop);
+        }
+    }
+
+    for (const SlotDesc& desc : Slots()) {
+        const PendingConditions& hold = pending[Index(desc.id)];
+        if (!hold.present) {
+            continue;
+        }
+        SlotAssignment& slot = For(desc.id);
+        slot.conditions.assign(slot.files.size(), VariantCondition{});
+        for (const std::string& entry : hold.entries) {
+            // `plate_stone.wav : stone / heavy`, or `plate_stone.wav#2 : ...`
+            // where the slot plays that file twice. A malformed entry is
+            // skipped with a debug line rather than failing the load: one bad
+            // condition must not cost somebody their whole pack.
+            const std::size_t colon = entry.find(':');
+            if (colon == std::string::npos) {
+                spdlog::debug("sfx: {} has a condition with no ':' - '{}'", desc.name, entry);
+                continue;
+            }
+            const std::string_view tag = ini::Trim(std::string_view{entry}.substr(0, colon));
+            const std::string_view rest = ini::Trim(std::string_view{entry}.substr(colon + 1));
+            const std::size_t slash = rest.find('/');
+            const std::string_view left =
+                slash == std::string_view::npos ? rest : rest.substr(0, slash);
+            const std::string_view right =
+                slash == std::string_view::npos ? std::string_view{} : rest.substr(slash + 1);
+            VariantCondition condition{};
+            condition.surface = SurfaceMatchFrom(ini::Trim(left));
+            condition.coverage = CoverageMatchFrom(ini::Trim(right));
+            if (condition.Unconditional()) {
+                // Nothing to say. Dropped rather than stored, so the saved file
+                // does not grow a line that means "no condition".
+                continue;
+            }
+            const int index = slot.PlacementOf(tag);
+            if (index < 0) {
+                // A tag for a file the slot no longer plays - hand-edited, or
+                // `Sfx` shortened without the `Conditions` line following it.
+                // Dropped rather than guessed at: a condition that landed on
+                // whichever file happened to be nearby would be worse than one
+                // that is gone.
+                spdlog::debug("sfx: {} tags '{}', which it does not play", desc.name, tag);
+                continue;
+            }
+            slot.conditions[static_cast<std::size_t>(index)] = condition;
         }
     }
     return assigned;
@@ -600,7 +848,26 @@ bool SfxAssignments::Save(const fs::path& file) const {
     out += "; The file keeps its place in the list, so it keeps its variant index and\n";
     out += "; unmuting puts a recorded take back exactly as it was - which is the whole\n";
     out += "; difference from deleting it from `Sfx`. A slot with every file muted goes\n";
-    out += "; silent rather than falling back to a stand-in.\n";
+    out += "; silent rather than falling back to anything. It is by name, so a file\n";
+    out += "; listed twice on a slot is muted in both places - a mute is about the sound,\n";
+    out += "; not about one entry in the list.\n";
+    out += ";\n";
+    out += "; `Conditions` narrows when a file is a candidate: `file.wav : <surface> / <armour>`,\n";
+    out += "; comma-separated, where either half may be `any`. A tagged file wins over the\n";
+    out += "; plain ones when the contact matches, and is invisible when it does not - so\n";
+    out += "; `imp_body` can carry one recording made for plate on flagstone without that\n";
+    out += "; recording turning up anywhere else. Surfaces are soft, wood, stone, metal,\n";
+    out += "; water, body; armour is bare, cloth, light, heavy.\n";
+    out += ";\n";
+    out += "; A tag is about one entry in `Sfx`, not about the sound: the same file may be\n";
+    out += "; listed twice, once plain and once tagged, and then it is a candidate for\n";
+    out += "; everything *and* the preferred one where the tag matches. Where a name is\n";
+    out += "; listed more than once, `file.wav#2` says which entry is meant - counting from\n";
+    out += "; 1, in `Sfx` order. A bare name is the first entry of it.\n";
+    out += ";\n";
+    out += "; A condition is a preference, never a mute. If nothing on the slot satisfies\n";
+    out += "; one - a slot whose only file is tagged `stone`, on wood - the slot plays its\n";
+    out += "; full set rather than going silent. Use `Muted` to silence something.\n";
     out += ";\n";
     out += "; `Looping` says the slot's sound is a sustained texture the engine repeats\n";
     out += "; whole rather than an event. Loops are judged as textures: they are never too\n";
@@ -609,11 +876,23 @@ bool SfxAssignments::Save(const fs::path& file) const {
     for (const SlotDesc& desc : Slots()) {
         const SlotAssignment& slot = For(desc.id);
         out += std::format("; {}\n", desc.character);
-        out += std::format("; {} - {:.0f} to {:.0f} ms, {} expected\n", desc.role, desc.minLengthMs,
+        out += std::format("; {} - {:.0f} to {:.0f} ms, {} expected\n", ToString(desc.family),
+                           desc.minLengthMs,
                            desc.maxLengthMs, desc.expectedVariants);
         out += std::format("[{}]\n", desc.name);
         out += std::format("Sfx = {}\n", ini::JoinList(slot.files));
         out += std::format("Muted = {}\n", ini::JoinList(slot.muted));
+        std::vector<std::string> conds;
+        conds.reserve(slot.conditions.size());
+        for (std::size_t i = 0; i < slot.files.size(); ++i) {
+            const VariantCondition cond = slot.ConditionAt(i);
+            if (cond.Unconditional()) {
+                continue;
+            }
+            conds.push_back(std::format("{} : {} / {}", slot.PlacementTag(i),
+                                        ToString(cond.surface), ToString(cond.coverage)));
+        }
+        out += std::format("Conditions = {}\n", ini::JoinList(conds));
         out += std::format("Looping = {}\n\n", slot.looping ? 1 : 0);
     }
 

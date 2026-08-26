@@ -26,9 +26,71 @@ enum class EventKind : std::uint8_t {
     kState,        ///< ragdoll_start, knock_explode, session_stop, ...
     kLimbSample,   ///< a periodic pose/velocity sample of one limb
     kListener,     ///< where the player is and which way they face
+    /// What vanilla's own impact system decided to play for one collision.
+    ///
+    /// Appended rather than slotted in beside kImpact so every value above stays
+    /// what it was: the wire carries raw FeedEvent bytes and a testbench built a
+    /// day apart from the DLL must not reinterpret an old stream's kinds.
+    kVanillaSound,
 };
 
 [[nodiscard]] std::string_view ToString(EventKind k);
+
+/// Which branch vanilla took, and what we did about it.
+enum class VanillaSoundFlag : std::uint8_t {
+    kNone = 0,
+    /// The NAM1 branch fired rather than SNAM - vanilla's own light/heavy
+    /// decision, which it makes on `sound2 != null && magnitude >= threshold`.
+    kHeavy = 1 << 0,
+    /// We dropped it. Off means it was heard, which is what the A/B switch does.
+    kSuppressed = 1 << 1,
+    /// The editor id did not fit `text` and is cut short. Recorded rather than
+    /// silently truncated, because the testbench resolves files off that name
+    /// and a quiet trim would look like a missing sound bank.
+    kNameTruncated = 1 << 2,
+    /// The game had no editor id for the descriptor at all.
+    ///
+    /// `BGSSoundDescriptorForm` does not implement `GetFormEditorID` - only about
+    /// fifteen form types do - so the name exists at runtime only because
+    /// po3_Tweaks keeps one. Without it the row still carries `descriptorFormId`,
+    /// which identifies the sound perfectly well, but nothing can resolve it to a
+    /// file. Flagged rather than left as an empty string, because "vanilla was
+    /// quiet" and "this install cannot name its own sounds" must not look alike.
+    kNameMissing = 1 << 3,
+};
+
+/// What vanilla would have played, for one collision.
+///
+/// Filled only on `kVanillaSound`. The point of it is stated in 08 section 5:
+/// vanilla resolves 60 materials into 3 sounds and picks between an L and an H
+/// pair, and none of that is reproducible from our own contact stream - so it is
+/// observed at the moment it happens rather than modelled afterwards.
+///
+/// What is *not* here, deliberately: which of the descriptor's `fileCount` wavs
+/// the audio engine drew, and the dB and frequency the variance rolled. Those
+/// happen inside BSAudioManager after the handle is built and are not readable
+/// without reverse engineering BSGameSound, whose layout CommonLib does not have.
+/// `fileCount` and the variance figures are the honest substitute: they say what
+/// the draw was *over*, and the testbench renders one of them rather than
+/// pretending it knows which.
+struct VanillaSoundInfo {
+    std::uint32_t impactFormId{};       ///< the BGSImpactData the pair resolved to
+    std::uint32_t descriptorFormId{};   ///< the descriptor that fired, SNAM or NAM1
+    std::uint16_t staticAttenuation{};  ///< BNAM, the CK value x 100
+    std::uint8_t soundLevel{};          ///< SOUND_LEVEL on the impact record
+    std::uint8_t dbVariance{};          ///< +/- dB the audio engine rolls per play
+    std::uint8_t frequencyShift{};
+    std::uint8_t frequencyVariance{};
+    std::uint8_t priority{};
+    std::uint8_t fileCount{};  ///< how many wavs the descriptor picks between
+    std::uint8_t flags{};      ///< VanillaSoundFlag
+    std::uint8_t reserved[3]{};
+
+    [[nodiscard]] bool Has(VanillaSoundFlag f) const {
+        return (flags & static_cast<std::uint8_t>(f)) != 0;
+    }
+};
+static_assert(sizeof(VanillaSoundInfo) == 20, "VanillaSoundInfo rides the wire as raw bytes");
 
 /// One row of what the solver saw.
 ///
@@ -76,12 +138,18 @@ struct FeedEvent {
     /// Where this came from, so a cue can be traced back to a row of a CSV.
     std::uint32_t sourceSeq{};
 
+    /// Filled on kVanillaSound rows, zero everywhere else. `text` carries the
+    /// firing descriptor's editor id on those rows - it is the name the testbench
+    /// resolves wav files from, so it is the descriptor's and not the impact's.
+    VanillaSoundInfo vanilla{};
+
     [[nodiscard]] bool IsContact() const {
         return kind == EventKind::kImpact || kind == EventKind::kTouch || kind == EventKind::kSeparate;
     }
 };
 
 static_assert(sizeof(FeedEvent) <= 160, "FeedEvent rides a lock-free ring in the live path");
+static_assert(sizeof(FeedEvent) % 8 == 0, "and goes over the wire as raw bytes, so no tail padding");
 
 /// One ragdoll body, resolved once when the ragdoll attaches.
 ///

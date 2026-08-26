@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <intrin.h>
 #include <limits>
@@ -333,25 +334,127 @@ void BlobRegistry::Stats(std::size_t& liveOut, std::size_t& bytesOut) const {
     }
 }
 
+namespace {
+
+/// Look one output model up, saying which key named it so a load-order problem
+/// can be traced back to a line of the ini rather than to a bare form id.
+const RE::BSISoundOutputModel* ResolveOutputModel(std::int32_t configured, const char* key) {
+    const auto formId = static_cast<RE::FormID>(configured);
+    auto* form = RE::TESForm::LookupByID(formId);
+    if (form == nullptr) {
+        spdlog::error("blobs: {} names {:08X}, which does not exist in this load order",
+                      key, formId);
+        return nullptr;
+    }
+    auto* output = form->As<RE::BGSSoundOutput>();
+    if (output == nullptr) {
+        spdlog::error("blobs: {} names {:08X}, which is a {}, not a sound output model",
+                      key, formId, static_cast<int>(form->GetFormType()));
+        return nullptr;
+    }
+    spdlog::info("blobs: {} = {:08X} resolved", key, formId);
+    return static_cast<const RE::BSISoundOutputModel*>(output);
+}
+
+}  // namespace
+
 const RE::BSISoundOutputModel* DefaultOutputModel() {
     static const RE::BSISoundOutputModel* model = [] () -> const RE::BSISoundOutputModel* {
-        const auto formId =
-            static_cast<RE::FormID>(ConfigManager::Get().General().audio.outputModelFormId);
-        auto* form = RE::TESForm::LookupByID(formId);
-        if (form == nullptr) {
-            spdlog::error("blobs: output model {:08X} does not exist in this load order; every "
-                          "voice will be flat and follow the listener around",
-                          formId);
-            return nullptr;
+        const RE::BSISoundOutputModel* resolved = ResolveOutputModel(
+            ConfigManager::Get().General().audio.outputModelFormId, "iOutputModelFormID");
+        if (resolved == nullptr) {
+            spdlog::error("blobs: every voice will be flat and follow the listener around");
         }
-        auto* output = form->As<RE::BGSSoundOutput>();
-        if (output == nullptr) {
-            spdlog::error("blobs: form {:08X} is a {}, not a sound output model",
-                          formId, static_cast<int>(form->GetFormType()));
-            return nullptr;
+        return resolved;
+    }();
+    return model;
+}
+
+namespace {
+
+/// The plugin the two category records live in, and their ids inside it. Local
+/// plus name rather than a whole form id, because the load index is not known
+/// until runtime. Kept in step with tools/make_categories_esp.py.
+constexpr const char* kCategoryPlugin = "RagdollSounds.esp";
+constexpr RE::FormID kRagdollCategoryLocalFormID = 0x000800;
+constexpr RE::FormID kGoreCategoryLocalFormID = 0x000801;
+
+/// One category, resolved once and then cached, retrying for as long as it comes
+/// back null.
+///
+/// NOT a magic static, and that is the whole point. A magic static keeps whatever
+/// the first call produced, so one lookup before the load order is up would pin
+/// "no category" for the session - and the symptom, sliders that work on some
+/// launches and not others, points nowhere near the cause. `reported` keeps the
+/// retry from printing a line per voice on an install that really is missing the
+/// esp; a lost race repeats it at most once per racing thread and stores the same
+/// pointer twice, so relaxed ordering is enough.
+const RE::BSISoundCategory* ResolveCategory(std::atomic<const void*>& cache,
+                                            std::atomic<bool>& reported, RE::FormID localFormID,
+                                            const char* what) {
+    if (const auto* cached = cache.load(std::memory_order_acquire)) {
+        return static_cast<const RE::BSISoundCategory*>(cached);
+    }
+
+    auto* dataHandler = RE::TESDataHandler::GetSingleton();
+    auto* form = dataHandler ? dataHandler->LookupForm<RE::BGSSoundCategory>(localFormID,
+                                                                            kCategoryPlugin)
+                             : nullptr;
+    if (form == nullptr) {
+        if (!reported.exchange(true, std::memory_order_relaxed)) {
+            spdlog::warn("blobs: no {} sound category ({} {:06X}) - the mod still sounds, but it "
+                         "has no slider on the Audio settings page. Check the esp is installed and "
+                         "ticked. Said once.",
+                         what, kCategoryPlugin, localFormID);
         }
-        spdlog::info("blobs: output model {:08X} resolved", formId);
-        return static_cast<const RE::BSISoundOutputModel*>(output);
+        return nullptr;
+    }
+
+    // The engine wants the BSISoundCategory subobject, which sits at +0x30 inside
+    // the form; the static_cast is what applies that offset. Handing it the
+    // TESForm pointer instead compiles and misreads every field.
+    const auto* resolved = static_cast<const RE::BSISoundCategory*>(form);
+    spdlog::info("blobs: {} sound category {:08X} '{}' resolved", what, form->GetFormID(),
+                 form->GetFullName() != nullptr ? form->GetFullName() : "");
+    cache.store(resolved, std::memory_order_release);
+    return resolved;
+}
+
+std::atomic<const void*> g_ragdollCategory{nullptr};
+std::atomic<const void*> g_goreCategory{nullptr};
+std::atomic<bool> g_ragdollReported{false};
+std::atomic<bool> g_goreReported{false};
+
+}  // namespace
+
+const RE::BSISoundCategory* CategoryFor(SoundBus bus) {
+    switch (bus) {
+        case SoundBus::kGore:
+            return ResolveCategory(g_goreCategory, g_goreReported, kGoreCategoryLocalFormID,
+                                   "gore");
+        case SoundBus::kMain:
+        default:
+            return ResolveCategory(g_ragdollCategory, g_ragdollReported,
+                                   kRagdollCategoryLocalFormID, "ragdoll");
+    }
+}
+
+const RE::BSISoundOutputModel* TapOutputModel() {
+    static const RE::BSISoundOutputModel* model = [] () -> const RE::BSISoundOutputModel* {
+        const std::int32_t configured = ConfigManager::Get().General().audio.tapOutputModelFormId;
+        if (configured == 0) {
+            return DefaultOutputModel();
+        }
+        // A bad id here falls back rather than failing: the split is a
+        // refinement, and losing it is worth much less than losing the model
+        // altogether, which is what returning null would cost the taps.
+        const RE::BSISoundOutputModel* resolved =
+            ResolveOutputModel(configured, "iTapOutputModelFormID");
+        if (resolved == nullptr) {
+            spdlog::warn("blobs: taps will use the same model as everything else");
+            return DefaultOutputModel();
+        }
+        return resolved;
     }();
     return model;
 }

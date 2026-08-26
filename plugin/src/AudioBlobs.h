@@ -117,4 +117,45 @@ private:
 /// places attenuated every cue twice.
 [[nodiscard]] const RE::BSISoundOutputModel* DefaultOutputModel();
 
+/// Which volume slider a voice plays under.
+///
+/// Two, because "turn the ragdoll sounds down" and "turn the wet ones down" are
+/// different asks and a single slider can only answer the first. They are not
+/// independent: `kGore` is a child category of `kMain`, so the ragdoll slider
+/// still governs gore and the gore slider only trims within it.
+enum class SoundBus : std::uint8_t {
+    /// Everything the mod plays: impacts, taps, head accents, scrapes, rustle.
+    kMain,
+    /// The crunch and gore layers alone, so they can be taken out without taking
+    /// the impacts with them.
+    kGore,
+};
+
+/// The sound category a bus plays on, or null if `RagdollSounds.esp` is not in
+/// the load order.
+///
+/// The category is the volume bus, and it is the ONLY level control on a sound
+/// the engine applies continuously - everything else is a message that can be
+/// dropped before the source voice exists. Assigning one is what puts a slider
+/// on the Audio settings page in front of our audio; see
+/// tools/make_categories_esp.py for the records and why they nest.
+///
+/// Null is survivable and is the pre-plugin behaviour: an uncategorised sound
+/// plays at the level we mixed it at, with no slider over it. So a missing esp
+/// costs the sliders and nothing else.
+///
+/// Retried rather than cached-on-first-call, and that distinction is load
+/// bearing: a magic static that runs before the load order is up pins null for
+/// the whole session. SkyrimNet shipped that bug and the note in its
+/// EngineSoundPlayer.cpp is where this pattern comes from.
+[[nodiscard]] const RE::BSISoundCategory* CategoryFor(SoundBus bus);
+
+/// The model a tap composite is given instead, when `iTapOutputModelFormID` names
+/// one.
+///
+/// Falls back to `DefaultOutputModel()` when the key is 0 or names something this
+/// load order does not have, so the split can never be the reason a voice opens
+/// with no model at all. Resolved once and cached the same way.
+[[nodiscard]] const RE::BSISoundOutputModel* TapOutputModel();
+
 }  // namespace rds::game

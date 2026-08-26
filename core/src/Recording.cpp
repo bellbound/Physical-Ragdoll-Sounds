@@ -12,6 +12,7 @@
 #include <unordered_map>
 
 #include "rds/Pose.h"
+#include "rds/VanillaTrack.h"
 
 namespace rds {
 namespace {
@@ -149,6 +150,7 @@ constexpr NamedId kMaterialNames[] = {
     if (name == "separate") return EventKind::kSeparate;
     if (name == "limb_sample") return EventKind::kLimbSample;
     if (name == "listener") return EventKind::kListener;
+    if (name == "vanilla_sound") return EventKind::kVanillaSound;
     return EventKind::kState;
 }
 
@@ -698,6 +700,17 @@ bool Recording::Load(const std::filesystem::path& csvPath, std::string& error) {
     }
     m_info.hasBodySamples = m_info.poseFrames > 0;
 
+    // ── the vanilla track ────────────────────────────────────────────────────
+    //
+    // Into its own vector, not into m_events - see Recording::VanillaTrack for
+    // why a reference track must not become an input. Same failure rule as pose:
+    // missing is a take without one, malformed is a bug worth stopping for.
+    m_vanilla.clear();
+    if (!vanilla::Read(Sibling(csvPath, "_vanilla.csv"), m_vanilla, error)) {
+        return false;
+    }
+    m_info.vanillaRows = m_vanilla.size();
+
     // By t_ms, never by seq. The session_stop row is written out of band and
     // carries seq 0, so sorting by seq puts a take's last row first. Stable, so
     // rows sharing a timestamp keep their write order.
@@ -881,6 +894,8 @@ std::vector<RecordingInfo> Recording::Scan(const std::filesystem::path& director
         // thousand frames per take to get it.
         const auto posePath = path.parent_path() / (path.stem().string() + "_pose.bin");
         info.hasBodySamples = pose::Probe(posePath, info.poseFrames);
+        const auto vanillaPath = path.parent_path() / (path.stem().string() + "_vanilla.csv");
+        (void)vanilla::Probe(vanillaPath, info.vanillaRows);
         out.push_back(std::move(info));
     }
     std::ranges::sort(out, [](const RecordingInfo& a, const RecordingInfo& b) {
@@ -893,17 +908,30 @@ bool Recording::Drain(TimeMs untilMs, std::vector<FeedEvent>& out) {
     // The frame time the engine's windows scale against: how long this batch is
     // after the one before it. Derived rather than measured, because the capture
     // resolves frames and not physics substeps.
-    double frameStart = untilMs;
-    for (std::size_t i = 0; i < m_frames.size(); ++i) {
-        if (m_frames[i] > untilMs) {
-            break;
-        }
-        frameStart = m_frames[i];
-        if (i > 0) {
-            m_frameTimeSec = static_cast<float>((m_frames[i] - m_frames[i - 1]) / 1000.0);
-        }
+    //
+    // Walked with a cursor rather than scanned from the start, and the
+    // difference is not a micro-optimisation. The runner ticks once per frame
+    // boundary, so a rescan costs O(frames) per tick and O(frames^2) per replay:
+    // measured, that is 38 ms of the 45 ms a 175-second take took to run, and it
+    // grew with the square of take length while the engine's own cost grew with
+    // the first power. A benchmark over a long take was therefore mostly timing
+    // this loop, and an A/B between two configs was diluted about sixfold by it.
+    // The game never paid any of it - GameFeed::Drain takes a ring buffer.
+    //
+    // `untilMs` is non-decreasing between Rewinds, which is what makes a cursor
+    // sound. A backward step is not expected but is cheap to survive: rewinding
+    // the cursor and letting the walk below repeat makes this exactly the scan
+    // it replaced, for any call order at all.
+    if (m_frameCursor > 0 && m_frames[m_frameCursor - 1] > untilMs) {
+        m_frameCursor = 0;
     }
-    (void)frameStart;
+    while (m_frameCursor < m_frames.size() && m_frames[m_frameCursor] <= untilMs) {
+        if (m_frameCursor > 0) {
+            m_frameTimeSec =
+                static_cast<float>((m_frames[m_frameCursor] - m_frames[m_frameCursor - 1]) / 1000.0);
+        }
+        ++m_frameCursor;
+    }
 
     while (m_cursor < m_events.size() && m_events[m_cursor].timeMs <= untilMs) {
         const FeedEvent& event = m_events[m_cursor];
@@ -928,6 +956,7 @@ float Recording::FrameTimeSec() const { return m_frameTimeSec; }
 
 void Recording::Rewind() {
     m_cursor = 0;
+    m_frameCursor = 0;
     m_frameTimeSec = 0.0f;
     m_listener = ListenerState{};
 }

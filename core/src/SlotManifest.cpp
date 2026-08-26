@@ -18,58 +18,165 @@ namespace rds {
 namespace {
 
 // The manifest. Lengths and characters are the design's asset table verbatim,
-// because they are also the brief the procedural stand-ins synthesise against -
+// because they are the brief a recording is made and checked against -
 // change a length here and the stand-in changes with it.
 constexpr SlotDesc kSlots[] = {
-    {SlotId::kImpTransient, "imp_transient", "impact", 3, 60.0f, 120.0f, false,
+    {SlotId::kImpTransient, "imp_transient", SlotFamily::kImpact, 3, 60.0f, 120.0f, false,
      "Bright, fast attack. The contact itself. The quietest layer of the stack"},
-    {SlotId::kImpBody, "imp_body", "impact", 3, 150.0f, 250.0f, false,
-     "Low-mid flesh and mass. The main body of the sound"},
-    {SlotId::kImpSub, "imp_sub", "impact", 2, 250.0f, 400.0f, false,
+    {SlotId::kImpBody, "imp_body", SlotFamily::kImpact, 3, 150.0f, 250.0f, false,
+     "Low-mid flesh and mass. The main body of the sound, and the torso's own"},
+    {SlotId::kImpSub, "imp_sub", SlotFamily::kImpact, 2, 250.0f, 400.0f, false,
      "Pitched boom sweeping ~150 Hz to 30 Hz. The loudest layer and the whole of the gnarl"},
-    {SlotId::kSurfWood, "surf_wood", "surface", 2, 120.0f, 200.0f, false, "Hollow knock"},
-    {SlotId::kSurfStone, "surf_stone", "surface", 2, 100.0f, 160.0f, false, "Hard, short"},
-    {SlotId::kSurfSoft, "surf_soft", "surface", 2, 150.0f, 250.0f, false,
+    {SlotId::kSurfWood, "surf_wood", SlotFamily::kSurface, 2, 120.0f, 200.0f, false,
+     "Hollow knock"},
+    {SlotId::kSurfStone, "surf_stone", SlotFamily::kSurface, 2, 100.0f, 160.0f, false,
+     "Hard, short"},
+    {SlotId::kSurfSoft, "surf_soft", SlotFamily::kSurface, 2, 150.0f, 250.0f, false,
      "Dull. The default for anything unresolved"},
-    {SlotId::kLimbTap, "limb_tap", "grain", 4, 40.0f, 100.0f, false,
+
+    // The ten classes with nothing recorded yet. `expectedVariants = 0` is what
+    // keeps them silent-by-inheritance rather than silent-by-accident: Resolve
+    // returns false, PlaysAs walks the `fallback` column, and the composite gets
+    // the parent's skin. Deliberately no mute or trim shared with the parent -
+    // each class owns its own, because owning them is the point of the class.
+    {SlotId::kSurfMetal, "surf_metal", SlotFamily::kSurface, 0, 100.0f, 200.0f, false,
+     "A short clang with no pitched ring behind it. Falls back to stone, which is the hard "
+     "half of metal without the ring", SlotId::kSurfStone},
+    {SlotId::kSurfWater, "surf_water", SlotFamily::kSurface, 0, 150.0f, 350.0f, false,
+     "A body arriving in water: the displacement, not the splash grain", SlotId::kSurfSoft},
+    {SlotId::kSurfBody, "surf_body", SlotFamily::kSurface, 0, 120.0f, 250.0f, false,
+     "Flesh on flesh. The most common contact in the whole capture set and the one with "
+     "no colour of its own until now", SlotId::kSurfSoft},
+    {SlotId::kSurfDirt, "surf_dirt", SlotFamily::kSurface, 0, 150.0f, 250.0f, false,
+     "Packed earth: duller and shorter than soft, with no grain on top", SlotId::kSurfSoft},
+    {SlotId::kSurfGravel, "surf_gravel", SlotFamily::kSurface, 0, 150.0f, 300.0f, false,
+     "Loose stones scattering. Soft underneath with a rattle riding on it", SlotId::kSurfSoft},
+    {SlotId::kSurfSnow, "surf_snow", SlotFamily::kSurface, 0, 150.0f, 300.0f, false,
+     "A compressing squeak with the top end rolled off. Absorbent", SlotId::kSurfSoft},
+    {SlotId::kSurfIce, "surf_ice", SlotFamily::kSurface, 0, 100.0f, 200.0f, false,
+     "Hard and bright with a hairline crack in it. Stone, but colder", SlotId::kSurfStone},
+    {SlotId::kSurfGlass, "surf_glass", SlotFamily::kSurface, 0, 80.0f, 200.0f, false,
+     "Brittle. Barely there at a brush and a shatter at speed - the widest intensity ramp "
+     "of any surface", SlotId::kSurfStone},
+    {SlotId::kSurfWaterPuddle, "surf_water_puddle", SlotFamily::kSurface, 0, 100.0f, 250.0f, false,
+     "A wet slap with something solid under it. Shorter and brighter than open water",
+     SlotId::kSurfWater},
+    {SlotId::kSurfBone, "surf_bone", SlotFamily::kSurface, 0, 120.0f, 250.0f, false,
+     "A dry rattle over the flesh underneath. Draugr and skeletons", SlotId::kSurfBody},
+
+    // The armour skins. Every one ships with `expectedVariants = 0`, which is
+    // what makes the whole feature additive rather than merely intended to be:
+    // Resolve returns false for a slot with no files and none expected, the
+    // layer is skipped silently, and the composite is the four layers it always
+    // was. Drop `armor_heavy_01.wav` into the pack and it starts playing; take
+    // it away and the mod goes back. Same door `grunt_impact` sits behind.
+    //
+    // Deliberately no `fallback` between them. A missing plate rattle is not
+    // improved by playing the leather one, and an armour class with nothing
+    // recorded should say nothing rather than say the wrong thing.
+    {SlotId::kArmorBare, "armor_bare", SlotFamily::kArmor, 0, 80.0f, 200.0f, false,
+     "A flat skin slap. Wet-ish, no snap. Nothing equipped"},
+    {SlotId::kArmorCloth, "armor_cloth", SlotFamily::kArmor, 0, 100.0f, 250.0f, false,
+     "A soft cloth thump. Deliberately close to nothing - this is the default case"},
+    {SlotId::kArmorLight, "armor_light", SlotFamily::kArmor, 0, 100.0f, 250.0f, false,
+     "Leather creak with a small buckle jingle riding on it"},
+    {SlotId::kArmorHeavy, "armor_heavy", SlotFamily::kArmor, 0, 120.0f, 300.0f, false,
+     "Plate rattle. Metallic, short, no pitched ring - the clank around the impact, not a bell"},
+
+    {SlotId::kLimbTap, "limb_tap", SlotFamily::kGrain, 4, 40.0f, 100.0f, false,
      "Burst filler. Quiet, dry, heavily pitch-scattered"},
-    {SlotId::kCrunchGran, "crunch_gran", "grain", 2, 250.0f, 400.0f, false,
-     "Dense granular crackle in the low-mid. Density, not a snap"},
-    {SlotId::kGoreWet, "gore_wet", "grain", 2, 200.0f, 400.0f, false,
-     "Squelch. Obliterate tier only"},
-    {SlotId::kScrapeLoop, "scrape_loop", "loop", 1, 1500.0f, 3000.0f, true,
+    {SlotId::kCrunchGran, "crunch_gran", SlotFamily::kGrain, 2, 250.0f, 400.0f, false,
+     "Dense granular crackle in the low-mid. Density, not a snap. The skull's, and "
+     "what the other two fall back to"},
+    // One mute between the three crunches - silencing damage is one decision -
+    // but a trim each, because three separate recordings arrive at three
+    // different levels. That is why `mutesWith` and `trimsWith` are two columns.
+    {SlotId::kSpineCrunch, "spine_crunch", SlotFamily::kGrain, 2, 250.0f, 400.0f, false,
+     "The column going: lower, wetter and longer than the skull's, with a wrench in it "
+     "rather than a shatter", SlotId::kCrunchGran, SlotId::kCrunchGran},
+    {SlotId::kLimbCrunch, "limb_crunch", SlotFamily::kGrain, 2, 200.0f, 350.0f, false,
+     "One bone out on a limb: drier, tighter and higher than the skull's. A snap with "
+     "grain behind it, not a crush", SlotId::kCrunchGran, SlotId::kCrunchGran},
+    {SlotId::kGoreWet, "gore_wet", SlotFamily::kGrain, 2, 200.0f, 400.0f, false,
+     "Squelch. The top tier, and the one layer all three parts share"},
+    {SlotId::kScrapeGrain, "scrape_grain", SlotFamily::kGrain, 3, 150.0f, 500.0f, false,
+     "One catch. Dry, short, a limb snagging mid-slide. The irregularity, not the rumble"},
+    {SlotId::kScrapeLoop, "scrape_loop", SlotFamily::kLoop, 1, 1500.0f, 3000.0f, true,
      "Low-tilted grinding rumble with grain riding on it. NOT a hiss"},
-    {SlotId::kFoleyCloth, "foley_cloth", "loop", 1, 1500.0f, 3000.0f, true,
-     "Cloth rustle, no transients"},
-    {SlotId::kAirWhoosh, "air_whoosh", "loop", 1, 1000.0f, 2000.0f, true, "Low airy movement"},
-    {SlotId::kHeadImpact, "head_impact", "accent", 2, 300.0f, 500.0f, false,
+    // A surface-coloured grind is the same layer on a different floor, so it
+    // answers to the mute *and* the trim of the loop it is a variant of. A mute
+    // per surface would be three ways to silence one thing.
+    {SlotId::kScrapeBodyWood, "scrape_body_wood", SlotFamily::kLoop, 1, 1500.0f, 3000.0f, true,
+     "The full-weight grind on boards - hollower, more resonant",
+     SlotId::kScrapeLoop, SlotId::kScrapeLoop, SlotId::kScrapeLoop},
+    {SlotId::kScrapeBodyStone, "scrape_body_stone", SlotFamily::kLoop, 1, 1500.0f, 3000.0f, true,
+     "The full-weight grind on flagstone - harder, grittier",
+     SlotId::kScrapeLoop, SlotId::kScrapeLoop, SlotId::kScrapeLoop},
+    {SlotId::kScrapeLimb, "scrape_limb", SlotFamily::kLoop, 1, 1500.0f, 3000.0f, true,
+     "Light, dry, small contact patch. One dragging foot, well under the body grind"},
+    {SlotId::kScrapeLimbWood, "scrape_limb_wood", SlotFamily::kLoop, 1, 1500.0f, 3000.0f, true,
+     "One limb dragging on boards",
+     SlotId::kScrapeLimb, SlotId::kScrapeLimb, SlotId::kScrapeLimb},
+    {SlotId::kScrapeLimbStone, "scrape_limb_stone", SlotFamily::kLoop, 1, 1500.0f, 3000.0f, true,
+     "One limb dragging on flagstone",
+     SlotId::kScrapeLimb, SlotId::kScrapeLimb, SlotId::kScrapeLimb},
+    {SlotId::kAirWhoosh, "air_whoosh", SlotFamily::kLoop, 1, 1000.0f, 2000.0f, true,
+     "Low airy movement"},
+    {SlotId::kHeadImpact, "head_impact", SlotFamily::kAccent, 2, 300.0f, 500.0f, false,
      "Dull skull thud with a granular edge and a slight ring"},
-    {SlotId::kSettleRest, "settle_rest", "accent", 2, 200.0f, 400.0f, false,
+    {SlotId::kSettleRest, "settle_rest", SlotFamily::kAccent, 2, 200.0f, 400.0f, false,
      "Soft final flop. Closes the event"},
-    {SlotId::kGruntImpact, "grunt_impact", "voice", 0, 300.0f, 600.0f, false,
+    {SlotId::kGruntImpact, "grunt_impact", SlotFamily::kVoice, 0, 300.0f, 600.0f, false,
      "Declared and unfilled. Adding voice later is a config change, not a code change"},
-    {SlotId::kScreamBig, "scream_big", "voice", 0, 800.0f, 1500.0f, false,
+    {SlotId::kScreamBig, "scream_big", SlotFamily::kVoice, 0, 800.0f, 1500.0f, false,
      "Declared and unfilled"},
+
+    // Belongs beside `imp_body`, and sits here instead because this table is
+    // indexed by `SlotId` and a slot's number is an input to the variant hash -
+    // see the note on the enum. New rows go at the end.
+    //
+    // The impact family was the one place the mod did not make a distinction it
+    // makes everywhere else: the loops have `scrape_loop` against `scrape_limb`
+    // and the crunches have three tunings, but a faceplant and a forearm were
+    // built from the same wav, so the only thing telling them apart was how loud
+    // the mass term made them.
+    //
+    // Falls back to `imp_body` and shares its mute, so an install with nothing
+    // recorded sounds exactly like an install without the feature - the same
+    // door `scrape_body_stone` and the armour skins sit behind. It keeps a trim
+    // of its own for the reason the three crunches do: two separate recordings
+    // arrive at two different levels.
+    {SlotId::kImpBodyLimb, "imp_body_limb", SlotFamily::kImpact, 3, 120.0f, 200.0f, false,
+     "imp_body out on an arm or a leg: drier, tighter and higher than the torso's, with "
+     "less weight under it",
+     SlotId::kImpBody, SlotId::kImpBody},
+
+    // The garment. One slot for all four armour classes, because a slot can
+    // carry conditional variants now - see the note on the enum - so `heavy`
+    // and `cloth` are two placements here rather than two slots.
+    //
+    // No fallback and `expectedVariants = 0`: with nothing recorded it resolves
+    // to nothing, the loop never starts, and an install without the file is
+    // byte-identical to an install without the feature.
+    {SlotId::kClothRustle, "cloth_rustle", SlotFamily::kLoop, 0, 1500.0f, 3000.0f, true,
+     "Fabric and armour shifting under a falling body. Flat and seamless - the engine owns "
+     "the envelope, so a designed swish with an arc is unusable"},
+
+    // The mass under a slide, as its own layer. No fallback on purpose: a bed
+    // that fell back to `scrape_loop` would play the grind twice, so an install
+    // with nothing recorded resolves to nothing and the bed voice never opens.
+    // Its own mute and its own trim, because it is its own recording at its own
+    // level - and no surface variants, because boards and flagstone change the
+    // grit and mass sounds the same under any floor.
+    {SlotId::kScrapeLoopRumble, "scrape_loop_rumble", SlotFamily::kLoop, 4, 1500.0f, 4000.0f, true,
+     "The mass under a slide: the floor loaded by a body crossing it, with none of the grit "
+     "that rides on top. Featureless and seamless - the grind supplies the character"},
 };
 
 static_assert(std::size(kSlots) == static_cast<std::size_t>(SlotId::kCount),
               "every SlotId needs a row, or Slot() indexes off the end of the table");
 
 [[nodiscard]] constexpr std::size_t Index(SlotId id) { return static_cast<std::size_t>(id); }
-
-/// The length of a procedural stand-in, as a pure function of the slot and the
-/// variant.
-///
-/// Deliberately not a function of the surface, coverage or limb: `Get` has to
-/// hand a renderer back exactly what `Resolve` chose from nothing but the
-/// (slot, variant) a cue carries, and a length that varied with the axes could
-/// not be recovered. The axes will pick between *files* once axis-suffixed
-/// variants exist; until then they choose nothing.
-[[nodiscard]] float StandInLengthMs(const SlotDesc& desc, std::uint8_t variant,
-                                    std::size_t count) {
-    const float t = count > 1 ? static_cast<float>(variant) / static_cast<float>(count - 1) : 0.5f;
-    return desc.minLengthMs + (desc.maxLengthMs - desc.minLengthMs) * t;
-}
 
 /// xorshift64*, so the bag is reproducible across compilers and runs. std::mt19937
 /// would do, but its state is 2.5 KB per bank and its sequence is not something
@@ -92,24 +199,144 @@ const SlotDesc& Slot(SlotId id) {
 
 std::string_view ToString(SlotId id) { return Slot(id).name; }
 
-SlotId SurfaceSlot(SurfaceClass surface) {
-    switch (surface) {
-        case SurfaceClass::kWood:
-            return SlotId::kSurfWood;
-        case SurfaceClass::kStone:
-            return SlotId::kSurfStone;
-        case SurfaceClass::kMetal:
-            // No metal skin authored. Stone is hard and short, which is the half
-            // of metal that reads at impact; the ring is what is missing and the
-            // pitch scatter covers for it better than a dull thud would.
-            return SlotId::kSurfStone;
-        case SurfaceClass::kWater:
-        case SurfaceClass::kBody:
-        case SurfaceClass::kSoft:
-        case SurfaceClass::kCount:
+std::string_view ToString(SlotFamily family) {
+    switch (family) {
+        case SlotFamily::kImpact:  return "impact";
+        case SlotFamily::kSurface: return "surface";
+        case SlotFamily::kArmor:   return "armor";
+        case SlotFamily::kGrain:   return "grain";
+        case SlotFamily::kLoop:    return "loop";
+        case SlotFamily::kAccent:  return "accent";
+        case SlotFamily::kVoice:   return "voice";
+    }
+    return "impact";
+}
+
+namespace {
+
+/// Walk a `mutesWith` / `trimsWith` chain to the slot that actually owns the
+/// control. Bounded by the slot count so a table edit that accidentally makes a
+/// cycle costs a wrong answer rather than a hang - and the loop cannot be
+/// entered at all by the shipping table, where no chain is longer than one step.
+[[nodiscard]] SlotId Owner(SlotId id, SlotId SlotDesc::*field) {
+    for (std::size_t guard = 0; guard < std::size(kSlots); ++guard) {
+        const SlotId next = Slot(id).*field;
+        if (next == SlotId::kCount || next == id) {
+            return id;
+        }
+        id = next;
+    }
+    return id;
+}
+
+}  // namespace
+
+SlotId MuteOwner(SlotId id) { return Owner(id, &SlotDesc::mutesWith); }
+SlotId TrimOwner(SlotId id) { return Owner(id, &SlotDesc::trimsWith); }
+
+SlotId ScrapeSurfaceSlot(SlotId base, SurfaceClass surface) {
+    // Only the two loops have surface variants declared, and only for the two
+    // surfaces that are recognisably not the default.
+    const bool limb = base == SlotId::kScrapeLimb;
+    if (base != SlotId::kScrapeLoop && !limb) {
+        return base;
+    }
+    // Thirteen classes and two recorded grinds, so the class walks its parent
+    // chain until it reaches one that has a grind or runs out. Ice and glass
+    // arrive at stone, snow and gravel arrive at soft and take the base, and a
+    // class recorded later needs nothing added here - it just stops walking
+    // sooner. kSoft *is* the base, so reaching it means "no variant", which is
+    // what the walk running out already means.
+    for (SurfaceClass c = surface; c != SurfaceClass::kCount; c = SurfaceParent(c)) {
+        if (c == SurfaceClass::kWood) {
+            return limb ? SlotId::kScrapeLimbWood : SlotId::kScrapeBodyWood;
+        }
+        if (c == SurfaceClass::kStone) {
+            return limb ? SlotId::kScrapeLimbStone : SlotId::kScrapeBodyStone;
+        }
+    }
+    return base;
+}
+
+SlotId SoundBank::PlaysAs(SlotId slot) const {
+    // Bounded by walking to a slot that is its own end of the line, so a
+    // mis-declared cycle in the manifest costs a few hops rather than the stack.
+    for (std::size_t hop = 0; hop < std::size(kSlots); ++hop) {
+        const SlotDesc& desc = Slot(slot);
+        if (!m_slots[Index(slot)].variants.empty() || desc.fallback == SlotId::kCount ||
+            desc.fallback == slot) {
             break;
+        }
+        slot = desc.fallback;
+    }
+    return slot;
+}
+
+bool SoundBank::HasSound(SlotId slot) const {
+    // Files, not intentions. This used to answer yes for any slot the manifest
+    // said would one day have variants, because a stand-in covered it until it
+    // did; with nothing synthesised, "will be recorded" and "can be heard" are
+    // different questions and a strategy is asking the second one.
+    return !m_slots[Index(PlaysAs(slot))].variants.empty();
+}
+
+SlotId BodySlot(LimbSite site) {
+    // Binned through `DamageSiteFor` rather than through a second switch of its
+    // own. It already answers exactly this question - is this the column, the
+    // skull, or a stick - with the neck counted as spine and anything off an
+    // unrecognised skeleton counted as a limb, and two mappings of one question
+    // are two mappings that have to be kept in agreement by hand.
+    //
+    // The head goes to the torso's layer rather than the limb's: a skull has the
+    // mass to sound like one, and what makes a faceplant a faceplant on top of
+    // that is `head_impact`, which is its own accent and a separate decision.
+    return DamageSiteFor(site) == DamageSite::kLimb ? SlotId::kImpBodyLimb : SlotId::kImpBody;
+}
+
+SlotId ArmorSlot(Coverage coverage) {
+    switch (coverage) {
+        case Coverage::kBare:  return SlotId::kArmorBare;
+        case Coverage::kCloth: return SlotId::kArmorCloth;
+        case Coverage::kLight: return SlotId::kArmorLight;
+        case Coverage::kHeavy: return SlotId::kArmorHeavy;
+    }
+    return SlotId::kArmorCloth;
+}
+
+SlotId SurfaceSlot(SurfaceClass surface) {
+    // One slot per class, always - the collapsing that used to happen here
+    // (metal playing the stone skin, water playing the soft one) is now the
+    // manifest's `fallback` column, so it happens in one place and the config
+    // inheritance can follow the same chain. See `SurfaceParent`.
+    switch (surface) {
+        case SurfaceClass::kSoft:        return SlotId::kSurfSoft;
+        case SurfaceClass::kWood:        return SlotId::kSurfWood;
+        case SurfaceClass::kStone:       return SlotId::kSurfStone;
+        case SurfaceClass::kMetal:       return SlotId::kSurfMetal;
+        case SurfaceClass::kWater:       return SlotId::kSurfWater;
+        case SurfaceClass::kBody:        return SlotId::kSurfBody;
+        case SurfaceClass::kDirt:        return SlotId::kSurfDirt;
+        case SurfaceClass::kGravel:      return SlotId::kSurfGravel;
+        case SurfaceClass::kSnow:        return SlotId::kSurfSnow;
+        case SurfaceClass::kIce:         return SlotId::kSurfIce;
+        case SurfaceClass::kGlass:       return SlotId::kSurfGlass;
+        case SurfaceClass::kWaterPuddle: return SlotId::kSurfWaterPuddle;
+        case SurfaceClass::kBone:        return SlotId::kSurfBone;
+        case SurfaceClass::kCount:       break;
     }
     return SlotId::kSurfSoft;
+}
+
+SurfaceClass SurfaceOfSlot(SlotId slot) {
+    // The inverse of SurfaceSlot, for the two places that hold a slot and need
+    // the class's config block: the mute lookup and the trim lookup.
+    for (std::uint8_t i = 0; i < static_cast<std::uint8_t>(SurfaceClass::kCount); ++i) {
+        const auto c = static_cast<SurfaceClass>(i);
+        if (SurfaceSlot(c) == slot) {
+            return c;
+        }
+    }
+    return SurfaceClass::kCount;
 }
 
 SurfaceClass SurfaceFromMaterial(std::uint32_t materialId) {
@@ -130,22 +357,30 @@ SurfaceClass SurfaceFromMaterial(std::uint32_t materialId) {
         case 1264672850u:  // Book
             return SurfaceClass::kWood;
 
-        // stone, and the hard brittle things that read the same at impact
+        // stone. CeramicMedium stays here rather than joining glass: it is
+        // brittle, but it is thick-walled and it thuds where glass rings.
         case 3741512247u:  // Stone
         case 1570821952u:  // StoneHeavy
         case 131151687u:   // StoneBroken
         case 899511101u:   // StoneStairs
         case 2892392795u:  // StoneStairsBroken
         case 1886078335u:  // StoneAsStairs
-        case 3739830338u:  // Glass
-        case 880200008u:   // GlassStairs
-        case 873356572u:   // Ice
-        case 2431524493u:  // IceForm
         case 1550912982u:  // BoulderSmall
         case 4283869410u:  // BoulderMedium
         case 1885326971u:  // BoulderLarge
         case 781661019u:   // CeramicMedium
             return SurfaceClass::kStone;
+
+        // glass, out of stone. Both stairs variants come with it.
+        case 3739830338u:  // Glass
+        case 880200008u:   // GlassStairs
+            return SurfaceClass::kGlass;
+
+        // ice, out of stone. IceForm is the conjured kind, which is the same
+        // surface with a shorter life.
+        case 873356572u:   // Ice
+        case 2431524493u:  // IceForm
+            return SurfaceClass::kIce;
 
         // metal. ArmorHeavy/ArmorLight and the SkinMetal pair are bodies wearing
         // plate: acoustically that is metal, and the Coverage axis describes our
@@ -164,39 +399,59 @@ SurfaceClass SurfaceFromMaterial(std::uint32_t materialId) {
             return SurfaceClass::kMetal;
 
         case 1024582599u:  // Water
-        case 3764646153u:  // WaterPuddle
             return SurfaceClass::kWater;
+
+        // a puddle is its own class: a slap with something solid under it,
+        // which is a different sound from arriving in a body of water.
+        case 3764646153u:  // WaterPuddle
+            return SurfaceClass::kWaterPuddle;
 
         // bodies - another actor, or one of our own limbs
         case 591247106u:   // Skin
         case 2632367422u:  // SkinSmall
         case 2965929619u:  // SkinLarge
-        case 2821299363u:  // SkinSkeleton
-        case 2058949504u:  // BoneActor
-        case 3049421844u:  // Bone
         case 2974920155u:  // Organic
         case 1322093133u:  // OrganicLarge
         case 668408902u:   // Insect
         case 220124585u:   // Meat
         case 2518321175u:  // Dragon
         case 1730220269u:  // Alduin
-        case 1028101969u:  // DraugrSkeleton
-        case 1574477864u:  // DragonSkeleton
         case 617099282u:   // DLC1DeerSkin
         case 2290050264u:  // DLC1SabreCatPelt
             return SurfaceClass::kBody;
 
+        // bone, out of body. BoneActor is a living creature's skeleton and
+        // vanilla routes it to PHYBodyMedium with the flesh; it is here because
+        // what we are colouring is the surface that was struck, and that is
+        // bone whether or not there is something alive behind it.
+        case 2821299363u:  // SkinSkeleton
+        case 3049421844u:  // Bone
+        case 2058949504u:  // BoneActor
+        case 1028101969u:  // DraugrSkeleton
+        case 1574477864u:  // DragonSkeleton
+            return SurfaceClass::kBone;
+
+        // dirt and mud together, which is the split vanilla's own footstep data
+        // makes: `DefaultFootstepWalkLImpactset` maps both onto one impact.
+        case 3106094762u:  // Dirt
+        case 1486385281u:  // Mud
+            return SurfaceClass::kDirt;
+
+        // gravel alone. Sand stays soft - it has none of the rattle that makes
+        // gravel worth separating.
+        case 428587608u:   // Gravel
+            return SurfaceClass::kGravel;
+
+        case 398949039u:   // Snow
+        case 1560365355u:  // SnowStairs
+            return SurfaceClass::kSnow;
+
         // named soft, so the mapping is deliberate rather than a fall-through
         case 1286705471u:  // Carpet
         case 3839073443u:  // Cloth
-        case 3106094762u:  // Dirt
-        case 428587608u:   // Gravel
         case 2168343821u:  // Sand
         case 534864873u:   // Ash
-        case 1486385281u:  // Mud
         case 1848600814u:  // Grass
-        case 398949039u:   // Snow
-        case 1560365355u:  // SnowStairs
         case 3934839107u:  // Web
             return SurfaceClass::kSoft;
 
@@ -296,7 +551,6 @@ void SoundBank::ScanDirectory(const std::string& directory, bool onlyEmptySlots)
             ResolvedSound sound{};
             sound.slot = desc.id;
             sound.path = path.string();
-            sound.procedural = false;
             sound.lengthMs = WavLengthMs(sound.path);
             if (sound.lengthMs <= 0.0f) {
                 sound.lengthMs = desc.maxLengthMs;
@@ -329,15 +583,28 @@ void SoundBank::LogContents(const char* source) {
             slot.variants[i].variant = static_cast<std::uint8_t>(i);
         }
 
-        // "imp_sub: 0/2 files, procedural" is exactly the line that explains why
-        // somebody's mod sounds thin, which is why it is at info and not debug.
+        // "imp_sub: 0/2 files, nothing to play" is exactly the line that explains
+        // why somebody's mod sounds thin, which is why it is at info and not
+        // debug. It is the *only* explanation now: an unrecorded slot is a layer
+        // that does not sound, and nothing in the mix hints at what is absent.
         if (!slot.variants.empty()) {
             spdlog::info("bank: {}: {}/{} files{}", desc.name, slot.variants.size(),
                          desc.expectedVariants, slot.looping ? ", looping" : "");
         } else if (desc.expectedVariants == 0) {
             spdlog::info("bank: {}: declared and unfilled, skipped silently", desc.name);
+        } else if (const SlotId plays = PlaysAs(desc.id);
+                   plays != desc.id && !m_slots[Index(plays)].variants.empty()) {
+            // Not silent: the surface-coloured scrapes have no recording of
+            // their own and play the grind they are a variant of, which is the
+            // whole of what makes them a file drop. Reporting them the same way
+            // as a slot with nothing behind it would send somebody recording a
+            // sound they can already hear.
+            spdlog::info("bank: {}: 0/{} files, plays {}", desc.name, desc.expectedVariants,
+                         ToString(plays));
         } else {
-            spdlog::info("bank: {}: 0/{} files, procedural", desc.name, desc.expectedVariants);
+            spdlog::warn("bank: {}: 0/{} files, nothing to play - record one or give it a "
+                         "fallback",
+                         desc.name, desc.expectedVariants);
         }
     }
     spdlog::info("bank: {}", source);
@@ -352,6 +619,8 @@ void SoundBank::Load(const std::string& directory) {
         slot.bag.clear();
         slot.bagCursor = 0;
         slot.scannedByName = true;
+        slot.conditions.clear();
+        slot.conditionCount = 0;
     }
     for (const auto& desc : kSlots) {
         m_slots[Index(desc.id)].looping = desc.isLoop;
@@ -371,6 +640,8 @@ void SoundBank::LoadAssigned(const SfxLibrary& library, const SfxAssignments& as
         slot.bag.clear();
         slot.bagCursor = 0;
         slot.scannedByName = false;
+        slot.conditions.clear();
+        slot.conditionCount = 0;
     }
 
     std::size_t assigned = 0;
@@ -385,7 +656,8 @@ void SoundBank::LoadAssigned(const SfxLibrary& library, const SfxAssignments& as
         // whose every named file is disabled has very much had one made.
         slot.scannedByName = want.files.empty();
 
-        for (const std::string& file : want.files) {
+        for (std::size_t placement = 0; placement < want.files.size(); ++placement) {
+            const std::string& file = want.files[placement];
             const SfxEntry* entry = library.Find(file);
             if (entry != nullptr && entry->disabled) {
                 // Muted in the library. Still named here, so re-enabling it puts
@@ -404,13 +676,30 @@ void SoundBank::LoadAssigned(const SfxLibrary& library, const SfxAssignments& as
                 ++missing;
                 continue;
             }
+            // Parallel to `variants`, and pushed in the same pass so the two
+            // cannot drift: a skipped file must not shift every later
+            // condition onto the wrong sound. Read by placement, because the
+            // same file may be on the slot twice with two different answers -
+            // once plain, once tagged - and its name cannot tell them apart.
+            const VariantCondition condition = want.ConditionAt(placement);
+            slot.conditions.push_back(condition);
+            if (!condition.Unconditional()) {
+                ++slot.conditionCount;
+            }
             ResolvedSound sound{};
             sound.slot = desc.id;
             sound.path = path.string();
-            sound.procedural = false;
             sound.lengthMs = 0.0f;
             if (entry != nullptr) {
                 sound.lengthMs = entry->durationMs;
+                // The corrections travel with the sound, so the engine never
+                // holds the library and Emit never looks anything up.
+                sound.pitch = entry->pitch;
+                sound.trimDb = entry->trimDb;
+                if (entry->Corrected()) {
+                    spdlog::info("bank: {} plays '{}' at {:.3f}x, {:+.1f} dB", desc.name, file,
+                                 entry->pitch, entry->trimDb);
+                }
             }
             if (sound.lengthMs <= 0.0f) {
                 sound.lengthMs = WavLengthMs(sound.path);
@@ -419,6 +708,14 @@ void SoundBank::LoadAssigned(const SfxLibrary& library, const SfxAssignments& as
                 sound.lengthMs = desc.maxLengthMs;
                 spdlog::warn("bank: {} is not a wav we can measure; assuming {:.0f} ms", sound.path,
                              sound.lengthMs);
+            }
+            // Last, after every source of a length has had its turn, because it
+            // applies to whichever one won. A renderer sizes its mix buffer off
+            // this, and pitch here is resampling: a 240 ms impact at 1.09x runs
+            // 220, and a buffer sized off the container length would leave 20 ms
+            // of tail with nothing to put in it.
+            if (sound.pitch > 0.0f) {
+                sound.lengthMs /= sound.pitch;
             }
             // Muted files are added and then suspended, not skipped. The skip is
             // what `disabled` in the library does, and it renumbers everything
@@ -437,8 +734,8 @@ void SoundBank::LoadAssigned(const SfxLibrary& library, const SfxAssignments& as
     }
 
     // Whatever the ini did not fill, the old way. A slot with no line here is a
-    // slot nobody has made a decision about yet, and the shipped pack is a
-    // better answer for it than a procedural stand-in.
+    // slot nobody has made a decision about yet, and the shipped pack is the
+    // only answer left for it.
     ScanDirectory(fallbackDirectory, true);
 
     // Said before the per-slot lines, because it is the line that explains them:
@@ -535,7 +832,17 @@ void SoundBank::ClearOverrides() {
 
 bool SoundBank::Resolve(SlotId slot, SurfaceClass surface, Coverage coverage, LimbSite site,
                         ResolvedSound& out, std::uint32_t token) {
-    const SlotDesc& desc = Slot(slot);
+    // Nothing recorded for this one: play what it says to play instead. Before
+    // the pin, before the count and before either picker, because a slot with no
+    // files has nothing to pin, count or shuffle - and because the alternative
+    // to falling back is now silence, so the walk is the only thing standing
+    // between an unrecorded surface variant and a missing layer.
+    //
+    // `PlaysAs` is that walk, and the only copy of it: a picker that fell back
+    // by one rule while a label reported another is how "it says it has nothing
+    // to play but I can hear the default" happens.
+    slot = PlaysAs(slot);
+
     SlotFiles& files = m_slots[Index(slot)];
 
     // A pin is a decision, so it comes before the count, before the mutes and
@@ -546,14 +853,12 @@ bool SoundBank::Resolve(SlotId slot, SurfaceClass surface, Coverage coverage, Li
         return Get(slot, files.forced, out);
     }
 
-    // How many things there are to choose between: the real files if any exist,
-    // otherwise the variants the brief says the slot will eventually have, so
-    // the stand-ins vary the same way the files will.
-    const std::size_t count =
-        files.variants.empty() ? desc.expectedVariants : files.variants.size();
+    // How many things there are to choose between. Nothing along the chain has a
+    // recording when this is zero, and the layer is skipped: there is no
+    // stand-in to synthesise any more, so silence is the honest answer and the
+    // load log is where it is explained.
+    const std::size_t count = files.variants.size();
     if (count == 0) {
-        // The declared-and-unfilled voice slots. Callers skip them silently -
-        // that is what "adding voice later is a config change" means.
         return false;
     }
 
@@ -562,6 +867,7 @@ bool SoundBank::Resolve(SlotId slot, SurfaceClass surface, Coverage coverage, Li
     // straight into the variant numbers.
     std::uint8_t allowed[256];
     std::size_t allowedCount = count;
+    bool narrowed = false;
     if (files.mutedCount != 0) {
         allowedCount = 0;
         for (std::size_t i = 0; i < count && allowedCount < std::size(allowed); ++i) {
@@ -569,15 +875,74 @@ bool SoundBank::Resolve(SlotId slot, SurfaceClass surface, Coverage coverage, Li
                 allowed[allowedCount++] = static_cast<std::uint8_t>(i);
             }
         }
+        narrowed = true;
         if (allowedCount == 0) {
             // Every variant suspended. Silence is what the gesture asked for -
-            // falling through to a stand-in would answer "mute this" by
-            // synthesising it.
+            // falling through to this slot's fallback would answer "mute this"
+            // by finding another way to play it.
             return false;
         }
     }
+
+    // The specificity ladder. A file tagged `stone / heavy` is not a candidate
+    // anywhere else, and where it *is* a candidate it beats the plain files
+    // rather than merely joining them - otherwise a recording made for one
+    // combination would show up as one option in three on every contact, which
+    // is the opposite of what tagging it was for.
+    //
+    // Three steps: drop what mismatches, keep the most specific tier that has
+    // anything left in it, and hand the rest to the picker unchanged. The picker
+    // never learns conditions exist, and neither does `Get` - a variant index is
+    // still a position in `files`, so a cue's (slot, variant) still round-trips
+    // back to the same file. That is the constraint that could have killed this
+    // whole idea, and the reason the narrowing happens here and nowhere else.
+    if (m_conditions && files.conditionCount != 0) {
+        std::uint8_t tiered[256];
+        std::size_t tieredCount = 0;
+        int bestTier = -1;
+        for (int pass = 0; pass < 2; ++pass) {
+            for (std::size_t i = 0; i < allowedCount; ++i) {
+                const std::uint8_t v = narrowed ? allowed[i] : static_cast<std::uint8_t>(i);
+                VariantCondition cond =
+                    v < files.conditions.size() ? files.conditions[v] : VariantCondition{};
+                // A half that is switched off is a half with no opinion, which
+                // is exactly what `any` already means - so turning one off
+                // collapses the ladder on that axis and leaves the other alone.
+                if (!m_surfaceConditions) {
+                    cond.surface = SurfaceMatch::kAny;
+                }
+                if (!m_armorConditions) {
+                    cond.coverage = CoverageMatch::kAny;
+                }
+                if (!Matches(cond.surface, surface) || !Matches(cond.coverage, coverage)) {
+                    continue;
+                }
+                const int tier = cond.Specificity();
+                if (pass == 0) {
+                    bestTier = std::max(bestTier, tier);
+                } else if (tier == bestTier && tieredCount < std::size(tiered)) {
+                    tiered[tieredCount++] = v;
+                }
+            }
+            if (pass == 0 && bestTier < 0) {
+                // Nothing on this slot can satisfy the contact - a slot whose
+                // only file is tagged `stone`, on wood. A condition is a
+                // preference and never a mute, so the slot plays its full set
+                // rather than going quiet. Without this rule, tagging the only
+                // file on a slot would silently delete that layer from most of
+                // the game, which is the bug nobody would ever find.
+                break;
+            }
+        }
+        if (tieredCount != 0) {
+            std::copy(tiered, tiered + tieredCount, allowed);
+            allowedCount = tieredCount;
+            narrowed = true;
+        }
+    }
+
     const auto variantAt = [&](std::size_t index) {
-        return files.mutedCount == 0 ? static_cast<std::uint8_t>(index) : allowed[index];
+        return narrowed ? allowed[index] : static_cast<std::uint8_t>(index);
     };
 
     // Derived from the contact rather than from the bag's position, when the
@@ -596,8 +961,6 @@ bool SoundBank::Resolve(SlotId slot, SurfaceClass surface, Coverage coverage, Li
             pick = variantAt((index + step) % allowedCount);
         }
         files.lastVariant = pick;
-        (void)surface;
-        (void)coverage;
         (void)site;
         return Get(slot, pick, out);
     }
@@ -618,42 +981,29 @@ bool SoundBank::Resolve(SlotId slot, SurfaceClass surface, Coverage coverage, Li
     const std::uint8_t pick = files.bag[files.bagCursor++];
     files.lastVariant = pick;
 
-    // The axes are timbre only, never physics (07 §11), and until axis-suffixed
-    // files exist there is nothing for them to pick between: the surface already
-    // picked the *slot* through SurfaceSlot, and coverage and size will select
-    // among variants of a slot once `<name>_<axis>_<NN>.wav` files are authored.
-    // They are deliberately not folded into the stand-in's length, because Get
-    // has to reproduce a resolution from the (slot, variant) a cue carries and
-    // nothing else.
-    (void)surface;
-    (void)coverage;
+    // Surface and coverage have already been used, above, to narrow which
+    // variants were candidates at all. Size has not: keying a condition on the
+    // limb site was considered and dropped, so nothing reads it yet.
+    //
+    // Whatever reads it later may only pick between *files*: `Get` has to
+    // reproduce a resolution from the (slot, variant) a cue carries and nothing
+    // else, so anything that changed the sound rather than the choice would make
+    // a recorded cue unreproducible.
     (void)site;
 
     return Get(slot, pick, out);
 }
 
 bool SoundBank::Get(SlotId slot, std::uint8_t variant, ResolvedSound& out) const {
-    const SlotDesc& desc = Slot(slot);
+    // A plain lookup into what was loaded. False covers both the slot nobody has
+    // recorded and a variant index past the end of one that has been - in either
+    // case there is no file, and with nothing left to synthesise there is
+    // nothing to hand back.
     const SlotFiles& files = m_slots[Index(slot)];
-
-    if (!files.variants.empty()) {
-        if (variant >= files.variants.size()) {
-            return false;
-        }
-        out = files.variants[variant];
-        return true;
-    }
-    if (desc.expectedVariants == 0 || variant >= desc.expectedVariants) {
-        // The declared-and-unfilled voice slots. Callers skip them silently -
-        // that is what "adding voice later is a config change" means.
+    if (variant >= files.variants.size()) {
         return false;
     }
-
-    out = ResolvedSound{};
-    out.slot = slot;
-    out.variant = variant;
-    out.procedural = true;
-    out.lengthMs = StandInLengthMs(desc, variant, desc.expectedVariants);
+    out = files.variants[variant];
     return true;
 }
 

@@ -19,7 +19,7 @@ biggest part of it arrives late. These layers fire together as one sound.
 |---|---|---|---|
 | `imp_transient` | **0 ms** | quietest, −5 to −18 dB | The contact itself |
 | `surf_*` | +0–15 ms | −6 to −12 dB | What it hit |
-| `imp_body` | +10–30 ms | −2 to −8 dB | Low-mid flesh and mass |
+| `imp_body` / `imp_body_limb` | +10–30 ms | −2 to −8 dB | Low-mid flesh and mass. The torso's layer or the limb's — same slot in the stack, different wav |
 | **`imp_sub`** | **+55–75 ms** | **0 dB reference** | The pitched boom. The whole of the gnarl |
 
 It starts bright and quiet and finishes dark, loud and short. That late sub is what makes a hit read
@@ -45,25 +45,62 @@ much each file matters, not a spec. `—` means it was not counted, not that it 
 | Slot | Family | Files | Fires | What it is for | What it should sound like |
 |---|---|---|---|---|---|
 | `imp_transient` | impact | 3 | — | The contact instant of every impact | Bright, fast attack, no tail. A hard dry slap or knuckle crack. Must not compete with the body — it is the *quietest* layer |
-| `imp_body` | impact | 3 | — | The mass of every impact; where the meat lives | Dense low-mid thud, smooth. Raw meat on wood, a wet sandbag, a weighted leather duffel. **If it has crackle in it, it is a `crunch_gran` take, not a body take** |
+| `imp_body` | impact | 3 | — | The mass of a torso or head impact; where the meat lives | Dense low-mid thud, smooth. Raw meat on wood, a wet sandbag, a weighted leather duffel. **If it has crackle in it, it is a `crunch_gran` take, not a body take** |
+| `imp_body_limb` | impact | 3 | — | The same layer on an arm or a leg. **Falls back to `imp_body`** | `imp_body` with less body: drier, tighter, higher, shorter. A forearm or a shin arriving, not a torso. Should sit *under* `imp_body` on the same closing speed — if a take of this could pass as the torso's, it is the wrong take |
 | `imp_sub` | impact | 2 | — | The boom under every impact. **Synthesised, never prompted** | Pitched sweep ~150 Hz → 30 Hz with a quiet tail holding the settled pitch. Saturated for 2nd/3rd harmonic so it survives a laptop speaker |
-| `surf_soft` | surface | 2 | **27×** | The default surface skin — anything unresolved falls back here | The dull component of a body hitting packed earth or a rug. No ring, no snap. Like punching a heavy sofa cushion. Sits *under* the impact layers and must not compete |
+| `surf_soft` | surface | 2 | **27×** | The default surface skin — anything unresolved falls back here, and so do dirt, gravel, snow, water and body | The dull component of a body hitting packed earth or a rug. No ring, no snap. Like punching a heavy sofa cushion. Sits *under* the impact layers and must not compete |
+| `armor_bare` | armor | — | — | Nothing equipped. **Ships empty** | A flat skin slap, wet-ish, no snap. The sound of a bare limb arriving, without the mass underneath it — that is `imp_body`'s job |
+| `armor_cloth` | armor | — | — | Clothing, and anything unresolved. **Ships empty** | A soft cloth thump, deliberately close to nothing. This is the default class, so it plays on most contacts in the game: err quiet |
+| `armor_light` | armor | — | — | Leather, hide, studded. **Ships empty** | A leather creak with a small buckle jingle riding on it. Movement, not impact |
+| `armor_heavy` | armor | — | — | Plate, steel, dwarven. **Ships empty** | Plate rattle: metallic, short, **no pitched ring**. The clank *around* the impact, not a bell. The one worth recording first |
 | `surf_wood` | surface | 2 | 10× | Wooden floors, boards, planking | A hollow knock with air under it. Knuckles on a plank table, a boot heel on floorboards. Faint pitched resonance that dies almost immediately. Hollow, not boomy |
 | `surf_stone` | surface | 2 | 0× | Flagstone, granite, worked stone | Hard and short. A flat tight slap with no resonance and no tail. Slapping concrete with a leather glove — stone does not ring, it stops |
+| `surf_metal` | surface | — | — | Iron, steel, chain, pots. **Ships empty, falls back to `surf_stone`** | A short clang with **no pitched ring** — the clank, not the bell. Stone is the half of metal that already reads at impact; this adds the rest |
+| `surf_ice` | surface | — | — | Ice, frozen lakes, ice form. **Ships empty, falls back to `surf_stone`** | Stone, but colder and brighter, with a hairline crack in the tail. Hard and short; the crack is what separates it from flagstone |
+| `surf_glass` | surface | — | — | Glass, glass stairs. **Ships empty, falls back to `surf_stone`** | Brittle and thin. Nearly nothing at a brush and a shatter at speed — the **widest intensity ramp of any surface**, which is the point of it having a block |
+| `surf_dirt` | surface | — | — | Dirt and mud. **Ships empty, falls back to `surf_soft`** | Packed earth: duller and shorter than soft, with no grain riding on top. Absorbent, no tail |
+| `surf_gravel` | surface | — | — | Gravel. **Ships empty, falls back to `surf_soft`** | Soft underneath with loose stones scattering over it. The rattle is the whole difference from dirt |
+| `surf_snow` | surface | — | — | Snow, snow stairs. **Ships empty, falls back to `surf_soft`** | A compressing squeak with the top end rolled off. The most absorbent surface in the set |
+| `surf_water` | surface | — | — | Open water. **Ships empty, falls back to `surf_soft`** | The displacement of a body arriving, not the splash grain. **Turn `bOnTaps` off for this one** — a splash on nine of every ten contacts is absurd |
+| `surf_water_puddle` | surface | — | — | Puddles. **Ships empty, falls back to `surf_water`** | A wet slap with something solid under it. Shorter and brighter than open water — the floor is still there |
+| `surf_body` | surface | — | — | Flesh on flesh. **Ships empty, falls back to `surf_soft`** | The most common contact in the whole capture set (9254 of them) and the one with no colour of its own until now. Soft, damp, no floor under it |
+| `surf_bone` | surface | — | — | Skeletons, draugr. **Ships empty, falls back to `surf_body`** | A dry rattle over the flesh underneath. Hollow sticks, not a crunch — breaking is `limb_crunch`'s job |
 | `limb_tap` | grain | 4 | — | Burst filler; turns a single hit into the 3–4 grains a real tumble has | Tiny dry contacts. A forearm on a floor, a knee in dirt, a boot heel clipping stone. Generate them **neutral** — the plugin pitch-scatters them heavily at runtime |
 | `crunch_gran` | grain | 2 | 1× | The bone-break character. Rides on top of an impact | Dense granular crackle in the low-mid — **density, not a snap**. Many small crackles overlapping into one texture, never a single identifiable crack. It must **emerge rather than hit**: no attack of its own |
 | `gore_wet` | grain | 2 | 0× | Obliterate tier only (>1400 u/s) | A wet squelch, heavy and viscous rather than splashy — mass moving, not liquid spraying. Sucking quality on the release. No bones, no crack |
 | `head_impact` | accent | 2 | 1× | A skull hitting something hard. Rare, unmissable | Dull and heavy first, granular in the middle, a very slight ring at the end — **the ring is what makes it read as a head rather than a hip**. A watermelon on stone, minus the wet. Grim, not comedic |
 | `settle_rest` | accent | 2 | **11×** | Closes the event — the body's last small shift as it comes to rest | A heavy limb flopping the final few inches and stopping. One soft dull thump with cloth around it. Like dropping a coat with a book in the pocket. **A full stop, not an event** |
+| `scrape_grain` | grain | 3 | — | **The entry scuff**: the one moment a grind *starts*. Repurposed 2026-08-26 — it used to be a catch fired all through a slide | A short dry snag of the same grit the loop is made of. Bite, then a rough tail that decays into the grind starting under it. **Not a tap**: it must sound like the slide it introduces, not like a small separate impact |
 | `scrape_loop` | loop | 1 | — | A body being dragged along a surface | Low-tilted grinding rumble with grit riding on it. **Not a hiss** — and not a pure rumble either: the reference slide is nearly flat, only the air band is really down |
-| `foley_cloth` | loop | 1 | — | The continuous bed; clothing moving with the body | Steady gentle fabric friction, no impacts, no footsteps. Part of a bed that sits 30–36 dB under the hero hit |
+| `scrape_limb` | loop | 1 | — | One limb dragging — a foot, a trailing hand, a forearm | The same grind run dry. **Not a quieter copy of `scrape_loop`** — a quiet rumble is a small body, and this is not a small body, it is a small contact patch. The low shelf comes off, the grit rate roughly doubles, each grain is shorter. It should read as *contact* where the body loop reads as *mass* |
+| `scrape_body_wood`, `scrape_body_stone` | loop | 1 each | — | The body grind on boards and on flagstone | Same brief as `scrape_loop`, coloured by the floor: boards hollower and more resonant, flagstone harder and grittier. Unrecorded slots fall back to `scrape_loop`, so these are a file drop and nothing else |
+| `scrape_limb_wood`, `scrape_limb_stone` | loop | 1 each | — | One limb on boards and on flagstone | As above, falling back to `scrape_limb` |
+| `scrape_loop_rumble` | loop | 4 | — | The mass under any slide, body or limb. **Synthesised, never prompted** — `tools/make_rumble.py` | Featureless low bed: sub band loudest, hard rolloff above a 200–430 Hz knee, a 3–8 Hz wobble and one faint floor mode. **The one loop judged for having almost no mid content** — the grind supplies the character, and the pair is what should land on the reference figures. No surface variants (mass sounds the same under any floor) and no fallback (falling back to `scrape_loop` would play the grind twice) |
 | `air_whoosh` | loop | 1 | 44 loop ops | Airborne anticipation. Gain and pitch driven live as a parameter | Low airy movement, distinctly low-tilted. A thick blanket swung slowly past a mic. **No transients at all** — the file must be featureless enough that looping is inaudible. Not a designed sweep with a climax |
 | `grunt_impact` | voice | **0** | — | Declared and unfilled by design | Record or licence. Fallback resolution skips it silently |
 | `scream_big` | voice | **0** | — | Declared and unfilled by design | Record or licence — generated screams are the worst-sounding thing in this list |
 
-`scrape_grain` — sparse one-shots for the moments where a limb catches — has a `SPEC` entry but **no
-row in `SlotManifest.cpp`**. `04-Reference-Analysis.md` §7 asks for it and it was dropped from the
-29. Three takes in the ledger already pass as one. Adding it back is a design decision.
+`scrape_grain` is now a slot rather than a `SPEC` entry with nothing behind it — and since 2026-08-26
+it is a different sound in the same slot. It used to fire on the contacts a limb caught on, all the
+way through a slide. That was right about the reference measurement (sixty-five grit peaks a second)
+and wrong about where the measurement belongs: sixty-five a second is *texture* and belongs in the
+loop file, and the same idea at cue rate arrives as a rattle of separate little impacts over a grind.
+What it fires on now is the **entry** — one scuff on the tick a grind opens, which is the one moment
+in a slide that genuinely is an event and the one that used to have nothing marking it. The brief
+barely moves (it must still sound like the slide, not like a tap); what moves is that it has to work
+as an *arrival* rather than as an interruption.
+
+`scrape_loop_rumble` is the other half of the same fix, and it goes the other way: it is the layer
+the grinds never had. Measured against the reference slide events our grinds sit 35–45 dB out on the
+bass-to-hiss balance, in the opposite direction, with the sub band 40 dB down where the references
+have it loudest — and no EQ rescues a file with nothing under the shelf to boost. So the mass is a
+layer, on its own voice at its own pitch, and the grinds go on being grit. The two together measure
++14.1 tilt at a 5444 Hz centroid with the sub loudest, from a grind that is −36.3 and 9102 Hz
+alone.
+
+The six scrape slots resolve through a declared fallback, so a surface with nothing recorded for it
+plays the default grind rather than going silent — which means `scrape_body_stone` can be shipped the
+day somebody records one, with no code change and no ini edit.
 
 ---
 
@@ -77,6 +114,10 @@ What `sfx.py eval` enforces. `As built` is what the shipped files actually measu
 | `imp_body` | 150–250 ms | 15–200 ms | 800–4200 Hz | **≥ +4 dB** (bass-led) | 120 Hz | 0–5 | 2166–3425 Hz / 16–32 ms |
 | `imp_sub` | 250–400 ms | 15–120 ms | 20–400 Hz | — | **none** | — | 156–184 Hz / 48 ms |
 | `surf_soft` | 150–250 ms | 15–200 ms | 300–3200 Hz | **≥ +3 dB** | 120 Hz | — | 674–2475 Hz / 16–26 ms |
+| `armor_bare` | 80–200 ms | 10–150 ms | 300–3000 Hz | — | 120 Hz | — | no reference yet |
+| `armor_cloth` | 100–250 ms | 15–200 ms | 300–4000 Hz | — | 120 Hz | — | no reference yet |
+| `armor_light` | 100–250 ms | 15–250 ms | 800–6000 Hz | — | 150 Hz | — | no reference yet |
+| `armor_heavy` | 120–300 ms | 20–300 ms | 1200–8000 Hz | **≤ −2 dB** (bright) | 150 Hz | no single peak > 6 dB over the body of it | no reference yet |
 | `surf_wood` | 120–200 ms | 20–160 ms | 400–3000 Hz | — | 120 Hz | — | 830–1348 Hz / 40–78 ms |
 | `surf_stone` | 100–160 ms | 5–90 ms | 1200–9000 Hz | **≤ −2 dB** (bright) | 120 Hz | — | 6751–8041 Hz / 8–12 ms |
 | `limb_tap` | 40–100 ms | 3–60 ms | 600–9000 Hz | — | 200 Hz | 0–4 | 904–3459 Hz / 12–44 ms |
@@ -84,7 +125,7 @@ What `sfx.py eval` enforces. `As built` is what the shipped files actually measu
 | `gore_wet` | 200–400 ms | 20–350 ms | 400–4000 Hz | — | 120 Hz | — | 1645–1666 Hz / 28–58 ms |
 | `head_impact` | 300–500 ms | 20–300 ms | 400–3500 Hz | **≥ +2 dB** | 120 Hz | 4–14 | 1100–2935 Hz / 34–70 ms |
 | `settle_rest` | 200–400 ms | 20–400 ms | 300–3200 Hz | — | 120 Hz | — | 2469–2629 Hz / 28–48 ms |
-| `scrape_grain` | 150–500 ms | 40–400 ms | 300–6000 Hz | — | 120 Hz | 6–40 | not built |
+| `scrape_grain` | 150–500 ms | 40–400 ms | 300–6000 Hz | — | 120 Hz | 6–40 | 3029 Hz / 280 ms, 4520 Hz / 412 ms |
 | `grunt_impact` | 300–600 ms | — | — | — | — | — | not built |
 | `scream_big` | 800–1500 ms | — | — | — | — | — | not built |
 
@@ -102,7 +143,9 @@ Judged as a sustained texture rather than a one-shot, so there is no attack or d
 | Slot | Length | Centroid | Tilt | Grains/s | Envelope steadiness | Other | As built |
 |---|---|---|---|---|---|---|---|
 | `scrape_loop` | 1.5–3 s | — | **+5 to +19 dB** | **8–40** | 2.5–8.0 dB | no high-pass | 3386 Hz, 24 grains/s, **0.02 dB seam** |
-| `foley_cloth` | 1.5–3 s | — | — | — | 0.5–5.0 dB | high-pass **120 Hz**; no peak >6 dB over the bed | 5500 Hz, 1.2 dB seam |
+| `scrape_body_wood`, `scrape_body_stone` | 1.5–3 s | — | **+5 to +19 dB** | **8–40** | 2.5–8.0 dB | no high-pass | not built |
+| `scrape_limb` | 1.5–3 s | — | **≤ +8 dB** | **25–120** | 2.0–8.0 dB | no high-pass | not built |
+| `scrape_loop_rumble` | **1.5–4 s** | **20–1200 Hz** | **≥ +20 dB** | — | 0.5–6.0 dB | no high-pass | 96–343 Hz, seam −44 to −89 dB |
 | `air_whoosh` | 1–2 s | 50–2000 Hz | — | — | 0.5–6.0 dB | no high-pass | 218 Hz, 0.6 dB seam |
 
 Loops are played **whole-file with no crossfade**, so the seam is the asset's problem: generate
@@ -144,6 +187,14 @@ Author everything **dry, punchy and pre-limited**. All dynamics come from runtim
 
 `tools/verify_pack.py` checks all five. `tools/sfx.py eval` checks §3. A file needs to pass both.
 
+For anything coming in through the testbench's library window, the mechanical half of this table is
+not checked but *applied*: an import normalises the peak to −1.5, subtracts DC, trims head and
+trailing silence, fades a hard ending, and keeps the left channel of a stereo source whose two
+channels do not correlate. None of those is a judgement, so none of them arrives as a badge — see
+`03-Asset-Status.md` §4b. The rules that need a decision (lead-in on a file that came in another
+way, a baked tail, a loop seam) and the ones nothing can mend (a squared-off waveform, hiss inside
+30 dB of the hero) are what the badges are left carrying.
+
 ---
 
 ## 6. Which file a slot plays
@@ -178,9 +229,34 @@ was a 9.9 s long cut whose own loop window failed. `tools/triage_batch.py` emits
 Everything in the library carries a `<file>.meta.ini` sidecar with what the importer measured, in
 these same units — so a badge in the testbench's library window can be read straight against §3.
 
-Anything unfilled falls through to a procedural stand-in rather than going silent, so a partial pack
-is a quieter mod, not a broken one — which is why `grunt_impact` and `scream_big` can sit declared
-and empty indefinitely.
+### Correcting one recording
+
+The sidecar's `[Sfx]` section also carries two numbers that are **yours**, beside `Name` and
+`Disabled`, and the browser has a slider for each:
+
+```ini
+Pitch  = 1.0900   ; playback rate. 1 is the file as recorded
+TrimDb = -2.50    ; level, applied after arbitration
+```
+
+For a take that is right in every way except one — a grind pitched too low, a thud that sits hot
+against its siblings. They belong to the **sound**, so they apply on every slot that names it, the
+same way `Disabled` does; a level wanted on one slot and not another is `SlotGain:f<Slot>` instead.
+The trim cannot change which cue was chosen, because nothing knows which *file* a layer resolved to
+until after arbitration has run.
+
+Two things to know before turning the pitch. It is **resampling**, so the file plays shorter or
+longer — the browser shows the real length beside the slider, and that is the number to read §3's
+length band against, not the one in `[Format]`. And it stacks on top of the engine's own per-cue
+pitch scatter rather than replacing it, so the variation you hear in game is still there.
+
+A correction is not a repair. If a file is quiet because it was recorded quiet, `repair` normalises
+it properly and permanently; the trim is for when the level is *right* and only wrong here.
+
+Anything unfilled is **silent**. Nothing is synthesised: a sound this mod makes is a sound somebody
+recorded, so a slot with no file and no declared fallback simply does not sound, and the load log is
+the only place that says so. That is why `grunt_impact` and `scream_big` can sit declared and empty
+indefinitely — and why every other empty slot is a job rather than a nuance.
 
 
 ---

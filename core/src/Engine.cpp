@@ -558,6 +558,23 @@ struct ActorRuntime {
     float armorSlideLastDb{kSilentDb};
     std::uint16_t armorSlideAnchor{};
     SlotId armorSlideSlot{SlotId::kArmorCloth};
+
+    /// The mass under the grinds, as its own voice.
+    ///
+    /// **One per actor and not one per grind**, which is the whole shape of the
+    /// layer: the floor is one object, the same way a shirt is one object and
+    /// `rustleRunning` is one voice. Five grinds over five copies of the same bed
+    /// would be five incoherent bass beds summing, which beats audibly down
+    /// there - and it is the failure baking the bed into each grind file would
+    /// have guaranteed.
+    ///
+    /// No slot field beside it, unlike `scrapeSlot` and `armorSlideSlot`: the bed
+    /// has no surface variants to pin, because boards and flagstone colour the
+    /// grit and mass sounds the same under any floor.
+    bool scrapeBedRunning{};
+    std::uint32_t scrapeBedVoice{};
+    float scrapeBedLastDb{kSilentDb};
+    std::uint16_t scrapeBedAnchor{};
     /// The bone the body grind hangs on. Nearest the contact, not the pelvis and
     /// not the lowest - see `bBodyFollowsContact`.
     std::uint16_t bodyAnchor{};
@@ -589,6 +606,13 @@ struct ActorRuntime {
         float tangent{};
         float tickTangent{};
         TimeMs lastGrazeMs{kLongAgo};
+        /// The feed event behind the most recent graze on this chain.
+        ///
+        /// Carried so the entry scuff can be attributed to the collision that
+        /// really happened rather than to the tick that noticed it. The renderer
+        /// groups cues by `sourceSeq`, so a grain emitted with a zero would be
+        /// mixed into whatever else on this actor also had none.
+        std::uint32_t lastGrazeSeq{};
         LimbSite site{};
         SurfaceClass surface{SurfaceClass::kSoft};
         Vec3 point{};
@@ -761,21 +785,17 @@ struct ActorRuntime {
     /// the hero clause is measured on.
     float slideSpeed{};
 
-    /// The hold as it stood before this tick folded its own grazes in.
-    ///
-    /// What a catch is measured against: "harder than the slide has been
-    /// grinding lately" cannot be asked of a figure this very contact has
-    /// already been maxed into, which would make every contact its own baseline
-    /// and no contact a catch. The same shape as `energyRecentBeforeTick`, and
-    /// for the same reason.
-    float slideTangentBeforeTick{};
-
     /// The last graze's own tags. The slide-end impact is a contact the solver
     /// never reported, so it is coloured by the limb that was demonstrably
     /// grinding along the floor a frame ago rather than by a guess.
     std::uint16_t scrapeLimb{};
     LimbSite slideSite{};
     LimbChain slideChain{};
+    /// The feed event behind that graze, so the body grind's entry scuff is
+    /// attributed to the collision it really came from. The renderer groups cues
+    /// by `sourceSeq`, and a grain carrying a zero would be mixed into whatever
+    /// else on this actor also had none.
+    std::uint32_t slideSeq{};
     Coverage slideCoverage{};
     SurfaceClass slideSurface{SurfaceClass::kSoft};
     float slideRadius{};
@@ -1983,7 +2003,11 @@ class ScrapeLoopStrategy final : public IStrategy {
 public:
     [[nodiscard]] const char* Name() const override { return "ScrapeLoop"; }
 
-    bool Propose(const StrategyContext& ctx, const Contact& contact, ProposalList& out) override {
+    /// Unnamed `out` because this path proposes nothing any more: it decides
+    /// whether the grind *keeps* a graze, and the layer that used to spend one
+    /// here is now a tick-path event on the loop that opens. See
+    /// `EmitEntryCatch`.
+    bool Propose(const StrategyContext& ctx, const Contact& contact, ProposalList&) override {
         const ScrapeLoopConfig& scrape = ctx.cfg.strategies.scrape;
         if (!scrape.enabled || !contact.graze || !Allowed(ctx)) {
             return false;
@@ -2024,11 +2048,18 @@ public:
             return false;
         }
 
-        // A catch. Fired on a contact the solver actually reported and never on
-        // an inference - the settle system and the synthesised slide impact were
-        // both deleted for inventing sound where there was no collision, and
-        // this is the opposite case: a real contact the mod was throwing away.
-        ProposeGrain(ctx, contact, out);
+        // Claimed and spent on the grind, with nothing of its own. The catch
+        // layer used to fire here - a grain on any graze harder than the slide's
+        // recent average - and that is what it no longer is: sixty-five grit
+        // peaks a second is texture and belongs in the file, and the same idea
+        // at cue rate arrives as a rattle of separate little impacts over a
+        // grind. What is left of the layer is the *entry*, which is a tick-path
+        // event on the loop that opens, not a contact-path one - see
+        // `EmitEntryCatch`.
+        //
+        // So this returns true and proposes nothing, which is what claiming a
+        // graze inside a running slide has always meant for most of them: you do
+        // not want a thud on every frame of a skid.
         return true;
     }
 
@@ -2052,8 +2083,14 @@ public:
                 ? 1.0f
                 : std::clamp((actor.contactFraction - scrape.bodyFracStart) / fracSpan, 0.0f, 1.0f);
 
-        BodyLoop(ctx, out, alive, weight);
-        LimbLoops(ctx, out, alive, weight);
+        // The order is the mix. The grinds decide whether there is a slide to
+        // put a bed under, so the bed is asked last and told what they did -
+        // rather than re-deriving their two `wants` tests, which is the kind of
+        // duplicated predicate that let the old strategy gates disagree with the
+        // motion axis about whether a slide was happening at all.
+        const bool bodyWants = BodyLoop(ctx, out, alive, weight);
+        const int limbsWanted = LimbLoops(ctx, out, alive, weight);
+        RumbleBed(ctx, out, alive, weight, bodyWants, limbsWanted);
     }
 
 private:
@@ -2095,7 +2132,30 @@ private:
         return scrape.surfaceVariants ? ScrapeSurfaceSlot(base, surface) : base;
     }
 
-    void BodyLoop(const StrategyContext& ctx, ProposalList& out, bool alive, float weight) const {
+    /// Where the body grind hangs, and therefore where the bed does.
+    ///
+    /// Factored out because the bed has to agree with the grind about this. Two
+    /// copies of "nearest the contact, falling back to the graze centre, falling
+    /// back to the root" is two things that can drift apart, and a bed anchored
+    /// somewhere other than the grind it is under is the one placement error
+    /// nobody would hear as a placement error - it would just sound wrong.
+    [[nodiscard]] static LoopAnchor BodyGrindAnchor(const StrategyContext& ctx) {
+        const ScrapeLoopConfig& scrape = ctx.cfg.strategies.scrape;
+        const ActorRuntime& actor = ctx.actor;
+        LoopAnchor anchor = BodyAnchor(actor);
+        if (scrape.bodyFollowsContact && actor.haveBodyAnchor) {
+            anchor.limbIndex = actor.bodyAnchor;
+            if (actor.bodyAnchor < actor.limbCount && actor.limbs[actor.bodyAnchor].havePos) {
+                anchor.position = actor.limbs[actor.bodyAnchor].pos;
+            } else if (actor.haveGrazeCentre) {
+                anchor.position = actor.grazeCentre;
+            }
+        }
+        return anchor;
+    }
+
+    /// Returns whether the body grind is running, for the bed to read.
+    bool BodyLoop(const StrategyContext& ctx, ProposalList& out, bool alive, float weight) const {
         const ScrapeLoopConfig& scrape = ctx.cfg.strategies.scrape;
         ActorRuntime& actor = ctx.actor;
 
@@ -2161,10 +2221,11 @@ private:
                 StopLoopProposal(ctx, out, actor.armorSlideRunning, actor.armorSlideVoice,
                                  actor.armorSlideSlot, CueReason::kArmorSkin, StopFadeMs(ctx));
             }
-            return;
+            return false;
         }
 
-        if (!actor.scrapeRunning) {
+        const bool entering = !actor.scrapeRunning;
+        if (entering) {
             actor.scrapeSlot = SurfaceOf(scrape, SlotId::kScrapeLoop, actor.slideSurface);
         }
         // Where the grind is, decided before the cue rather than patched onto it
@@ -2173,19 +2234,19 @@ private:
         // The root is roughly the pelvis and is not where the sound is even for a
         // genuine full-body slide; nearest-to-contact is, and unlike "lowest" it
         // survives a staircase, a wall and a ceiling.
-        LoopAnchor anchor = BodyAnchor(actor);
-        if (scrape.bodyFollowsContact && actor.haveBodyAnchor) {
-            anchor.limbIndex = actor.bodyAnchor;
-            if (actor.bodyAnchor < actor.limbCount && actor.limbs[actor.bodyAnchor].havePos) {
-                anchor.position = actor.limbs[actor.bodyAnchor].pos;
-            } else if (actor.haveGrazeCentre) {
-                anchor.position = actor.grazeCentre;
-            }
-        }
+        const LoopAnchor anchor = BodyGrindAnchor(ctx);
         EmitLoopProposal(ctx, out, actor.scrapeRunning, actor.scrapeVoice, actor.scrapeLastDb,
                          actor.scrapeAnchor, actor.scrapeSlot, gainDb, pitch, CueReason::kScrape,
                          scrape.startFadeMs, anchor, actor.slideCoverage,
                          scrape.levelDeadbandDb);
+
+        // The body's entry scuff, off by default - a torso arriving flat is a
+        // fall and the impact composite has already voiced it, so this is for
+        // the drag that starts out of silence. See `bGrainOnBody`.
+        if (entering && scrape.grainOnBody) {
+            EmitEntryCatch(ctx, out, gainDb, anchor, actor.slideSeq, actor.slideSite,
+                           actor.slideSurface);
+        }
 
         // The armour riding it: same anchor, same fades, its own voice. Flat
         // rather than ramped because a slide has no single intensity - it has a
@@ -2198,7 +2259,7 @@ private:
                 StopLoopProposal(ctx, out, actor.armorSlideRunning, actor.armorSlideVoice,
                                  actor.armorSlideSlot, CueReason::kArmorSkin, StopFadeMs(ctx));
             }
-            return;
+            return true;
         }
         if (!actor.armorSlideRunning) {
             actor.armorSlideSlot = ArmorSlot(actor.slideCoverage);
@@ -2209,15 +2270,17 @@ private:
                 StopLoopProposal(ctx, out, actor.armorSlideRunning, actor.armorSlideVoice,
                                  actor.armorSlideSlot, CueReason::kArmorSkin, StopFadeMs(ctx));
             }
-            return;
+            return true;
         }
         EmitLoopProposal(ctx, out, actor.armorSlideRunning, actor.armorSlideVoice,
                          actor.armorSlideLastDb, actor.armorSlideAnchor, actor.armorSlideSlot,
                          armorDb, pitch, CueReason::kArmorSkin, scrape.startFadeMs, anchor,
                          actor.slideCoverage, scrape.levelDeadbandDb);
+        return true;
     }
 
-    void LimbLoops(const StrategyContext& ctx, ProposalList& out, bool alive, float weight) const {
+    /// Returns how many limb grinds are running, for the bed to read.
+    int LimbLoops(const StrategyContext& ctx, ProposalList& out, bool alive, float weight) const {
         const ScrapeLoopConfig& scrape = ctx.cfg.strategies.scrape;
         ActorRuntime& actor = ctx.actor;
 
@@ -2312,6 +2375,7 @@ private:
                     anchor.position = loop.point;
                 }
             }
+            const bool entering = !loop.running;
             const std::size_t before = out.size();
             EmitLoopProposal(ctx, out, loop.running, loop.voice, loop.lastDb, loop.sentAnchor,
                              loop.slot, gainDb, pitch, CueReason::kScrape, scrape.startFadeMs,
@@ -2319,13 +2383,126 @@ private:
             if (out.size() == before) {
                 continue;
             }
-            // Identity rather than placement, so it stays here: the slot is held
-            // for the life of the loop and the renderer ignores a variant on an
-            // update, which is what stops a file swapping under a running voice.
-            Proposal& proposal = out.back();
-            proposal.site = loop.site;
-            proposal.surface = loop.surface;
+            {
+                // Identity rather than placement, so it stays here: the slot is
+                // held for the life of the loop and the renderer ignores a
+                // variant on an update, which is what stops a file swapping
+                // under a running voice.
+                //
+                // Scoped, because the entry scuff below pushes onto `out` and a
+                // reference into a vector does not survive that.
+                Proposal& proposal = out.back();
+                proposal.site = loop.site;
+                proposal.surface = loop.surface;
+            }
+
+            // The scuff of this limb arriving: a foot catching, a hand slapping
+            // down and dragging. On by default here and off for the body,
+            // because this one is a real edge on a real moment and the torso's
+            // equivalent is a fall the composite already voiced.
+            if (entering) {
+                EmitEntryCatch(ctx, out, gainDb, anchor, loop.lastGrazeSeq, loop.site,
+                               loop.surface);
+            }
         }
+        return held;
+    }
+
+    /// The mass under the grinds: one bed voice per actor, at the body grind's
+    /// anchor, for as long as anything is grinding.
+    ///
+    /// Levelled on the same speed the grinds are, so the three move together,
+    /// and on a ramp of its own that is both deeper and curved - friction noise
+    /// rises with transit rate but the energy going into the floor rises with the
+    /// square of the speed, so a body at a crawl has grit and no mass. Its pitch
+    /// does not track anything, which is the point of it being a separate voice:
+    /// floor resonance does not move with how fast the body is going, and the
+    /// references hold a static spectrum while the level swells.
+    void RumbleBed(const StrategyContext& ctx, ProposalList& out, bool alive, float weight,
+                   bool bodyWants, int limbsWanted) const {
+        const ScrapeLoopConfig& scrape = ctx.cfg.strategies.scrape;
+        ActorRuntime& actor = ctx.actor;
+
+        // **The bed is levelled exactly the way a limb grind is**, and that is
+        // the whole of how this layer got its movement.
+        //
+        // It used to read `LevelSpeed` - the body's speed with a quarter of the
+        // contact's blended in - through a ramp 30 dB deep with the v^2 curve on
+        // it. Every part of that was against it. Body speed is smooth *by
+        // definition*, which is the same complaint `fContactSpeedBlend` exists to
+        // answer for the grinds; squaring a 0..1 track pulls the whole bottom of
+        // the range down; and 30 dB of depth over a curve leaves a layer that is
+        // either inaudible or fully on, with almost no range in between. It read
+        // as a switch, because it was one.
+        //
+        // A limb grind does not have that problem, and the reason is not a
+        // different mechanism - every loop in the mod gets its level the one same
+        // way, baked into its buffer by `MixLoop`. It is what the number is
+        // measured on. `loop.tangent` is a decaying peak-hold over how fast that
+        // chain is actually rubbing: it is spiky, because limbs load and unload
+        // as a body tumbles. `actor.slideTangent` is that same measurement at
+        // actor scope - the quantity the limb loops' own tangents are the
+        // per-chain version of - so it is the honest thing to hand the bed, and
+        // unlike a scan over the running loops it exists even when a torso is
+        // skidding on its spine with no chain holding a grind at all.
+        //
+        // The ramp ends and the depth are the limb grinds' own rather than a
+        // parallel pair of keys. Two knobs over one quantity is two things to
+        // keep in agreement by hand, and the mod has been bitten by that before -
+        // the slide strategy used to carry its own duration, distance and speed
+        // gates beside the motion axis' and the two disagreed. So
+        // `fRumbleSpeedCurve` and `fRumbleSpeedRangeDb` are gone rather than
+        // re-tuned: the bed rides the limb ramp, and `fRumbleGainDb` and
+        // `fRumbleLimbGainDb` are what remain its own.
+        const float speed = actor.slideTangent;
+        const float track =
+            Track(speed, scrape.limbSpeedForMinGain, scrape.limbSpeedForMaxGain);
+
+        // The limb/body difference is a trim and nothing else, interpolated on
+        // the same fraction the body grind's weight uses so it arrives with the
+        // body rather than switching - and applied whole when no body grind is
+        // running at all, whatever the fraction says. That last clause is a fix
+        // for a real bug: `weight` is the *body's* contact fraction, so a body
+        // lying flat and skidding with `bBodyEnabled` off measured ~1, cancelled
+        // the trim, and played the bed at full body level under nothing but limb
+        // grinds - mass with none of the grit, which is the one thing the bed
+        // must never be on its own. The duck two functions up already guards on
+        // `bBodyEnabled` for the same reason; this did not.
+        const float bodyWeight = bodyWants ? weight : 0.0f;
+        const float gainDb = scrape.rumbleGainDb +
+                             Lerp(scrape.limbSpeedRangeDb, 0.0f, track) +
+                             Lerp(scrape.rumbleLimbGainDb, 0.0f, bodyWeight);
+        const float pitch =
+            scrape.rumblePitch + scrape.rumblePitchPerThousandUnits * speed / 1000.0f;
+
+        // A bed under nothing is a hum in the room, so it needs a grind over it:
+        // the body's, or a limb's if `bRumbleOnLimbs` says a small contact patch
+        // loads the floor too.
+        //
+        // `CanSound` is the other half and is why this costs nothing until the
+        // file exists: the slot has no fallback - one that fell back to
+        // `scrape_loop` would play the grind twice - so with nothing recorded
+        // this never opens a voice, and a slide is exactly what it was before the
+        // layer existed.
+        const bool wants = alive && scrape.rumbleEnabled &&
+                           (bodyWants || (scrape.rumbleOnLimbs && limbsWanted > 0)) &&
+                           speed > scrape.limbSpeedForMinGain &&
+                           gainDb >= ctx.cfg.mix.voiceFloorDb &&
+                           CanSound(ctx, SlotId::kScrapeLoopRumble);
+
+        if (!wants) {
+            if (actor.scrapeBedRunning) {
+                StopLoopProposal(ctx, out, actor.scrapeBedRunning, actor.scrapeBedVoice,
+                                 SlotId::kScrapeLoopRumble, CueReason::kScrape, StopFadeMs(ctx));
+            }
+            return;
+        }
+
+        EmitLoopProposal(ctx, out, actor.scrapeBedRunning, actor.scrapeBedVoice,
+                         actor.scrapeBedLastDb, actor.scrapeBedAnchor,
+                         SlotId::kScrapeLoopRumble, gainDb, pitch, CueReason::kScrape,
+                         scrape.startFadeMs, BodyGrindAnchor(ctx), actor.slideCoverage,
+                         scrape.levelDeadbandDb);
     }
 
     /// Which fade, from how the slide ended. A slide that ends in friction ends
@@ -2338,46 +2515,62 @@ private:
                                                                  : scrape.stopFadeMs;
     }
 
-    /// One catch: the moment a limb snags mid-slide and lets go again.
+    /// The scuff of a grind arriving: one `scrape_grain` on the tick a loop
+    /// opens, under the head of the loop it introduces.
     ///
-    /// A slide's character is its irregularity, and the loop has none - the
-    /// reference recordings put sixty-five grit peaks a second on top of the
-    /// rumble and our file has the rumble alone. These are the coarse half of
-    /// that, the individual snags, and they are the single biggest thing between
-    /// "a slide" and "a noise file".
+    /// **What the catch layer became.** It used to fire through a whole slide,
+    /// on any graze harder than the slide's recent average, rate-limited and
+    /// rolled for. The theory was right - the reference recordings put sixty-five
+    /// grit peaks a second on the rumble and the loop has none - but sixty-five a
+    /// second is texture, and texture at cue rate is a rattle of separate little
+    /// impacts over a grind rather than a grind with grit in it. That density now
+    /// belongs to the file, and the layer keeps the one moment in a slide that is
+    /// genuinely an event.
     ///
-    /// Measured against how hard the slide has been grinding *before this tick*,
-    /// which is the only baseline that makes the test mean anything: fold the
-    /// contact in first and every contact is its own baseline and none of them is
-    /// a catch.
-    void ProposeGrain(const StrategyContext& ctx, const Contact& contact,
-                      ProposalList& out) const {
+    /// A slide is not declared until 150 ms or 45 units into a grind that is
+    /// physically already happening, so the loop always opens into a body that
+    /// has been scraping for a moment already, and it used to open with nothing
+    /// marking the arrival. That is the "somebody turned a noise on" the slide
+    /// rework is about.
+    ///
+    /// Not an inference, which is the rule the deleted settle system and the
+    /// deleted synthesised slide impact both broke. A loop only opens on a chain
+    /// that has really been grazing inside `fContactHoldMs`, so there is a
+    /// collision behind every one of these - and `seq` is that collision's, so it
+    /// groups with the moment it belongs to instead of with whatever else on this
+    /// actor happened to carry no provenance.
+    void EmitEntryCatch(const StrategyContext& ctx, ProposalList& out, float loopGainDb,
+                        const LoopAnchor& anchor, std::uint32_t seq, LimbSite site,
+                        SurfaceClass surface) const {
         const ScrapeLoopConfig& scrape = ctx.cfg.strategies.scrape;
-        ActorRuntime& actor = ctx.actor;
-        if (!scrape.grainEnabled || contact.selfContact) {
+        if (!scrape.grainEnabled || !CanSound(ctx, SlotId::kScrapeGrain)) {
             return;
         }
-        const float baseline = std::max(1.0f, actor.slideTangentBeforeTick);
-        if (contact.tangentSpeed < scrape.grainCatchRatio * baseline) {
-            return;
-        }
-        if (!Ancient(actor.lastGrainMs) &&
-            static_cast<float>(contact.timeMs - actor.lastGrainMs) < scrape.grainMinGapMs) {
-            return;
-        }
-        if (ctx.rng.Unit() > std::clamp(scrape.grainProbability, 0.0f, 1.0f)) {
-            return;
-        }
-        actor.lastGrainMs = contact.timeMs;
+        ctx.actor.lastGrainMs = ctx.nowMs;
 
+        // Against the loop's level rather than a contact's onset, which is the
+        // other half of the repurposing: a mid-slide catch was an accessory to
+        // the collision that caused it, and an entry is the front of the sound it
+        // opens. So it scales with the grind and there is nothing to tune twice -
+        // a limb barely dragging scuffs quietly, a body arriving at speed scuffs
+        // hard.
+        //
         // An onset of its own rather than a ride-along: there is no composite
-        // under a catch to be an accessory to - the loop is not an onset - and a
+        // under it to be an accessory to - a loop is not an onset - and a
         // ride-along with no parent is dropped. It goes through the arbitrator
         // like everything else and is paid for out of `Slide`'s own grain budget,
         // which is the line `iSlideMaxCues` was named for.
-        Proposal proposal = FromContact(contact);
-        proposal.boneIndex = BoneFor(ctx, contact.limbIndex);
-        proposal.levelDb = contact.onsetGainDb + scrape.grainGainDb;
+        Proposal proposal{};
+        proposal.timeMs = ctx.nowMs;
+        proposal.actorId = ctx.actor.state.actorId;
+        proposal.sourceSeq = seq;
+        proposal.limbIndex = anchor.limbIndex;
+        proposal.boneIndex = BoneFor(ctx, anchor.limbIndex);
+        proposal.position = anchor.position;
+        proposal.site = site;
+        proposal.surface = surface;
+        proposal.coverage = ctx.actor.slideCoverage;
+        proposal.levelDb = loopGainDb + scrape.grainGainDb;
         proposal.layerCount = 1;
         proposal.layers[0].slot = SlotId::kScrapeGrain;
         proposal.layers[0].gainDb = proposal.levelDb;
@@ -2914,6 +3107,15 @@ struct Engine::Impl {
         StopOneLoop(actor, nowMs, actor.armorSlideRunning, actor.armorSlideVoice,
                     actor.armorSlideSlot, CueReason::kArmorSkin,
                     cfg.strategies.scrape.stopFadeMs);
+        // The bed, which has to be here and not only in `RumbleBed`: an NPC who
+        // gets up mid-slide never reaches the motion axis' route to Resting, so
+        // the only thing that would ever have stopped it is this sweep. A stranded
+        // bed is the worst of the loops to strand, too - it is the one that is
+        // pure low frequency, so it does not read as a stuck sound, it reads as
+        // the room having a hum in it.
+        StopOneLoop(actor, nowMs, actor.scrapeBedRunning, actor.scrapeBedVoice,
+                    SlotId::kScrapeLoopRumble, CueReason::kScrape,
+                    cfg.strategies.scrape.stopFadeMs);
         StopOneLoop(actor, nowMs, actor.rustleRunning, actor.rustleVoice, SlotId::kClothRustle,
                     CueReason::kRustle, cfg.strategies.rustle.stopFadeMs);
         for (auto& loop : actor.limbLoops) {
@@ -3241,6 +3443,9 @@ struct Engine::Impl {
             // trims are for.
             case SlotId::kScrapeLoop:   return g.scrapeLoop;
             case SlotId::kScrapeLimb:   return g.scrapeLimb;
+            // Its own trim and not the grind's: two recordings at two levels,
+            // and the balance between them is the whole of this layer.
+            case SlotId::kScrapeLoopRumble: return g.scrapeLoopRumble;
             case SlotId::kAirWhoosh:    return g.airWhoosh;
             case SlotId::kHeadImpact:   return g.headImpact;
             case SlotId::kSettleRest:   return g.settleRest;
@@ -4162,10 +4367,6 @@ struct Engine::Impl {
         // whether this contact stands out from the recent peak, and the loop
         // below is about to fold this contact into that very peak.
         actor.energyRecentBeforeTick = actor.energyRecent;
-        // And the same snapshot for the grain layer's "harder than the slide has
-        // been grinding lately" test, which the loop below is about to fold this
-        // tick's grazes into.
-        actor.slideTangentBeforeTick = actor.slideTangent;
         // A moment resets the burst on the tick it is anchored and not after.
         actor.heroResetsBurst = false;
 
@@ -4256,6 +4457,7 @@ struct Engine::Impl {
                 actor.scrapeLimb = contact.limbIndex;
                 actor.slideSite = contact.site;
                 actor.slideChain = contact.chain;
+                actor.slideSeq = contact.sourceSeq;
                 actor.slideCoverage = contact.coverage;
                 actor.slideSurface = contact.surface;
                 actor.slideRadius = contact.limbRadius;
@@ -4285,6 +4487,7 @@ struct Engine::Impl {
                     ActorRuntime::LimbLoop& loop =
                         actor.limbLoops[static_cast<std::size_t>(chain)];
                     loop.lastGrazeMs = contact.timeMs;
+                    loop.lastGrazeSeq = contact.sourceSeq;
                     loop.tangent = std::max(loop.tangent, contact.tangentSpeed);
                     loop.surface = contact.surface;
                     // The bone inside the chain that is doing the most rubbing

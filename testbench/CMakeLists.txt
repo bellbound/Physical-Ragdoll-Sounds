@@ -95,4 +95,10 @@ target_compile_definitions(RagdollSoundsTestbench PRIVATE
     RDS_DEFAULT_CONFIGS="${CMAKE_CURRENT_SOURCE_DIR}/configs"
     RDS_DEFAULT_FRAMECACHE="${CMAKE_CURRENT_SOURCE_DIR}/framecache"
     RDS_DEFAULT_LIBRARY="${CMAKE_CURRENT_SOURCE_DIR}/../assets/sfx/library"
+    # An extract of the game's sound/fx tree, for playing a take's vanilla track
+    # back. Bethesda's files, so it sits beside assets/sfx/skyrim rather than
+    # inside library/ - outside everything deploy-pack.ps1 can reach, for the
+    # three reasons that folder's README sets out. Absent by default, and that is
+    # fine: the vanilla side is then silent and the switch says why.
+    RDS_DEFAULT_VANILLA_SOUNDS="${CMAKE_CURRENT_SOURCE_DIR}/../assets/sfx/vanilla"
     RDS_DEFAULT_SFX_INI="${CMAKE_CURRENT_SOURCE_DIR}/../../../papyrus/mods/Physical Ragdoll Sounds/deployment_files/main/SKSE/Plugins/RagdollSounds/RagdollSounds_SFX.ini")

@@ -9,7 +9,7 @@
 //
 //   Stage 0  Ingest       gate, dedupe, reject blow-ups, tag, route self-contacts
 //   Stage 1  Crash state  a few dozen floats per tracked actor
-//   Stage 2  Motion       Launch <-> Airborne <-> Tumble <-> Slide <-> Resting
+//   Stage 2  Motion       Launch <-> Airborne <-> Tumble <-> Slide
 //            Moment       Ordinary <-> Hero. Two axes; see Types.h for why
 //   Stage 3  Strategies   the pluggable layer. They propose only
 //   Stage 4  Arbitration  fixed rules, in order. It disposes
@@ -45,7 +45,7 @@ struct CrashState {
     // See `Motion` and `Moment` in Types.h for what each is and why they split.
 
     /// What the body is doing. Physics owns it; it transitions freely.
-    Motion motion{Motion::kResting};
+    Motion motion{Motion::kLaunch};
     TimeMs motionEnteredMs{};
 
     /// What the mix is doing. Design owns it; latched and windowed.
@@ -119,9 +119,46 @@ struct CrashState {
     LimbSite leadingLimb{};  ///< the site carrying the most energy into the fall
     bool headDown{};
 
+    // ── the garment ──────────────────────────────────────────────────────────
+    //
+    // How much the clothes are moving, 0 to 1. Two fields rather than one
+    // because the envelope is most of the tuning and a single value cannot
+    // show it working: the timeline draws the smoothed level as a filled curve
+    // and the raw drive as a line over it, and the gap between them *is* the
+    // attack and the release.
+    //
+    // Both stay 0 unless `[Rustle] bEnabled` is on - nothing computes them
+    // otherwise - and both are 0 on a take with no pose sidecar, where there is
+    // nothing to measure and the layer switches off rather than guessing.
+
+    /// This tick's measurement, before the envelope. Spiky by nature: it is a
+    /// second derivative of a pose stream taken on a body that is being hit.
+    float rustleDriveRaw{};
+    /// After the attack/release envelope. What the loop's level and pitch read.
+    float rustleDrive{};
+
+    /// How violent the last few hundred milliseconds have been, 0 to 1.
+    ///
+    /// The same measurement the garment is built from, held differently: a
+    /// decaying peak-hold that **decays every tick but rises only on ticks with
+    /// no contact in them**. That asymmetry is the whole of it, and it is there
+    /// because of the trap 01 §7.4 names - a limb striking stone produces an
+    /// enormous relative acceleration, so a violence figure that let contact
+    /// ticks raise it would be reading each collision back to itself and calling
+    /// the result context.
+    ///
+    /// What survives is the free thrashing *between* collisions, which is what
+    /// "this is a bad tumble" means, and which is genuinely independent of how
+    /// hard any one contact hit. `DamageViolenceConfig` is its only reader.
+    ///
+    /// Because the rise is suppressed on contact ticks, the value damage reads
+    /// provably predates the contact being judged - so unlike `energyRecent`
+    /// this needs no `…BeforeTick` twin.
+    float motionViolence{};
+
     /// How the last slide ended, which is the only part of a slide `motion`
     /// cannot say: the state names where the body is, and a slide leaves it
-    /// three ways that sound nothing like each other - see `SlideExit`.
+    /// two ways that sound different - see `SlideExit`.
     ///
     /// Held after the fact rather than being a transient. The scrape loop reads
     /// it on the tick it stops, to choose between the ordinary fade and the
@@ -147,19 +184,23 @@ struct EngineStats {
     std::uint32_t rejectedBelowFloor{};
     std::uint32_t droppedMirror{};
     std::uint32_t collapsedManifold{};
-    std::uint32_t routedToFoley{};
+    /// Quiet self-contacts dropped at ingest: one limb brushing another
+    /// limb of the same body, which makes no impact sound.
+    std::uint32_t droppedSelfContact{};
     std::uint32_t proposedCues{};
     std::uint32_t droppedRateCap{};
-    /// Onsets that were inside the rate cap and got through anyway by being
-    /// properly louder. Counted rather than inferred: the verifier cannot
-    /// reconstruct the decision from the cue list, because the level the
-    /// arbitrator judged is the proposed stack's and layers can still be lost to
-    /// the voice cap afterwards.
+    /// Onsets that were inside the nominal rate cap and got through anyway:
+    /// either by being properly louder than the onset holding it, or because a
+    /// hero moment scaled the cap down for its peers (`Hero:fRateCapFrac`).
+    ///
+    /// Counted rather than inferred, because the verifier can reconstruct
+    /// neither from the cue list: the level the arbitrator judged is the
+    /// proposed stack's and layers can still be lost to the mix's voice floor
+    /// afterwards, and the scale lived on a proposal that is gone by then.
     std::uint32_t rateCapOverrides{};
     std::uint32_t droppedChainMerge{};
     std::uint32_t droppedMasking{};
     std::uint32_t droppedBurstCap{};
-    std::uint32_t droppedVoiceCap{};
     /// Hero moments opened, and the times one of them re-anchored onto a bigger
     /// contact rather than opening a second.
     ///
@@ -183,28 +224,73 @@ struct EngineStats {
     /// alone is indistinguishable from a relief that only ever fires on contacts
     /// that would have anchored regardless.
     std::uint32_t heroHeadRelief{};
-    /// Slides, and the ones that ended because something stopped the body.
+    /// Slides the entry test found at all - it used to find none on the one
+    /// take that is mostly sliding, which is what the rework was for.
     ///
-    /// The pair is the readout for the whole slide rework. `slides` says the
-    /// entry test is finding them at all - it used to find none on the one take
-    /// that is mostly sliding - and the difference between the two says how
-    /// often a slide ends by being interrupted rather than by the body coming to
-    /// rest or leaving the ground, which is the case the old machine had no way
-    /// to express and simply faded out over.
+    /// `slideImpacts` stood beside this and went with the slide-end lift. It
+    /// counted slides that ended on a contact the lift then made bigger, and it
+    /// read 0 on all eight takes: no slide in the corpus ever ended on a frame
+    /// carrying a real collision, which is the measurement that said the lift
+    /// was standing in for an exit test rather than describing anything.
     std::uint32_t slides{};
-    std::uint32_t slideImpacts{};
+    /// The garment's two raw measurements at their peak, **before** either ramp:
+    /// the fabric-weighted mean relative limb acceleration in u/s^2, and the
+    /// fabric-weighted mean limb surface speed from rotation in u/s.
+    ///
+    /// Pre-ramp on purpose, and they are the whole of Phase 0. `fThrashFloor`
+    /// and `fThrashFull` are currently guesses because nothing had ever measured
+    /// a tumble - free fall is 686 u/s^2 and a limb landing measured 5110, and
+    /// where the ordinary thrashing of a fall sits between those two was
+    /// unknown. Running the corpus with `Rustle:bEnabled=1` and reading these
+    /// two columns is the measurement that replaces the guesses; a peak recorded
+    /// against the *normalised* drive could not, because the normalisation is
+    /// the thing being set.
+    ///
+    /// Zero while the feature is off, which is when nothing is measured at all.
+    float rustleThrashPeak{};
+    float rustleTumblePeak{};
+    /// The same two averaged over every measured tick, which is the number the
+    /// ramps actually want.
+    ///
+    /// The peak alone is misleading and measurably so: it is an impact frame by
+    /// construction - one limb reversing against stone in a single solver step -
+    /// and a ramp stretched to reach it flattens the ordinary thrashing of a
+    /// tumble to nothing, which is the failure mode the whole range question
+    /// turns on. Peak and mean together bracket it: the floor belongs under the
+    /// mean and the top between the two.
+    float rustleThrashMean{};
+    float rustleTumbleMean{};
+    std::uint32_t rustleTicks{};
+    /// The highest `CrashState::motionViolence` this run reached, 0 to 1.
+    ///
+    /// The one number that says whether the damage rule's violence term can ever
+    /// do anything on this corpus. A take whose peak is 0.2 will never see the
+    /// full gate drop however the fractions are set, and reading that off a stat
+    /// is cheaper than wondering why an A/B moved nothing.
+    float violencePeak{};
+    /// The damage rule's own raw thrash - mass-weighted, not fabric-weighted -
+    /// at its peak and averaged. The twin of the two `rustleThrash…` fields and
+    /// a separate pair on purpose: the two measurements weight the same limbs
+    /// differently, so one set of numbers cannot calibrate both sets of ramps.
+    float violenceThrashPeak{};
+    float violenceThrashMean{};
+    std::uint32_t violenceTicks{};
+
+    /// Accumulated damage: the fullest any one limb's pool got, and how many
+    /// breaks the ladder produced.
+    ///
+    /// The peak is what says whether the ladder is reachable at all on a given
+    /// take - a corpus whose pools top out at 0.4 will never fire a rung pitched
+    /// at 0.6, which is the dead-gate trap the damage tiers fell into once
+    /// already (01 §4).
+    float accumPoolPeak{};
+    std::uint32_t accumBreaks{};
+
+    void AccumPeak(float pool) { accumPoolPeak = accumPoolPeak < pool ? pool : accumPoolPeak; }
     /// Flights that were powered by something other than gravity at some point.
     /// A take where this is high and `heroes` is also high is a take whose big
     /// moments are being handed out for someone else's impulse.
     std::uint32_t drivenFlights{};
-    /// Closing cues that were emitted while the body was measurably still in
-    /// the air. Must be zero - a fall that announces it is over while the body
-    /// is still falling reads as broken instantly, and this one has shipped
-    /// before: 184 ms into a flight and 121 units above the ground.
-    ///
-    /// Counted rather than checked from the cue list, because whether the body
-    /// was airborne at the time is engine state the cue does not carry.
-    std::uint32_t settleInFlight{};
     std::uint32_t emittedCues{};
     /// Cues arbitration admitted and paid for, then a layer mute silenced.
     /// Counted apart from emittedCues so a muted A/B still shows what the

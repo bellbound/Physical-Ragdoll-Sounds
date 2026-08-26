@@ -74,9 +74,65 @@ std::string_view ToString(SurfaceClass c) {
         case SurfaceClass::kMetal: return "metal";
         case SurfaceClass::kWater: return "water";
         case SurfaceClass::kBody: return "body";
+        case SurfaceClass::kDirt: return "dirt";
+        case SurfaceClass::kGravel: return "gravel";
+        case SurfaceClass::kSnow: return "snow";
+        case SurfaceClass::kIce: return "ice";
+        case SurfaceClass::kGlass: return "glass";
+        case SurfaceClass::kWaterPuddle: return "waterpuddle";
+        case SurfaceClass::kBone: return "bone";
         case SurfaceClass::kCount: break;
     }
     return "soft";
+}
+
+SurfaceClass SurfaceClassFrom(std::string_view name) {
+    for (std::uint8_t i = 0; i < static_cast<std::uint8_t>(SurfaceClass::kCount); ++i) {
+        const auto c = static_cast<SurfaceClass>(i);
+        if (name == ToString(c)) {
+            return c;
+        }
+    }
+    return SurfaceClass::kCount;
+}
+
+SurfaceClass SurfaceParent(SurfaceClass c) {
+    switch (c) {
+        // The three roots. These are the classes with recorded files behind
+        // them, so they answer to the global ramp and to nothing else.
+        case SurfaceClass::kSoft:
+        case SurfaceClass::kWood:
+        case SurfaceClass::kStone:
+            return SurfaceClass::kCount;
+
+        // Hard and brittle. Metal has no ring recorded and stone is the half of
+        // it that reads at impact; glass and ice are hard-and-short before they
+        // are anything else.
+        case SurfaceClass::kMetal:
+        case SurfaceClass::kGlass:
+        case SurfaceClass::kIce:
+            return SurfaceClass::kStone;
+
+        // Dull and absorbent. Snow, dirt and gravel are all "soft with a
+        // different grain", which is exactly what a parent is for.
+        case SurfaceClass::kWater:
+        case SurfaceClass::kBody:
+        case SurfaceClass::kDirt:
+        case SurfaceClass::kGravel:
+        case SurfaceClass::kSnow:
+            return SurfaceClass::kSoft;
+
+        // A puddle is a slap with something under it, so it is a water before
+        // it is anything; a skeleton is a body before it is a rattle.
+        case SurfaceClass::kWaterPuddle:
+            return SurfaceClass::kWater;
+        case SurfaceClass::kBone:
+            return SurfaceClass::kBody;
+
+        case SurfaceClass::kCount:
+            break;
+    }
+    return SurfaceClass::kCount;
 }
 
 std::string_view ToString(LimbSite s) {
@@ -96,6 +152,33 @@ std::string_view ToString(LimbSite s) {
     return "unknown";
 }
 
+std::string_view ToString(DamageSite s) {
+    switch (s) {
+        case DamageSite::kHead: return "head";
+        case DamageSite::kSpine: return "spine";
+        case DamageSite::kLimb: return "limb";
+        case DamageSite::kCount: break;
+    }
+    return "limb";
+}
+
+DamageSite DamageSiteFor(LimbSite site) {
+    switch (site) {
+        case LimbSite::kHead:
+            return DamageSite::kHead;
+        // The neck is the top of the column, not the bottom of the skull - see
+        // DamageSite.
+        case LimbSite::kNeck:
+        case LimbSite::kTorso:
+            return DamageSite::kSpine;
+        default:
+            break;
+    }
+    // Arms, legs, and anything we could not name. A skeleton we do not recognise
+    // gets the least dramatic of the three rather than the skull's tuning.
+    return DamageSite::kLimb;
+}
+
 std::string_view ToString(Coverage c) {
     switch (c) {
         case Coverage::kBare: return "bare";
@@ -106,24 +189,66 @@ std::string_view ToString(Coverage c) {
     return "bare";
 }
 
+std::string_view ToString(SurfaceMatch m) {
+    // One name per class, and deliberately the *same* name `ToString(SurfaceClass)`
+    // gives - a condition in the sfx ini and a block header in the surfaces ini
+    // should spell a floor the same way.
+    if (m == SurfaceMatch::kAny) {
+        return "any";
+    }
+    return ToString(static_cast<SurfaceClass>(static_cast<std::uint8_t>(m) - 1));
+}
+
+std::string_view ToString(CoverageMatch m) {
+    switch (m) {
+        case CoverageMatch::kAny:   return "any";
+        case CoverageMatch::kBare:  return "bare";
+        case CoverageMatch::kCloth: return "cloth";
+        case CoverageMatch::kLight: return "light";
+        case CoverageMatch::kHeavy: return "heavy";
+    }
+    return "any";
+}
+
+SurfaceMatch SurfaceMatchFrom(std::string_view name) {
+    // Anything unrecognised reads as `any` rather than as an error. A condition
+    // is a preference, so a typo should cost the preference and nothing else -
+    // the alternative is an ini that silently drops a file out of the game.
+    for (std::uint8_t i = 0; i <= static_cast<std::uint8_t>(SurfaceMatch::kBone); ++i) {
+        const auto m = static_cast<SurfaceMatch>(i);
+        if (name == ToString(m)) {
+            return m;
+        }
+    }
+    return SurfaceMatch::kAny;
+}
+
+CoverageMatch CoverageMatchFrom(std::string_view name) {
+    for (std::uint8_t i = 0; i <= static_cast<std::uint8_t>(CoverageMatch::kHeavy); ++i) {
+        const auto m = static_cast<CoverageMatch>(i);
+        if (name == ToString(m)) {
+            return m;
+        }
+    }
+    return CoverageMatch::kAny;
+}
+
 std::string_view ToString(Motion m) {
     switch (m) {
         case Motion::kLaunch: return "Launch";
         case Motion::kAirborne: return "Airborne";
         case Motion::kTumble: return "Tumble";
         case Motion::kSlide: return "Slide";
-        case Motion::kResting: return "Resting";
         case Motion::kCount: break;
     }
-    return "Resting";
+    return "Tumble";
 }
 
 std::string_view ToString(SlideExit e) {
     switch (e) {
         case SlideExit::kNone: return "none";
-        case SlideExit::kRested: return "rested";
         case SlideExit::kLaunched: return "launched";
-        case SlideExit::kStruck: return "struck";
+        case SlideExit::kEnded: return "ended";
     }
     return "none";
 }
@@ -146,10 +271,9 @@ std::string_view ToString(Motion m, Moment moment) {
         case Motion::kAirborne: return "Airborne+Hero";
         case Motion::kTumble: return "Tumble+Hero";
         case Motion::kSlide: return "Slide+Hero";
-        case Motion::kResting: return "Resting+Hero";
         case Motion::kCount: break;
     }
-    return "Resting+Hero";
+    return "Tumble+Hero";
 }
 
 std::string_view ToString(DistanceTier t) {
@@ -228,6 +352,47 @@ float NominalMass(LimbSite site) {
     // Mid-limb, so an unrecognised skeleton is neither silent nor a cannon. The
     // sizing that actually varies on that path is objectRadius.
     return 2.5f;
+}
+
+float FabricWeight(LimbSite site, Coverage coverage) {
+    // How much garment hangs on each site, in arbitrary units that only ever
+    // appear as a ratio - the rustle drive is a weighted *mean*, so a uniform
+    // scale over the whole table cancels and only the shape matters.
+    //
+    // Deliberately not the mass table. A thigh and a torso carry most of what
+    // moves; a forearm carries a sleeve; a hand, a foot and a head carry
+    // almost nothing until something is buckled onto them, which is what the
+    // coverage scale below is for.
+    float base = 0.0f;
+    switch (site) {
+        case LimbSite::kTorso:    base = 10.0f; break;
+        case LimbSite::kThigh:    base = 7.0f;  break;
+        case LimbSite::kCalf:     base = 3.0f;  break;
+        case LimbSite::kUpperArm: base = 3.0f;  break;
+        case LimbSite::kForearm:  base = 2.0f;  break;
+        case LimbSite::kNeck:     base = 1.0f;  break;
+        case LimbSite::kFoot:     base = 1.0f;  break;
+        case LimbSite::kHand:     base = 0.5f;  break;
+        case LimbSite::kHead:     base = 0.5f;  break;
+        case LimbSite::kUnknown:
+        case LimbSite::kCount:
+            // Mid-limb, for the same reason NominalMass picks one: a draugr or a
+            // modded skeleton should be neither silent nor a sail.
+            base = 2.0f;
+            break;
+    }
+
+    // Bare is not zero, because skin on skin is not silent - but it is close,
+    // and it is the reason a naked body barely rustles without needing a slot
+    // of its own to be empty. Heavy is the largest because mail and plate hang
+    // loose and swing further than a shirt does.
+    switch (coverage) {
+        case Coverage::kBare:  return base * 0.15f;
+        case Coverage::kCloth: return base;
+        case Coverage::kLight: return base * 1.2f;
+        case Coverage::kHeavy: return base * 1.5f;
+    }
+    return base;
 }
 
 }  // namespace rds

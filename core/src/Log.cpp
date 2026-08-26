@@ -111,14 +111,14 @@ void Summary(const std::string& actorName, const EngineStats& stats, double dura
     // 10:1, four to six audible moments against 30-60 collisions.
     spdlog::info(
         "knockdown [{}] {:.0f} ms: {} contacts in, {} cues out in {} bursts, {:.1f}:1, peak "
-        "{:.0f} u/s | dropped rate {} chain {} mask {} burst {} voices {} | rejected blowup {} "
-        "floor {} mirror {} manifold {} | foley {} | heroes {} (+{} re-anchored, {} on head "
+        "{:.0f} u/s | dropped rate {} chain {} mask {} burst {} | rejected blowup {} "
+        "floor {} mirror {} manifold {} | self {} | heroes {} (+{} re-anchored, {} on head "
         "relief)",
         actorName, durationMs, stats.contactsIn, stats.emittedCues, stats.bursts,
         static_cast<double>(stats.ReductionRatio()), static_cast<double>(stats.peakSpeed),
         stats.droppedRateCap, stats.droppedChainMerge, stats.droppedMasking, stats.droppedBurstCap,
-        stats.droppedVoiceCap, stats.rejectedBlowup, stats.rejectedBelowFloor, stats.droppedMirror,
-        stats.collapsedManifold, stats.routedToFoley, stats.heroes, stats.heroReanchors,
+        stats.rejectedBlowup, stats.rejectedBelowFloor, stats.droppedMirror,
+        stats.collapsedManifold, stats.droppedSelfContact, stats.heroes, stats.heroReanchors,
         stats.heroHeadRelief);
 }
 

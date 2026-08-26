@@ -66,6 +66,15 @@ struct BenchOptions {
     /// Off, and the reason is the header comment. Exposed only because the
     /// headless mode can then show what the instrumentation costs.
     bool trace{false};
+
+    /// The replay the transport is showing: the trim window and anything being
+    /// pretended. Carried rather than defaulted because a bench that measured
+    /// the whole capture while the window played eight seconds of it was timing
+    /// a run nobody was listening to - and reporting a tick count and a realtime
+    /// factor off that other run. `seed` and `trace` above still win over
+    /// whatever this carries, so the two settings that are the benchmark's own
+    /// stay in one place.
+    rds::OfflineOptions replay{};
 };
 
 /// What one config cost over one take.

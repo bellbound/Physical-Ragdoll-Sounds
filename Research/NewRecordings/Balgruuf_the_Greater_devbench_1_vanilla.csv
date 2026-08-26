@@ -1,0 +1,35 @@
+# What vanilla's own impact system played during this take.
+#
+# One row per collision the ragdoll path resolved to a sound, observed at the
+# moment of the play rather than modelled afterwards. Times share this take's
+# clock: the same t_ms the impacts CSV stamps.
+#
+# descriptor      the SNDR that fired - the name its wav files are found under
+# branch          light = SNAM, heavy = NAM1. Vanilla's own loudness decision,
+#                 which it makes on (NAM1 exists && magnitude >= threshold)
+# heard           1 = it sounded, 0 = we dropped it and played ours instead
+# static_atten_db the descriptor's fixed attenuation, in dB
+# db_variance     +/- dB the audio engine rolls per play. NOT the roll itself
+# files           how many wavs the descriptor picks between, uniformly
+#
+# What is deliberately absent: which of `files` was drawn, and what
+# db_variance and freq_variance actually rolled. Both happen inside
+# BSAudioManager after the sound handle is built and are not readable from
+# outside it. A row says "one of N files, at this level, plus or minus this
+# much" - it does not say which one, and anything reading it must not pretend
+# otherwise.
+seq,t_ms,descriptor,descriptor_id,impact_id,branch,heard,sound_level,static_atten_db,db_variance,freq_shift,freq_variance,priority,files,pos_x,pos_y,pos_z
+1,3723.106,-,0005A284,0005A285,light,0,1,3.00,3,0,12,64,4,-797.879,1827.037,14.772
+2,3723.109,-,0005A284,0005A285,light,0,1,3.00,3,0,12,64,4,-797.879,1827.037,14.772
+3,5552.956,-,0005A284,0005A285,light,0,1,3.00,3,0,12,64,4,-791.274,1807.236,-19.243
+4,5552.960,-,0005A284,0005A285,light,0,1,3.00,3,0,12,64,4,-791.274,1807.236,-19.243
+5,9857.418,-,440B1D3C,440B1D3E,heavy,0,1,3.00,3,0,12,64,7,-786.344,1828.594,10.764
+6,10114.744,-,440B1D3D,440B1D3E,light,0,1,3.00,3,0,12,64,4,-806.010,1820.878,-1.781
+7,10389.551,-,440B1D3D,440B1D3E,light,0,1,3.00,3,0,12,64,4,-801.577,1810.269,-6.267
+8,10562.752,-,440B1D3D,440B1D3E,light,0,1,3.00,3,0,12,64,4,-787.267,1819.075,2.959
+9,11445.510,-,440B1D3C,440B1D3E,heavy,0,1,3.00,3,0,12,64,7,-798.361,1810.557,-12.971
+10,11806.660,-,440B1D3D,440B1D3E,light,0,1,3.00,3,0,12,64,4,-792.708,1812.428,-8.217
+11,12626.120,-,440B1D3C,440B1D3E,heavy,0,1,3.00,3,0,12,64,7,-784.959,1817.659,19.532
+12,13240.280,-,440B1D3C,440B1D3E,heavy,0,1,3.00,3,0,12,64,7,-812.494,1762.223,2.105
+13,17818.828,-,0005A283,0005A285,heavy,0,1,3.00,3,0,12,64,7,-766.442,1846.225,-39.330
+14,21826.531,-,440B1D3C,440B1D3E,heavy,0,1,3.00,3,0,12,64,7,-701.442,1689.608,-4.293

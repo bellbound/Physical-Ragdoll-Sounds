@@ -73,7 +73,46 @@ a mixer (`core/Mix.h`) rather than approximating each other.
       running; the output model is already a config key (`iOutputModelFormID`) and this wants the
       same treatment
 
+### M2b — the vanilla track: **built, not yet heard in game**
+
+- [x] The hook observes every body impact vanilla resolves, whether or not it is let through,
+      and pushes a `kVanillaSound` FeedEvent onto the same contact ring — so a take made with
+      the A/B switch on and one made with it off carry the same track
+- [x] `ImpactSoundData` carries the record, the position and `playSound1`/`playSound2`, which
+      **is** vanilla's light/heavy decision: the caller computes it as
+      `sound2 != null && magnitude >= threshold` and passes the answer in
+- [x] Suppressing still returns what vanilla would have returned. `ProcessEvent` arms its
+      ref-pair cooldown only on a true, so returning false would leave the throttle unarmed and
+      the recording would be **denser than the thing it is a recording of**
+- [x] Written to `<stem>_vanilla.csv` beside the take, not into the impacts CSV — same reason
+      pose has its own file: a take this program writes must read back as one the game wrote
+- [x] Carried through a cut, since `Recording::Events()` deliberately does not hold it
+- [x] *Use Vanilla Audio* plays it back off an extract of the game's `sound/fx` tree, resolved
+      from the descriptor's editor id by Bethesda's own naming convention
+- [ ] **Heard in game.** Nothing below has been run against a live knockdown yet — the call
+      site is verified against the VR binary and the plumbing is verified by the build, and
+      neither is the same as a body falling down some stairs
+- [ ] **SE and AE call-site offsets.** VR is measured (`0x5ABF54`, anchor +0x1F64). Neither
+      other binary could be read here — the Steam AE executable is DRM-packed and no 1.5.97
+      build was present — so both fall back to a signature scan of the enclosing function's
+      prologue, which is unique in VR's `.text` and may or may not be on theirs. One number
+      each fixes it; the call-target check means a wrong guess declines to patch
+- [ ] **What the draw was.** Which of a descriptor's wavs played, and what `db_variance` and
+      `freq_variance` rolled, happen inside `BSAudioManager` after the handle is built.
+      Reading them means reverse-engineering `BSGameSound`, whose layout CommonLib does not
+      have. Until then a row says "one of N, plus or minus this much" and the testbench draws
+      from the seed
+
 ### M2 — vanilla suppression: **done, not yet heard in game**
+
+> **Superseded by the call hook.** Suppression is now per *call*, in
+> `VanillaImpactHook.h`: one `write_call<5>` on the single site the collision path uses to
+> reach `BGSImpactManager::PlayImpactDataSounds`, filtered on whether the impact record is one
+> the body sets reach. Nothing is mutated, so a set we do not own keeps its sound and no other
+> mod finds a null descriptor — the two costs the nulling version could only warn about. The
+> same hook is what records the vanilla track (see M2b). Everything below still describes the
+> **fallback**, which runs when the call site cannot be found on a runtime.
+
 
 - [x] Walks `GetFormArray<BGSImpactDataSet>()` and matches on `GetFormEditorID()`.
       **Not** `LookupByEditorID`, which is used nowhere else in `skse/` and needs po3_Tweaks to
@@ -105,6 +144,12 @@ a mixer (`core/Mix.h`) rather than approximating each other.
 - [x] Tracking starts when an actor is **knocked**, not when the ragdoll starts — the lead-in
       states are what get the listeners on in time. The phase gate is what keeps walking NPCs
       silent, and it is the only thing that does
+- [x] ...and `GameIntegration:bAnimatedMode` is the switch that takes that gate away on purpose,
+      so the mod can be heard in ordinary gameplay. Off by default, and no path behind it is
+      reachable with it off - the recorded corpus replays byte-identically either way.
+      `bAnimatedSlide` / `bAnimatedRustle` / `bAnimatedAirTime` say which of the three continuous
+      layers may run on an actor who is on their feet, and `fAnimatedIdleReleaseMs` is the
+      `ragdoll_end` that a walk never has
 
 ### M5 — the player and distance: **done, not yet heard in game**
 
@@ -151,6 +196,13 @@ a mixer (`core/Mix.h`) rather than approximating each other.
       could not take foreground focus, so the input handling is the one unverified path
 - [x] Master limiter behind a not-shippable flag, pre-limiter peak always on screen — the game
       has no bus and no limiter, so a config that only sounds controlled here would clip in Skyrim
+- [x] **In-game benchmark** behind `[Benchmark] bEnabled` in `RagdollSounds.ini` — the button above
+      times `RunOffline` and nothing else, so the feed's limb walk and the handoff to Skyrim's sound
+      manager had never been measured at all. Three `BenchScope`s in `OnFrame` time feed, engine and
+      render separately over the first `iKnockdowns` knockdowns, then one report to the log and off
+      for the session. Reports the **worst** frame against the frame time the game was actually
+      keeping, because a budget is missed by one frame and a mean cannot see it. Idle frames are not
+      sampled — the engine early-outs on them and they would flatter the average
 
 ### Dynamic sfx assignment — 2026-08-23
 
@@ -451,6 +503,10 @@ quieter mod rather than a broken one.
 - Vocal layer is **not in v1** — the slots stay declared and unfilled
 - **No death-versus-knockdown distinction.** A death ragdoll simply never leaves `Rest`
 - Gear (sheathed weapons, shields) is **out of scope**
-- Vanilla body impacts are **suppressed**, globally, and that belongs in the mod description
+- Vanilla body impacts are **suppressed per call**, not globally: only the collision path's
+  own play is dropped, and only for the records the body impact sets reach. A weapon or
+  explosion sharing one of those records keeps its sound. On a runtime where the call site
+  cannot be found this falls back to nulling the records, which *is* global — the log says
+  which of the two happened, and the mod description should say the fallback exists
 - The rate cap is **global at ~46 ms**, not per-limb
 - Layer offsets are **structured with a few ms of scatter**, not random jitter

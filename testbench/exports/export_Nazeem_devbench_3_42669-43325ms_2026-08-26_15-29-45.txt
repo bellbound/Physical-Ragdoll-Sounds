@@ -1,0 +1,374 @@
+TAKE
+  stem            Nazeem_devbench_3
+  note            devbench live take
+  actor           Nazeem
+  cell            Winterberry Chateau
+  duration        55703 ms
+  impacts         2916 (dropped 0, complete yes)
+  playhead        42687 ms
+  seed            1
+  config          config_22_08_103 - EDITED, not what that file holds (side 0)
+
+WINDOW - this export covers the loop region only
+  region          42669 - 43325 ms  (656 ms of 55703)
+  phase at start  unknown (ragdoll_start, set at 40576 ms)
+  NOTE  TIMELINE, CUES and DECISIONS below are cut to this window. SOUND BANK
+        and FUNNEL are the whole take - the funnel counters are accumulated
+        over the run and cannot be re-cut after the fact.
+
+VIDEO
+  file            Nazeem_devbench_3.mp4
+  clip length     62500 ms at 30.00 fps, decoded
+  offset in use   +707 ms   (video position = take time + offset)
+  window in video 43376 - 44032 ms  (43.38 - 44.03 s)
+  window frames   1301 - 1321 at 30.00 fps
+  sync fit        slope 0.999658, intercept 707 ms, drift -0.34 ms/s, min rtt 0 ms
+  NOTE  the intercept is against the UNCUT OBS recording, and a clipped take
+        is cut out of it at a point recorded nowhere - so `offset in use`
+        above is a guess until it is measured into video-offsets.ini.
+
+CONFIG - values differing from default
+  GlancingImpact:bEnabled=1 (default 0)
+  GlancingImpact:fNoTransferFrac=0 (default 0.55)
+  GlancingImpact:fMaxIntensityScale=0 (default 0.35)
+  GlancingImpact:fMaxGainCutDb=-13.5 (default 0)
+  GlancingImpact:fMaxTrimCutDb=-7.5 (default 0)
+  Motion:fFreeFallMinMs=140 (default 40)
+  Motion:fLandedHoldMs=200 (default 140)
+  Motion:fBedTrimGlideMs=150 (default 90)
+  Hero:fFloorFrac=0.65 (default 0.3)
+  Hero:fBurstGapFrac=0.15 (default 1)
+  Hero:fBurstWindowMs=270 (default 0)
+  Arbitration:fRateCapMs=43 (default 46)
+  Arbitration:fRateCapOverrideDb=16 (default 6)
+  Arbitration:fBurstWindowMs=110 (default 300)
+  Arbitration:bSpatialCollapseOnHero=0 (default 1)
+  Arbitration:fTorsoWeightDb=4.5 (default 0)
+  Arbitration:fHeadWeightDb=2.5 (default 0)
+  Intensity:fSpeedRefHigh=510 (default 960)
+  Intensity:fCurveExponent=1.2 (default 0.75)
+  Intensity:fSoftClipKnee=0.25 (default 0.85)
+  Intensity:fMassWeight=0.9 (default 0.35)
+  Intensity:fRadiusWeight=2 (default 0.2)
+  Intensity:fObliterateFrac=5.9 (default 1.46)
+  PostIntensity:fExtraRangeDb=-27.5 (default 0)
+  PostIntensity:fCurveExponent=2.4 (default 1)
+  SlotGain:fImpTransient=2 (default 0)
+  SlotGain:fLimbTap=-3 (default 0)
+  Limbs:bMassDeterminesLoudness=1 (default 0)
+  Limbs:fBodyMass=3.5 (default 5)
+  Limbs:fRotationRefRatio=1.1 (default 1)
+  ImpactComposite:fTransientGainAtMaxDb=-5 (default -18)
+  ImpactComposite:fSubGainAtMinDb=-25 (default -30)
+  ImpactComposite:fPitchIntensityBiasSemis=-4 (default -3)
+  Surfaces:fTapGainAtMinDb=-18.5 (default -12)
+  Surfaces:fTapGainAtMaxDb=-12.5 (default -8)
+  HeadImpact:fGateFrac=0.24 (default 0.31)
+  HeadImpact:fGainDb=-12.5 (default -2)
+  HeadImpact:fHeadDownBonus=0 (default 0.25)
+  HeadImpact:bCompanyEnabled=1 (default 0)
+  AirTime:fHeadClearMs=560 (default 250)
+  AirTime:fHeadHandGraceMs=220 (default 200)
+  AirTime:fHeadGateBonus=0.55 (default 0.45)
+  AirTime:fHeadGainDb=9.5 (default 9)
+  AirTime:fHeadCrunchGateFrac=1.38 (default 0.55)
+  AirTime:bBodyEnabled=1 (default 0)
+  AirTime:fBodyClearMs=240 (default 250)
+  AirTime:fBodyIntensity=0.93 (default 0)
+  Damage:bViolenceEnabled=1 (default 0)
+  Damage:fViolenceHoldMs=210 (default 450)
+  Damage:fViolenceChanceBonus=0.65 (default 0.25)
+  Damage:iViolenceBudgetBonus=16 (default 3)
+  Damage:fViolenceLevelBonusDb=12 (default 2.5)
+  Damage:fHeadCrunchAtFrac=0.54 (default 0.45)
+  Damage:fHeadCrunchQuietDb=-28.5 (default -18)
+  Damage:fHeadCrunchLoudDb=-16.5 (default -4)
+  Damage:fHeadCrunchDelayMs=21 (default 25)
+  Damage:fHeadGoreAtFrac=1.21 (default 0.65)
+  Damage:fHeadGoreQuietDb=-23 (default -20)
+  Damage:fHeadGoreLoudDb=-20 (default -6)
+  Damage:fSpineCrunchQuietDb=-33 (default -20)
+  Slide:fSlideMinTangentSpeed=50 (default 120)
+  Slide:fSlideMinDurationMs=180 (default 150)
+  Slide:fSlideMinDistance=10 (default 45)
+  Slide:fSlideHoldSpeed=10 (default 0)
+  Slide:fSlideHoldMaxMs=5950 (default 2000)
+  Slide:bSlidesDontClaim=1 (default 0)
+  Slide:fClaimBelowIntensity=0 (default 0.15)
+  Slide:fSlideTrimDb=0 (default -6)
+  Slide:fStartFadeMs=5 (default 140)
+  Slide:fStopFadeMs=30 (default 110)
+  Slide:fLaunchFadeMs=5 (default 45)
+  Slide:fGainDb=-21 (default -16)
+  Slide:fSpeedForMinGain=30 (default 40)
+  Slide:fSpeedForMaxGain=590 (default 600)
+  Slide:fSpeedRangeDb=-23 (default -32)
+  Slide:fPitchPerThousandUnits=0.18 (default 0.15)
+  Slide:bFractionEnabled=0 (default 1)
+  Slide:fBodyFracStart=0.3 (default 0.2)
+  Slide:fContactHoldMs=400 (default 140)
+  Slide:iMaxLimbLoops=1 (default 3)
+  Slide:fLimbGainDb=-27.5 (default -30)
+  Slide:fLimbSpeedForMinGain=10 (default 80)
+  Slide:fLimbSpeedForMaxGain=400 (default 500)
+  Slide:fLimbSpeedRangeDb=-16 (default -12)
+  Slide:fLimbPitchPerThousandUnits=0.13 (default 0.22)
+  Slide:bBodyDucksLimbs=0 (default 1)
+  Slide:bGrainEnabled=0 (default 1)
+  Rustle:bEnabled=1 (default 0)
+  Rustle:fThrashFull=3940 (default 4000)
+  Rustle:fAttackMs=1 (default 30)
+  Rustle:fPitchAtFloor=0.88 (default 0.94)
+  Rustle:fPitchAtFull=0.99 (default 1.07)
+  Rustle:fWanderHz=1.26 (default 0.23)
+  Rustle:fLevelDeadbandDb=0.5 (default 0.25)
+  Rustle:fStopFadeMs=185 (default 240)
+  Rustle:fGainDb=-20 (default -26)
+  Rustle:fDriveRangeDb=-18 (default -20)
+  Rustle:fBareTrimDb=-40 (default -9)
+  Rustle:fClothTrimDb=1 (default 0)
+  Rustle:fLightTrimDb=-1 (default 1)
+  Rustle:fHeavyTrimDb=-1 (default 2)
+  Rustle:fSlideDuckDb=0 (default -14)
+  Mix:fMasterGainDb=2 (default 0)
+  Mix:fSubTrimDb=0.5 (default 0)
+  Mix:fVoiceFloorDb=-55 (default -48)
+  Balance:fSpineBodyTrimDb=1.5 (default 0)
+  Balance:fSpineSubTrimDb=2 (default 0)
+  Compress:bEnabled=1 (default 0)
+  Compress:fTransientDb=-6 (default 0)
+  Compress:fBodyDb=-6.25 (default 0)
+  Compress:fBassDb=-6.5 (default 0)
+  Compress:fBodyLimbDb=-5.75 (default 0)
+  Compress:fImpactDb=-5.25 (default 0)
+  Compress:fTapDb=-4.5 (default 0)
+  Compress:fHeadDb=-5 (default 0)
+  Compress:fCrunchDb=-5.5 (default 0)
+  Compress:fGoreDb=-5 (default 0)
+  Player:fSubTrimDb=0 (default -9)
+  Slots:iRngSeed=1 (default 0)
+  Layers:bImpTransient=0 (default 1)
+  Layers:bImpBody=0 (default 1)
+  Layers:bImpSub=0 (default 1)
+  Layers:bLimbTap=0 (default 1)
+  Layers:bCrunchGran=0 (default 1)
+  Layers:bGoreWet=0 (default 1)
+  Layers:bScrapeLoop=0 (default 1)
+  Layers:bAirWhoosh=0 (default 1)
+  Layers:bHeadImpact=0 (default 1)
+  Layers:bSettleRest=0 (default 1)
+  Surface.soft:bEnabled=0 (default 1)
+  Surface.soft:fTapGainAtMinDb=-18.5 (default -12)
+  Surface.soft:fTapGainAtMaxDb=-12.5 (default -8)
+  Surface.wood:bEnabled=0 (default 1)
+  Surface.wood:fTapGainAtMinDb=-18.5 (default -12)
+  Surface.wood:fTapGainAtMaxDb=-12.5 (default -8)
+  Surface.stone:bEnabled=0 (default 1)
+  Surface.stone:fTapGainAtMinDb=-18.5 (default -12)
+  Surface.stone:fTapGainAtMaxDb=-12.5 (default -8)
+
+SOUND BANK
+  imp_transient  3/3 files, wav, 120 ms
+  imp_body       4/3 files, wav, 240 ms
+  imp_sub        2/2 files, wav, 300 ms
+  surf_wood      3/2 files, wav, 190 ms
+  surf_stone     2/2 files, wav, 124 ms
+  surf_soft      2/2 files, wav, 250 ms
+  surf_metal     0/0 files, plays surf_stone
+  surf_water     0/0 files, plays surf_soft
+  surf_body      0/0 files, plays surf_soft
+  surf_dirt      0/0 files, plays surf_soft
+  surf_gravel    0/0 files, plays surf_soft
+  surf_snow      0/0 files, plays surf_soft
+  surf_ice       0/0 files, plays surf_stone
+  surf_glass     0/0 files, plays surf_stone
+  surf_water_puddle 0/0 files, plays surf_soft
+  surf_bone      0/0 files, plays surf_soft
+  armor_bare     0/0 files, nothing to play
+  armor_cloth    0/0 files, nothing to play
+  armor_light    0/0 files, nothing to play
+  armor_heavy    0/0 files, nothing to play
+  limb_tap       6/4 files, wav, 74 ms
+  crunch_gran    3/2 files, wav, 320 ms
+  spine_crunch   0/2 files, plays crunch_gran
+  limb_crunch    0/2 files, plays crunch_gran
+  gore_wet       4/2 files, wav, 162 ms
+  scrape_grain   0/3 files, nothing to play
+  scrape_loop    1/1 files, wav, 2008 ms
+  scrape_body_wood 0/1 files, plays scrape_loop
+  scrape_body_stone 0/1 files, plays scrape_loop
+  scrape_limb    1/1 files, wav, 1951 ms
+  scrape_limb_wood 0/1 files, plays scrape_limb
+  scrape_limb_stone 0/1 files, plays scrape_limb
+  air_whoosh     1/1 files, wav, 2000 ms
+  head_impact    3/2 files, wav, 670 ms
+  settle_rest    2/2 files, wav, 400 ms
+  grunt_impact   0/0 files, nothing to play
+  scream_big     0/0 files, nothing to play
+  imp_body_limb  4/3 files, wav, 200 ms
+  cloth_rustle   1/0 files, wav, 1951 ms
+
+FUNNEL - contacts in, cues out (WHOLE TAKE, not the window)
+  events read           54467
+  contacts              1263
+    rejected below floor 1120
+    rejected blow-up     35
+    mirrored self-hit    330
+    manifold collapsed   168
+    self-contacts dropped 313
+  proposed cues         3414
+    dropped rate cap     243
+    dropped chain merge  24
+    dropped masking      82
+    dropped burst cap    472
+    muted by layer       1253
+    compressed by class  0
+  hero moments          6 (+0 re-anchored)
+    on head relief       0
+    driven flights       8
+  slides                20
+  emitted               786 in 74 bursts
+  first cue             714 ms
+  last cue              49890 ms
+  peak contact          877.3 u/s
+
+AUDIO
+  53145 ms at 48000 Hz, 2550967 frames
+  peak 0.060 heard, 0.060 before the limiter (limiter on)
+
+CUES BY SLOT IN THE WINDOW - 26 cues
+  scrape_limb    23
+  scrape_limb_stone 2
+  cloth_rustle   1
+
+TIMELINE - state, contacts and cues in one column
+  (a cue's `seq` is the contact row that produced it)
+
+  42688.7 ms    contact  NPC L Calf [LClf]          5.1 u/s  tan  281.1  body  300.1  ang    4.2  Static  seq 2579
+  42723.9 ms    contact  NPC R Thigh [RThg]        45.5 u/s  tan  286.5  body  327.9  ang    3.4  Static  seq 2580
+  42723.9 ms      CUE    scrape_limb    loop+  -30.2 dB  pitch 1.04  scrape           Slide        int 0.00  seq 0
+  42743.7 ms    contact  NPC R Thigh [RThg]        70.1 u/s  tan  281.1  body  319.3  ang    3.3  Static  seq 2581
+  42761.9 ms    contact  NPC R Thigh [RThg]        83.7 u/s  tan  293.0  body  321.5  ang    1.9  Static  seq 2582
+  42761.9 ms      CUE    scrape_limb    loop~  -29.9 dB  pitch 1.04  scrape           Slide        int 0.00  seq 0
+  42781.0 ms    contact  NPC COM [COM ]             5.7 u/s  tan  293.9  body  300.2  ang    0.7  Static  seq 2583
+  42781.0 ms      CUE    scrape_limb    loop~  -31.4 dB  pitch 1.03  scrape           Slide        int 0.00  seq 0
+  42800.6 ms    contact  NPC R Thigh [RThg]        11.0 u/s  tan  296.6  body  317.2  ang    2.6  Static  seq 2584
+  42800.6 ms    contact  NPC L Foot [Lft ]          7.4 u/s  tan  299.8  body  302.3  ang    0.8  Static  seq 2585
+  42800.6 ms    contact  NPC R Foot [Rft ]         82.0 u/s  tan  374.2  body  355.8  ang    3.6  Static  seq 2586
+  42801.0 ms    contact  NPC L Calf [LClf]          9.2 u/s  tan  295.6  body  300.7  ang    0.7  Static  seq 2587
+  42801.0 ms      CUE    scrape_limb    loop~  -26.6 dB  pitch 1.05  scrape           Slide        int 0.00  seq 0
+  42819.6 ms    contact  NPC L Calf [LClf]          9.1 u/s  tan  293.5  body  301.6  ang    0.9  Static  seq 2588
+  42819.6 ms    contact  NPC L Foot [Lft ]          5.7 u/s  tan  296.9  body  302.8  ang    1.0  Static  seq 2589
+  42820.1 ms    contact  NPC R Thigh [RThg]        52.4 u/s  tan  288.9  body  304.5  ang    2.6  Static  seq 2590
+  42820.1 ms      CUE    scrape_limb    loop~  -28.5 dB  pitch 1.04  scrape           Slide        int 0.00  seq 0
+  42838.4 ms    contact  NPC R Foot [Rft ]         23.9 u/s  tan  373.5  body  342.3  ang    4.2  Static  seq 2591
+  42838.8 ms    contact  NPC R Calf [RClf]         15.8 u/s  tan  300.8  body  313.3  ang    1.0  Static  seq 2592
+  42838.8 ms      CUE    scrape_limb    loop~  -26.6 dB  pitch 1.05  scrape           Slide        int 0.00  seq 0
+  42859.0 ms    contact  NPC R Thigh [RThg]        11.3 u/s  tan  304.2  body  304.1  ang    0.8  Static  seq 2593
+  42859.5 ms    contact  NPC R Thigh [RThg]         6.7 u/s  tan  304.1  body  303.5  ang    0.6  Static  seq 2594
+  42859.5 ms    contact  NPC R Thigh [RThg]         6.6 u/s  tan  304.0  body  303.5  ang    0.6  Static  seq 2595
+  42859.5 ms      CUE    scrape_limb    loop~  -28.7 dB  pitch 1.04  scrape           Slide        int 0.00  seq 0
+  42880.1 ms    contact  NPC R Thigh [RThg]        12.1 u/s  tan  303.9  body  303.0  ang    0.6  Static  seq 2596
+  42880.1 ms    contact  NPC R Calf [RClf]         14.8 u/s  tan  294.6  body  312.8  ang    1.7  Static  seq 2597
+  42880.1 ms    contact  NPC L Calf [LClf]         11.4 u/s  tan  294.4  body  302.3  ang    0.7  Static  seq 2598
+  42880.1 ms    contact  NPC R Foot [Rft ]         31.8 u/s  tan  378.2  body  336.0  ang    4.8  Static  seq 2599
+  42880.1 ms    contact  NPC R Foot [Rft ]         23.0 u/s  tan  378.4  body  336.0  ang    4.8  Static  seq 2600
+  42880.1 ms      CUE    scrape_limb    loop~  -26.4 dB  pitch 1.05  scrape           Slide        int 0.00  seq 0
+  42901.2 ms    contact  NPC R Calf [RClf]         16.7 u/s  tan  285.9  body  294.0  ang    1.7  Static  seq 2601
+  42901.2 ms    contact  NPC L Calf [LClf]         16.6 u/s  tan  290.5  body  296.2  ang    0.7  Static  seq 2602
+  42901.2 ms    contact  NPC L Foot [Lft ]          7.9 u/s  tan  282.8  body  289.4  ang    2.4  Static  seq 2603
+  42901.6 ms    contact  NPC R Calf [RClf]         19.8 u/s  tan  296.6  body  290.9  ang    0.6  Static  seq 2604
+  42901.6 ms      CUE    scrape_limb    loop~  -28.6 dB  pitch 1.04  scrape           Slide        int 0.00  seq 0
+  42922.1 ms    contact  NPC R Thigh [RThg]         8.8 u/s  tan  269.2  body  280.2  ang    1.1  Static  seq 2605
+  42922.6 ms    contact  NPC L Calf [LClf]         21.2 u/s  tan  274.9  body  282.5  ang    1.3  Static  seq 2606
+  42922.6 ms    contact  NPC L Calf [LClf]         24.4 u/s  tan  273.7  body  282.5  ang    1.3  Static  seq 2607
+  42922.6 ms    contact  NPC Spine1 [Spn1]          9.5 u/s  tan  267.6  body  279.5  ang    1.0  Static  seq 2608
+  42922.6 ms      CUE    scrape_limb    loop~  -30.5 dB  pitch 1.04  scrape           Slide        int 0.00  seq 0
+  42944.7 ms    contact  NPC Spine [Spn0]           8.3 u/s  tan  259.0  body  269.5  ang    1.2  Static  seq 2609
+  42944.7 ms    contact  NPC R Calf [RClf]         38.9 u/s  tan  275.6  body  283.5  ang    1.1  Static  seq 2610
+  42944.7 ms    contact  NPC L Foot [Lft ]          6.2 u/s  tan  267.0  body  275.7  ang    2.0  Static  seq 2611
+  42944.7 ms    contact  NPC R UpperArm [RUar]      6.0 u/s  tan  299.1  body  281.0  ang    2.3  Static  seq 2612
+  42945.1 ms    contact  NPC R Thigh [RThg]        12.6 u/s  tan  252.5  body  266.3  ang    1.5  Static  seq 2613
+  42965.1 ms    contact  NPC R Calf [RClf]         23.5 u/s  tan  259.9  body  274.6  ang    3.1  Static  seq 2614
+  42965.1 ms    contact  NPC R Foot [Rft ]          6.8 u/s  tan  294.2  body  289.9  ang    3.5  Static  seq 2615
+  42965.5 ms    contact  NPC COM [COM ]            11.3 u/s  tan  228.9  body  248.8  ang    2.2  Static  seq 2616
+  42965.5 ms    contact  NPC COM [COM ]             7.9 u/s  tan  228.8  body  248.8  ang    2.2  Static  seq 2617
+  42965.5 ms    contact  NPC R Thigh [RThg]        17.1 u/s  tan  251.1  body  256.1  ang    1.8  Static  seq 2618
+  42965.5 ms    contact  NPC L Calf [LClf]         12.8 u/s  tan  247.8  body  256.4  ang    1.6  Static  seq 2619
+  42965.5 ms      CUE    scrape_limb    loop~  -31.2 dB  pitch 1.03  scrape           Slide        int 0.00  seq 0
+  42987.1 ms    contact  NPC R Thigh [RThg]        11.7 u/s  tan  247.6  body  250.4  ang    1.1  Static  seq 2620
+  42987.1 ms    contact  NPC Spine1 [Spn1]         13.0 u/s  tan  232.2  body  252.3  ang    1.7  Static  seq 2621
+  42987.1 ms    contact  NPC R UpperArm [RUar]     48.4 u/s  tan  291.1  body  268.6  ang    3.3  Static  seq 2622
+  42987.1 ms      CUE    scrape_limb    loop+  -30.0 dB  pitch 1.04  scrape           Slide        int 0.00  seq 0
+  42987.1 ms      CUE    scrape_limb_stone loop-    2.0 dB  pitch 1.00  scrape           Slide        int 0.00  seq 0
+  43008.9 ms    contact  NPC Spine2 [Spn2]          9.7 u/s  tan  227.2  body  254.0  ang    1.6  Static  seq 2623
+  43008.9 ms      CUE    scrape_limb    loop~  -31.7 dB  pitch 1.03  scrape           Slide        int 0.00  seq 0
+  43027.6 ms    contact  NPC R Calf [RClf]         20.8 u/s  tan  241.2  body  245.2  ang    1.5  Static  seq 2624
+  43027.6 ms    contact  NPC R Calf [RClf]         20.2 u/s  tan  241.7  body  245.2  ang    1.5  Static  seq 2625
+  43027.6 ms      CUE    scrape_limb    loop~  -33.0 dB  pitch 1.03  scrape           Slide        int 0.00  seq 0
+  43027.6 ms      CUE    cloth_rustle   loop-    2.0 dB  pitch 1.00  rustle           Slide        int 0.00  seq 0
+  43047.9 ms      CUE    scrape_limb    loop~  -34.2 dB  pitch 1.02  scrape           Slide        int 0.00  seq 0
+  43068.2 ms      CUE    scrape_limb    loop~  -35.2 dB  pitch 1.02  scrape           Slide        int 0.00  seq 0
+  43090.8 ms    contact  NPC R UpperArm [RUar]     24.1 u/s  tan  217.3  body  221.3  ang    0.9  Static  seq 2626
+  43091.1 ms    contact  NPC R UpperArm [RUar]     76.7 u/s  tan  219.5  body  214.0  ang    1.2  Static  seq 2627
+  43091.1 ms      CUE    scrape_limb    loop~  -36.2 dB  pitch 1.02  scrape           Slide        int 0.00  seq 0
+  43110.9 ms    contact  NPC R Foot [Rft ]         11.1 u/s  tan  231.4  body  220.5  ang    2.5  Static  seq 2628
+  43111.2 ms    contact  NPC R UpperArm [RUar]     28.7 u/s  tan  219.7  body  210.7  ang    1.4  Static  seq 2629
+  43111.2 ms      CUE    scrape_limb    loop~  -32.9 dB  pitch 1.03  scrape           Slide        int 0.00  seq 0
+  43131.2 ms    contact  NPC R Forearm [RLar]       5.2 u/s  tan  212.4  body  213.6  ang    1.1  Static  seq 2630
+  43131.3 ms    contact  NPC R UpperArm [RUar]      8.9 u/s  tan  202.6  body  203.6  ang    1.2  Static  seq 2631
+  43131.5 ms    contact  NPC R Foot [Rft ]          5.9 u/s  tan  216.4  body  205.5  ang    5.0  Static  seq 2632
+  43131.5 ms      CUE    scrape_limb    loop~  -34.1 dB  pitch 1.02  scrape           Slide        int 0.00  seq 0
+  43152.0 ms    contact  NPC R UpperArm [RUar]     13.2 u/s  tan  197.2  body  201.4  ang    0.9  Static  seq 2633
+  43152.0 ms      CUE    scrape_limb    loop~  -35.2 dB  pitch 1.02  scrape           Slide        int 0.00  seq 0
+  43172.3 ms      CUE    scrape_limb    loop~  -36.1 dB  pitch 1.02  scrape           Slide        int 0.00  seq 0
+  43192.6 ms      CUE    scrape_limb    loop~  -36.9 dB  pitch 1.02  scrape           Slide        int 0.00  seq 0
+  43212.4 ms    contact  NPC L Foot [Lft ]         10.2 u/s  tan  147.5  body  156.8  ang    1.9  Static  seq 2634
+  43212.4 ms      CUE    scrape_limb    loop~  -37.5 dB  pitch 1.01  scrape           Slide        int 0.00  seq 0
+  43231.4 ms    contact  NPC L Calf [LClf]          9.5 u/s  tan  149.7  body  142.4  ang    1.3  Static  seq 2635
+  43231.4 ms      CUE    scrape_limb_stone loop-    2.0 dB  pitch 1.00  scrape           Slide        int 0.00  seq 0
+
+CUES
+  (`sfx` is the file this cue resolved to; `held` is how many dB its class's compressor took off it)
+
+     time  slot           sfx                    op       gain  held  pitch  reason           phase          int   limb     site  seq
+  42723.9  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop+   -30.2         1.04  scrape           Slide         0.00      8    thigh    0
+  42761.9  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -29.9         1.04  scrape           Slide         0.00      8    thigh    0
+  42781.0  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -31.4         1.03  scrape           Slide         0.00      8    thigh    0
+  42801.0  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -26.6         1.05  scrape           Slide         0.00      8     foot    0
+  42820.1  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -28.5         1.04  scrape           Slide         0.00      8    thigh    0
+  42838.8  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -26.6         1.05  scrape           Slide         0.00      8     foot    0
+  42859.5  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -28.7         1.04  scrape           Slide         0.00      8     foot    0
+  42880.1  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -26.4         1.05  scrape           Slide         0.00      8     foot    0
+  42901.6  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -28.6         1.04  scrape           Slide         0.00      8     foot    0
+  42922.6  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -30.5         1.04  scrape           Slide         0.00      8     foot    0
+  42965.5  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -31.2         1.03  scrape           Slide         0.00      8     calf    0
+  42987.1  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop+   -30.0         1.04  scrape           Slide         0.00     15 upperarm    0
+  42987.1  scrape_limb_stone -                      loop-     2.0         1.00  scrape           Slide         0.00      0  unknown    0
+  43008.9  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -31.7         1.03  scrape           Slide         0.00     15 upperarm    0
+  43027.6  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -33.0         1.03  scrape           Slide         0.00     15 upperarm    0
+  43027.6  cloth_rustle   scrape_limb_scrape_dirt_dead_brush-loop loop-     2.0         1.00  rustle           Slide         0.00      0  unknown    0
+  43047.9  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -34.2         1.02  scrape           Slide         0.00     15 upperarm    0
+  43068.2  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -35.2         1.02  scrape           Slide         0.00     15 upperarm    0
+  43091.1  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -36.2         1.02  scrape           Slide         0.00     15 upperarm    0
+  43111.2  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -32.9         1.03  scrape           Slide         0.00     15 upperarm    0
+  43131.5  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -34.1         1.02  scrape           Slide         0.00     15 upperarm    0
+  43152.0  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -35.2         1.02  scrape           Slide         0.00     15 upperarm    0
+  43172.3  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -36.1         1.02  scrape           Slide         0.00     12 upperarm    0
+  43192.6  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -36.9         1.02  scrape           Slide         0.00     12 upperarm    0
+  43212.4  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -37.5         1.01  scrape           Slide         0.00     12 upperarm    0
+  43231.4  scrape_limb_stone -                      loop-     2.0         1.00  scrape           Slide         0.00      0  unknown    0
+
+DECISIONS - every contact that reached arbitration, and what became of it
+  42723.9 ms  seq  2580  limb  2     45.5 u/s  int 0.06  Slide        burst gap
+  42743.7 ms  seq  2581  limb  2     70.1 u/s  int 0.14  Slide        burst gap
+  42761.9 ms  seq  2582  limb  2     83.7 u/s  int 0.16  Slide        burst gap
+  42800.6 ms  seq  2586  limb  8     82.0 u/s  int 0.05  Slide        burst gap
+  42838.4 ms  seq  2591  limb  8     23.9 u/s  int 0.00  Slide        rate cap 18<43
+  42880.1 ms  seq  2599  limb  8     31.8 u/s  int 0.01  Slide        chain merge
+  42922.6 ms  seq  2606  limb  5     21.2 u/s  int 0.00  Slide        rate cap 0<43
+  42944.7 ms  seq  2610  limb  4     38.9 u/s  int 0.04  Slide        rate cap 22<45
+  42965.1 ms  seq  2614  limb  4     23.5 u/s  int 0.01  Slide        rate cap 43<43
+  42987.1 ms  seq  2622  limb 12     48.4 u/s  int 0.04  Slide        burst gap
+  43027.6 ms  seq  2624  limb  4     20.8 u/s  int 0.00  Slide        burst gap
+  43111.2 ms  seq  2629  limb 12     28.7 u/s  int 0.01  Slide        burst gap

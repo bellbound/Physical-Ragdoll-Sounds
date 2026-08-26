@@ -12,6 +12,7 @@
 #include <sstream>
 
 #include "rds/Pose.h"
+#include "rds/VanillaTrack.h"
 
 #include "Video.h"
 
@@ -96,13 +97,18 @@ void WriteRow(std::ostream& out, const rds::FeedEvent& event, std::uint32_t seq,
               const rds::ActorProfile* profile, std::string_view actorName) {
     const rds::LimbInfo* limb =
         profile != nullptr ? profile->Limb(event.limbIndex) : nullptr;
-    const bool hasLimb = limb != nullptr && event.kind != rds::EventKind::kState;
+    // A state row has no limb. Anything else does, whether or not a profile ever
+    // turned up to give it a name: limbIndex is the game's own index and it is
+    // on the event either way. The name and the number used to fall together,
+    // which threw away the one of the two that was actually in hand.
+    const bool isLimbEvent = event.kind != rds::EventKind::kState;
+    const bool hasLimb = limb != nullptr && isLimbEvent;
 
     out << seq << ',' << std::format("{:.3f}", timeMs) << ",0.0000," << rds::ToString(event.kind)
         << ',' << rds::PhaseName(event.phase) << ',' << actorName << ','
         << std::format("{:08X}", static_cast<std::uint32_t>(event.actorId)) << ','
         << (hasLimb ? limb->boneName : std::string("-")) << ',';
-    if (hasLimb) {
+    if (isLimbEvent) {
         out << event.limbIndex;
     } else {
         out << '-';
@@ -134,7 +140,8 @@ void WriteRow(std::ostream& out, const rds::FeedEvent& event, std::uint32_t seq,
 }
 
 void WriteSidecar(const fs::path& yaml, const std::string& stem, const TakeSource& source,
-                  double durationMs, std::uint32_t impacts, std::size_t poseFrames) {
+                  double durationMs, std::uint32_t impacts, std::size_t poseFrames,
+                  std::size_t vanillaRows) {
     std::ofstream out(yaml, std::ios::trunc);
     if (!out) return;
 
@@ -153,6 +160,10 @@ void WriteSidecar(const fs::path& yaml, const std::string& stem, const TakeSourc
     if (poseFrames > 0) {
         out << "  pose: \"" << stem << "_pose.bin\"\n";
         out << "  pose_frames: " << poseFrames << "\n";
+    }
+    if (vanillaRows > 0) {
+        out << "  vanilla: \"" << stem << "_vanilla.csv\"\n";
+        out << "  vanilla_rows: " << vanillaRows << "\n";
     }
     out << "  note: \"" << source.note << "\"\n";
     out << "  started_real: \"" << std::format("{:%Y-%m-%dT%H:%M:%S}",
@@ -332,7 +343,16 @@ fs::path WriteTake(const fs::path& directory, const std::string& stem, const Tak
     std::uint32_t seq = 1;
     std::uint32_t impacts = 0;
     std::vector<rds::FeedEvent> poseSamples;
+    std::vector<rds::FeedEvent> vanillaRows;
     for (const rds::FeedEvent* event : kept) {
+        // The vanilla track, for the same reason pose has its own file: the
+        // impacts CSV is the *recorder's* format, and a take this program writes
+        // has to read back identically to one the game wrote. A column added
+        // there would break that; a sibling file cannot. See VanillaTrack.h.
+        if (event->kind == rds::EventKind::kVanillaSound) {
+            vanillaRows.push_back(*event);
+            continue;
+        }
         // Pose is dense - eighteen limbs a tick - and putting it here would cost
         // this file the one property it has, which is being readable. It goes to
         // its own sidecar instead, re-based against the same origin so the two
@@ -371,8 +391,21 @@ fs::path WriteTake(const fs::path& directory, const std::string& stem, const Tak
                      csv.filename().string(), poseError);
     }
 
+    // Re-based against the same origin as the CSV, and with the window left wide
+    // open for the reason the pose write gives: these were filtered to the window
+    // above, and applying it again against a clock that has since moved would
+    // drop every row.
+    std::size_t vanillaWritten = 0;
+    std::string vanillaError;
+    const fs::path vanillaPath = directory / (stem + "_vanilla.csv");
+    if (!rds::vanilla::Write(vanillaPath, vanillaRows, origin, -1.0e300, 1.0e300, vanillaWritten,
+                             vanillaError)) {
+        spdlog::warn("capture: {} kept its rows but its vanilla track failed: {}",
+                     csv.filename().string(), vanillaError);
+    }
+
     WriteSidecar(directory / (stem + ".yaml"), stem, source, durationMs + kLeadInMs, impacts,
-                 poseFrames);
+                 poseFrames, vanillaWritten);
 
     // The origin, not loMs. What the caller needs to know is where this take's
     // zero landed in the source, and the answer is the first row it kept.
@@ -381,9 +414,10 @@ fs::path WriteTake(const fs::path& directory, const std::string& stem, const Tak
         window->durationMs = durationMs + kLeadInMs;
     }
 
-    spdlog::info("capture: wrote {} ({} rows, {} impacts, {} pose frames, {:.0f} ms)",
-                 csv.filename().string(), kept.size() + 1 - poseSamples.size(), impacts, poseFrames,
-                 durationMs + kLeadInMs);
+    spdlog::info(
+        "capture: wrote {} ({} rows, {} impacts, {} pose frames, {} vanilla, {:.0f} ms)",
+        csv.filename().string(), kept.size() + 1 - poseSamples.size() - vanillaRows.size(), impacts,
+        poseFrames, vanillaWritten, durationMs + kLeadInMs);
     return csv;
 }
 
@@ -577,7 +611,8 @@ std::size_t DeleteTake(const fs::path& csv, const fs::path& cacheRoot, std::stri
 
     for (const fs::path& file : {csv, directory / (stem + ".yaml"),
                                  directory / (stem + "_sync.csv"), directory / (stem + ".mp4"),
-                                 directory / (stem + "_pose.bin")}) {
+                                 directory / (stem + "_pose.bin"),
+                                 directory / (stem + "_vanilla.csv")}) {
         if (fs::remove(file, ec)) ++gone;
     }
     ClearFrameCache(cacheRoot, stem);
@@ -595,6 +630,12 @@ fs::path SliceTake(const rds::Recording& recording, const rds::RecordingInfo& in
                    std::string& error, TakeWindow* window) {
     TakeSource source;
     source.events = recording.Events();
+    // The vanilla track rides along, because `Events()` deliberately does not
+    // carry it - see Recording::VanillaTrack. WriteTake splits it back out into
+    // the cut's own `_vanilla.csv`, re-based onto the cut's origin, so a slice
+    // keeps the reference track a slice of the same fall needs.
+    const std::vector<rds::FeedEvent>& vanillaTrack = recording.VanillaTrack();
+    source.events.insert(source.events.end(), vanillaTrack.begin(), vanillaTrack.end());
     const rds::ActorId actorId =
         recording.Events().empty() ? rds::ActorId{} : recording.Events().front().actorId;
     source.profile = recording.Profile(actorId);

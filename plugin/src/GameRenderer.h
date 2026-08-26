@@ -24,7 +24,16 @@
 //     those messages until the source voice exists, and for a 300 ms impact that
 //     is the whole sound. SkyrimNet hit exactly this and has to re-send on the
 //     first playing poll; we simply never send them.
-//   - One voice per impact instead of four, against a global cap of sixteen.
+//   - One voice per impact instead of four. That was worth four times the voice
+//     budget back when there was one; it is now simply four times less work per
+//     impact, and four times fewer handles for the engine to mix.
+//
+// One thing does split a group, and only one: the sound category. The crunch and
+// gore layers play on their own category so the Audio settings page can carry a
+// gore slider, and a category is a property of a voice rather than of a sample,
+// so those layers need a voice of their own. They still share the group's time
+// base, so the split costs a second handle on a damage contact and changes no
+// timing - see StartBus.
 //
 // What still has to be sent to the handle is position, which is why the one
 // re-send SkyrimNet does survives here in miniature: an attachment requested
@@ -39,6 +48,7 @@
 #include <string>
 #include <vector>
 
+#include "AudioBlobs.h"
 #include "rds/Cue.h"
 #include "rds/Mix.h"
 #include "rds/Pcm.h"
@@ -109,10 +119,11 @@ public:
 
     /// Cues taken in and engine voices actually started, since the last reset.
     ///
-    /// Worth having both: the engine's voice cap counts cues, and one composite is
-    /// now one voice, so the real cost sits well under what the config budgets.
-    /// Reporting the two side by side is what lets the cap be retuned by ear
-    /// rather than guessed at.
+    /// Worth having both: the engine proposes in cues and one composite is one
+    /// voice, so the two numbers are the mixing doing its job. The ratio between
+    /// them is what says how much of the cue list is layers of one moment rather
+    /// than separate moments - which is the question the design turns on, and
+    /// nothing else reports it.
     void Counters(std::uint64_t& cuesIn, std::uint64_t& voicesOut) const;
 
 private:
@@ -185,15 +196,80 @@ private:
         float pitch{1.0f};
         Vec3 position{};
         std::int32_t boneIndex{-1};
+        /// The limb the loop is on. Honoured, unlike before: the engine has
+        /// always attached a note saying which limb a grind came from, and this
+        /// side used to throw it away and pin every loop to the actor's root.
+        /// The worry behind that - a scrape hopping between limbs frame by frame
+        /// would smear rather than track - was legitimate, but the cure belongs
+        /// on the hop, and it is now applied there (`fLimbHoldMs`) rather than to
+        /// every loop in the mod.
+        std::uint16_t limbIndex{};
+        /// Whether the engine asked for one point. Loops never do any more - a
+        /// hero moment is a moment and a loop is a texture that outlasts one.
+        bool collapsed{};
+        /// The node the loop is currently following, so a change of limb can be
+        /// sent to a live handle rather than waiting for the next re-issue up to
+        /// four seconds later.
+        RE::NiAVObject* follow{};
         ActorId actorId{};
         RE::BSSoundHandle handle{};
         std::uint64_t token{};
         TimeMs issuedMs{};
         TimeMs endsMs{};
         bool stopping{};
+
+        /// How much of the level is in the *buffer* rather than on the handle.
+        ///
+        /// Zero for everything the mod actually asks for, because every loop gain
+        /// in the config is an attenuation and `SetVolume` clamps to 1.0 - so the
+        /// buffer is rendered at full scale and the whole level is a volume
+        /// message. A slot trim can push a loop over 0 dB, and only that excess
+        /// is baked, so the message stays inside the clamp.
+        float bakedDb{};
+
+        /// The volume last sent, and how many more frames to keep re-sending it.
+        ///
+        /// The engine drops handle messages until the source voice exists, which
+        /// is the trap SkyrimNet documents and the one `kPlaceAttempts` exists for
+        /// on one-shots. A loop is the easy case - a slide sends an update every
+        /// tick, so a few dropped at the start cost nothing - but a *short* slide
+        /// may only ever send one, and that one landing in the gap would leave the
+        /// grind at whatever volume the voice opened with. So a start re-sends for
+        /// `kVolumeAttempts` frames, exactly as a placement does.
+        float sentVolume{-1.0f};
+        std::uint8_t volumeAttempts{};
     };
 
-    bool StartComposite(const MixBuffer& mixed, ActorId actorId, TimeMs nowMs);
+    bool StartComposite(const MixBuffer& mixed, ActorId actorId, TimeMs nowMs, bool dry,
+                        SoundBus bus);
+
+    /// Mix and start the half of a group that plays on one bus, or do nothing
+    /// when no cue in it does.
+    ///
+    /// This is where one acoustic moment becomes one voice per slider. The split
+    /// is by category and by nothing else: the buses are mixed against the SAME
+    /// time base - the group's earliest cue - so the second buffer opens with
+    /// however much leading silence its first layer sits behind the moment by,
+    /// and the two voices start on the same frame with their offsets intact.
+    /// Letting each half find its own frame zero would put frame quantisation
+    /// back between the transient and the crunch, which is the exact thing
+    /// mixing in-process was introduced to remove.
+    void StartBus(const Group& group, SoundBus bus, TimeMs nowMs);
+
+    /// Whether this group is one the dry model applies to.
+    ///
+    /// True only when every cue in it is a tap or a colour layer on one. Reverb
+    /// send is a property of the model and a model is chosen per voice, so a
+    /// group holding anything else - a composite, a crunch, a second strategy's
+    /// proposal on the same contact - has to be opened wet or the impact inside
+    /// it would go dry with the tap. Asking it of the whole group rather than of
+    /// the loudest cue is what keeps that from being a judgement call.
+    [[nodiscard]] static bool GroupIsDry(std::span<const Cue> cues);
+
+    /// Point a loop at the node it should be following now, sending it to the
+    /// live handle if the answer changed. False when nothing resolved, which is
+    /// the caller's cue to fall back on a world position.
+    bool Follow(Loop& loop);
 
     /// Send a one-shot's position or attachment to its handle, and say in the log
     /// whether the engine took it. Called on the frame the voice starts and again
@@ -204,6 +280,7 @@ private:
     /// actor cannot be located.
     [[nodiscard]] std::string DescribeAgainstActor(const Voice& voice) const;
     bool StartLoopVoice(Loop& loop, TimeMs nowMs);
+    void ApplyLoopVolume(Loop& loop);
     void ReleaseVoice(Voice& voice);
     /// Which node this voice hangs on: a named bone, the body when the moment
     /// was collapsed, otherwise the limb that made the contact.
@@ -211,8 +288,14 @@ private:
                                           std::uint16_t limbIndex, bool collapsed) const;
 
     /// Open a handle on `wav` and place it. Everything both paths share.
+    ///
+    /// `bus` picks the sound category, which is the volume slider the player
+    /// sees. It is set on the descriptor rather than on the handle afterwards:
+    /// the engine applies a descriptor's category itself as it builds the sound,
+    /// where a message to a handle is dropped until the source voice exists.
     bool Open(std::span<const std::uint8_t> wav, const Vec3& position, RE::NiAVObject* follow,
-              RE::BSSoundHandle& handleOut, std::uint64_t& tokenOut);
+              const RE::BSISoundOutputModel* model, SoundBus bus, RE::BSSoundHandle& handleOut,
+              std::uint64_t& tokenOut);
 
     SoundBank* m_bank{};
     BoneResolver m_boneResolver;
@@ -228,6 +311,9 @@ private:
     /// Reused every frame so the steady path allocates nothing.
     MixBuffer m_mix;
     std::vector<std::uint8_t> m_encoded;
+    /// One bus's share of a group, gathered here rather than allocated per call
+    /// for the same reason - a knockdown is several groups a frame.
+    std::vector<Cue> m_busCues;
 
     std::uint64_t m_cuesIn{};
     std::uint64_t m_voicesOut{};

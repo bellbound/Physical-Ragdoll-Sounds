@@ -20,6 +20,7 @@
 // limit. Both stay on the testbench side of the line (00 section 13).
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -112,9 +113,24 @@ struct MixBuffer {
 /// and keep the steady path free of allocation; it is resized, never reallocated,
 /// once the pool has warmed.
 ///
-/// False when there was nothing to mix - every cue empty, or a slot with no file
-/// and no stand-in behind it.
-bool MixComposite(std::span<const Cue> cues, PcmCache& cache, const MixParams& params, MixBuffer& out);
+/// False when there was nothing to mix - every cue empty, or a slot with no
+/// recording behind it.
+///
+/// `timeBaseMs` overrides which instant is frame zero, and exists for one
+/// caller: the game splits a moment's cues across two sound categories and mixes
+/// each half into its own buffer. Left to itself each half would take its own
+/// earliest cue as zero, so a crunch sitting +20 ms behind the transient would
+/// start at the head of its buffer and the offset - the thing mixing exists to
+/// preserve - would be gone, replaced by whichever frame each voice happened to
+/// open on. Passing the whole moment's earliest time to both halves puts that
+/// 20 ms back as leading silence inside the gore buffer, so the two voices start
+/// on the same frame and the layers still land to the sample.
+///
+/// A base later than a cue would push it before the buffer; the layout clamps
+/// rather than trusting the caller, so the worst a wrong base can do is stack
+/// layers at frame zero.
+bool MixComposite(std::span<const Cue> cues, PcmCache& cache, const MixParams& params,
+                  MixBuffer& out, std::optional<TimeMs> timeBaseMs = std::nullopt);
 
 /// Render a loop slot into a buffer at least `lengthMs` long by tiling the source
 /// with a short crossfade at the seam.

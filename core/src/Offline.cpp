@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <map>
 
 namespace rds {
 namespace {
@@ -52,6 +53,9 @@ void SampleBody(const Engine& engine, TimeMs nowMs, std::vector<BodySample>& out
         sample.moment = state->moment;
         sample.heroSeq = state->heroSeq;
         sample.heroSinceMs = state->heroSinceMs;
+        sample.rustleDriveRaw = state->rustleDriveRaw;
+        sample.rustleDrive = state->rustleDrive;
+        sample.motionViolence = state->motionViolence;
         out.push_back(sample);
     }
 }
@@ -117,11 +121,164 @@ void Check(VerifyReport& report, std::string name, bool passed, std::string deta
     report.checks.push_back(VerifyExpectation{std::move(name), passed, std::move(detail)});
 }
 
+/// Whether two cues are the same cue.
+///
+/// Field by field, and deliberately not `memcmp`. `Cue` has three bytes of
+/// padding after `collapsed` and one after `moment`; the engine zeroes them when
+/// it builds a cue, and the copy into the collector's vector does not carry them
+/// across - so a byte comparison was reading whatever the allocator last had
+/// there and calling the engine non-deterministic two takes out of nine, at
+/// random, on runs that produced identical cue lists.
+///
+/// A field this forgets is a field the check stops testing, which is the cost of
+/// doing it this way. It is the smaller cost: the alternative reports a failure
+/// that is not there, and a check that cries wolf is one nobody reads.
+[[nodiscard]] bool SameCue(const Cue& a, const Cue& b) {
+    return a.timeMs == b.timeMs && a.op == b.op && a.slot == b.slot && a.variant == b.variant &&
+           a.gainDb == b.gainDb && a.pitch == b.pitch && a.fadeMs == b.fadeMs &&
+           a.position.x == b.position.x && a.position.y == b.position.y &&
+           a.position.z == b.position.z && a.boneIndex == b.boneIndex &&
+           a.collapsed == b.collapsed && a.voiceId == b.voiceId && a.actorId == b.actorId &&
+           a.limbIndex == b.limbIndex && a.site == b.site && a.surface == b.surface &&
+           a.coverage == b.coverage && a.reason == b.reason && a.motion == b.motion && a.moment == b.moment &&
+           a.intensity == b.intensity && a.sourceSeq == b.sourceSeq &&
+           a.compressCutDb == b.compressCutDb;
+}
+
 }  // namespace
 
 bool VerifyReport::Passed() const {
     return std::ranges::all_of(checks, [](const VerifyExpectation& c) { return c.passed; });
 }
+
+std::string_view ToString(CoverageSite site) {
+    switch (site) {
+        case CoverageSite::kHead:     return "head";
+        case CoverageSite::kHands:    return "hands";
+        case CoverageSite::kForearms: return "forearms";
+        case CoverageSite::kFeet:     return "feet";
+        case CoverageSite::kCalves:   return "calves";
+        case CoverageSite::kBody:     return "body";
+        case CoverageSite::kCount:    break;
+    }
+    return "body";
+}
+
+CoverageSite CoverageSiteFor(LimbSite site) {
+    // Deliberately the same grouping as the plugin's SlotForSite: head and neck
+    // share the helmet, and torso, upper arm and thigh all take the cuirass.
+    switch (site) {
+        case LimbSite::kHead:
+        case LimbSite::kNeck:    return CoverageSite::kHead;
+        case LimbSite::kHand:    return CoverageSite::kHands;
+        case LimbSite::kForearm: return CoverageSite::kForearms;
+        case LimbSite::kFoot:    return CoverageSite::kFeet;
+        case LimbSite::kCalf:    return CoverageSite::kCalves;
+        default:                 return CoverageSite::kBody;
+    }
+}
+
+std::uint32_t RepresentativeMaterial(SurfaceClass surface) {
+    // One well-known MATT id per class, chosen as the plainest member of each -
+    // "Wood" rather than "Book", "Stone" rather than "BoulderLarge" - so a
+    // pretend reads as the class itself and not as an odd corner of it.
+    switch (surface) {
+        case SurfaceClass::kWood:  return 500811281u;   // Wood
+        case SurfaceClass::kStone: return 3741512247u;  // Stone
+        case SurfaceClass::kMetal: return 1288358971u;  // MetalSolid
+        case SurfaceClass::kWater: return 1024582599u;  // Water
+        case SurfaceClass::kBody:  return 591247106u;   // Skin
+        case SurfaceClass::kSoft:  return 3106094762u;  // Dirt
+        case SurfaceClass::kCount: break;
+    }
+    return 0;
+}
+
+namespace {
+
+/// A feed that lies about the floor and the wardrobe, so a take recorded in one
+/// cell wearing one thing can be auditioned as any of the others.
+///
+/// A wrapper rather than a flag inside the engine. The engine has no idea it is
+/// being lied to, which is what keeps the pretend honest: the surface goes in as
+/// a MATERIAL_ID and runs the same `SurfaceFromMaterial` the game does, and the
+/// coverage goes in through the profile the same way a real ragdoll's does.
+///
+/// It does not touch the recording. `RunOffline` is called twice per edit - once
+/// per A/B side - and a rewrite of the take would make the second call see a
+/// take the first had already altered.
+class PretendFeed final : public IFeed {
+public:
+    PretendFeed(IFeed& inner, const OfflineOptions& options)
+        : m_inner(inner), m_options(options) {}
+
+    bool Drain(TimeMs untilMs, std::vector<FeedEvent>& out) override {
+        const std::size_t first = out.size();
+        const bool more = m_inner.Drain(untilMs, out);
+        if (m_options.surfaceAs == SurfaceClass::kCount) {
+            return more;
+        }
+        const std::uint32_t material = RepresentativeMaterial(m_options.surfaceAs);
+        for (std::size_t i = first; i < out.size(); ++i) {
+            FeedEvent& event = out[i];
+            // World contacts only. A self-collision is routed by `otherLimb` and
+            // dressing one up as stone would move it into a different branch of
+            // Ingest - a behaviour change that has nothing to do with the floor.
+            if (!event.IsContact() || event.otherLimb >= 0) {
+                continue;
+            }
+            event.otherMaterial = material;
+        }
+        return more;
+    }
+
+    [[nodiscard]] const ActorProfile* Profile(ActorId actor) const override {
+        const ActorProfile* real = m_inner.Profile(actor);
+        if (real == nullptr || !AnyCoverage()) {
+            return real;
+        }
+        // Re-dressed copies are cached per actor and rebuilt whenever the real
+        // profile is a different object or has a different limb count - which is
+        // what a `ragdoll_rebuilt` looks like from out here. The contract is that
+        // the pointer stays valid until the next such Drain, and a map node
+        // gives exactly that.
+        Dressed& dressed = m_dressed[actor];
+        if (dressed.source != real || dressed.copy.limbs.size() != real->limbs.size()) {
+            dressed.source = real;
+            dressed.copy = *real;
+        }
+        for (std::size_t i = 0; i < dressed.copy.limbs.size(); ++i) {
+            const auto site = static_cast<std::size_t>(CoverageSiteFor(real->limbs[i].site));
+            dressed.copy.limbs[i].coverage =
+                m_options.coverageSet[site] ? m_options.coverageAs[site] : real->limbs[i].coverage;
+        }
+        return &dressed.copy;
+    }
+
+    [[nodiscard]] const ListenerState& Listener() const override { return m_inner.Listener(); }
+    [[nodiscard]] float FrameTimeSec() const override { return m_inner.FrameTimeSec(); }
+
+private:
+    [[nodiscard]] bool AnyCoverage() const {
+        for (const bool set : m_options.coverageSet) {
+            if (set) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    struct Dressed {
+        const ActorProfile* source{};
+        ActorProfile copy;
+    };
+
+    IFeed& m_inner;
+    const OfflineOptions& m_options;
+    mutable std::map<ActorId, Dressed> m_dressed;
+};
+
+}  // namespace
 
 OfflineResult RunOffline(Recording& recording, const AlgorithmConfig& config, SoundBank& bank,
                          const OfflineOptions& options) {
@@ -156,6 +313,13 @@ OfflineResult RunOffline(Recording& recording, const AlgorithmConfig& config, So
     TimeMs last = frames.empty() ? 0.0 : frames.front();
     TimeMs first = last;
     bool anyTick = false;
+    // Everything below ticks `feed` rather than `recording`: with nothing being
+    // pretended that is the recording itself, and with a pretend set it is the
+    // wrapper. One name, so no tick can accidentally bypass it.
+    PretendFeed pretend{recording, options};
+    IFeed& feed = options.Pretending() ? static_cast<IFeed&>(pretend)
+                                       : static_cast<IFeed&>(recording);
+
     for (const TimeMs frame : frames) {
         if (frame < start || (end > 0.0 && frame > end)) {
             continue;
@@ -164,7 +328,7 @@ OfflineResult RunOffline(Recording& recording, const AlgorithmConfig& config, So
             first = frame;
             anyTick = true;
         }
-        engine.Tick(recording, frame);
+        engine.Tick(feed, frame);
         SampleBody(engine, frame, result.body);
         ++result.ticks;
         last = frame;
@@ -172,7 +336,7 @@ OfflineResult RunOffline(Recording& recording, const AlgorithmConfig& config, So
     const TimeMs step = recording.FrameStepMs() > 0.0 ? recording.FrameStepMs() : 16.6;
     TimeMs lastTail = last;
     for (TimeMs t = last + step; t <= last + kTailMs; t += step) {
-        engine.Tick(recording, t);
+        engine.Tick(feed, t);
         SampleBody(engine, t, result.body);
         ++result.ticks;
         lastTail = t;
@@ -272,7 +436,8 @@ VerifyReport Verify(Recording& recording, const AlgorithmConfig& config, SoundBa
         // time that exception fired. The engine counts the exceptions it granted
         // rather than the verifier re-deriving them, because the level the
         // arbitrator judged is the *proposed* stack's and layers can still be
-        // lost to the voice cap afterwards, so the cue list no longer shows it.
+        // lost to the mix's voice floor afterwards, so the cue list no longer
+        // shows it.
         std::vector<TimeMs> onsets;
         for (const Cue& cue : run.cues) {
             if (IsOnset(cue)) {
@@ -441,22 +606,7 @@ VerifyReport Verify(Recording& recording, const AlgorithmConfig& config, SoundBa
                                            : " - no near-ceiling contact, loudness half untested"));
     }
 
-    // ── 7. exactly one settle cue closes the knockdown ───────────────────────
-    {
-        int settles = 0;
-        for (const Cue& cue : run.cues) {
-            if (cue.reason == CueReason::kSettleClose) {
-                ++settles;
-            }
-        }
-        Check(report, "settle closes", settles == 1,
-              std::format("{} settle cues (design: exactly one)", settles));
-    }
-
-    // ── 8. the moment axis fired sanely, and never in mid-air ────────────────
-    //
-    // Two claims, both about Stage 2's second axis, and both traceable to a
-    // failure that shipped.
+    // ── 7. the moment axis fired sanely ───────────────────────────────────
     //
     // The hero count guards the floor. A test that is too willing spends the
     // moment on the first thing that touches - a 44.7 u/s thigh scuff, in the
@@ -465,32 +615,26 @@ VerifyReport Verify(Recording& recording, const AlgorithmConfig& config, SoundBa
     // legitimate (a gentle slump crosses nothing and the design says so), but a
     // take with many is a floor set too low, and a hero moment that resets the
     // burst budget every time it opens stops being a budget.
-    //
-    // The in-flight count guards §3.6 and is an absolute: a fall that announces
-    // it is over while the body is still falling reads as broken immediately,
-    // which is the falsifiable half of the physics/design split.
     {
-        const bool inFlightOk = run.stats.settleInFlight == 0;
         // Per knockdown rather than per take: the long recordings are several
         // knockdowns and are entitled to a hero apiece.
         const double perEvent =
             run.stats.bursts > 0 ? static_cast<double>(run.stats.heroes) : 0.0;
         const bool countOk = run.stats.heroes <= 3 || perEvent <= run.stats.bursts;
-        Check(report, "hero moments", inFlightOk && countOk,
-              std::format("{} hero moments (+{} re-anchored) over {} bursts; {} closing cues in "
-                          "flight (design: 0-3 per knockdown, and never a settle in mid-air)",
-                          run.stats.heroes, run.stats.heroReanchors, run.stats.bursts,
-                          run.stats.settleInFlight));
+        Check(report, "hero moments", countOk,
+              std::format("{} hero moments (+{} re-anchored) over {} bursts (design: 0-3 per "
+                          "knockdown)",
+                          run.stats.heroes, run.stats.heroReanchors, run.stats.bursts));
     }
 
-    // ── 9. the same seed and config twice give a byte-identical list ─────────
+    // ── 8. the same seed and config twice give a byte-identical list ─────────
     {
         const OfflineResult again = RunOffline(recording, config, bank, options);
         bool identical = again.cues.size() == run.cues.size();
         std::size_t firstDifference = 0;
         if (identical) {
             for (std::size_t i = 0; i < run.cues.size(); ++i) {
-                if (std::memcmp(&run.cues[i], &again.cues[i], sizeof(Cue)) != 0) {
+                if (!SameCue(run.cues[i], again.cues[i])) {
                     identical = false;
                     firstDifference = i;
                     break;

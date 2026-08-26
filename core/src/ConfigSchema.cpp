@@ -690,8 +690,9 @@ const ParamDesc kAlgorithmParams[] = {
               "far too hot without ever noticing."),
     RDS_PARAM(AlgorithmConfig, "SlotGain", "fScrapeGrain", kFloat, slotGains.scrapeGrain, -24, 12,
               0.5, "Slot gains", "scrape_grain",
-              "One catch mid-slide. Sparse by design, so it is easy to leave hot without noticing "
-              "until a long skid fires a dozen of them."),
+              "The scuff a grind opens with. One per grind, so it is easy to leave hot without "
+              "noticing - the take that shows it is a fall that grinds, launches and lands "
+              "several times over."),
     RDS_PARAM(AlgorithmConfig, "SlotGain", "fScrapeLoop", kFloat, slotGains.scrapeLoop, -24,
               12, 0.5, "Slot gains", "scrape_loop",
               "The body grind, and its surface variants, which share this trim because they are "
@@ -702,6 +703,11 @@ const ParamDesc kAlgorithmParams[] = {
               "The light grind of one limb dragging, and its surface variants. Well under the "
               "body grind - a single foot should be only just audible at conversational "
               "distance."),
+    RDS_PARAM(AlgorithmConfig, "SlotGain", "fScrapeLoopRumble", kFloat,
+              slotGains.scrapeLoopRumble, -24, 12, 0.5, "Slot gains", "scrape_loop_rumble",
+              "The bed under both grinds. Its own trim rather than the grind's, because the "
+              "balance between mass and grit is the whole of the layer - and because it is a "
+              "synthesised file arriving at a level nothing else in the bank shares."),
     RDS_PARAM(AlgorithmConfig, "SlotGain", "fAirWhoosh", kFloat, slotGains.airWhoosh, -24, 12, 0.5,
               "Slot gains", "air_whoosh",
               "The airborne rise. Anticipation, not event - lift it and every knockdown announces "
@@ -2062,34 +2068,51 @@ const ParamDesc kAlgorithmParams[] = {
               "a limb grind ducked under the mix's own voice floor is stopped outright and gives "
               "its voice back, so this one slider covers both."),
 
-    // -- the catches ----------------------------------------------------------
+    // -- the entry scuff ------------------------------------------------------
+    //
+    // Three sliders left this block rather than being defaulted off:
+    // `fGrainCatchRatio`, `fGrainMinGapMs` and `fGrainProbability` were a
+    // threshold, a rate limit and a dice roll for a *stream* of catches, and none
+    // of the three means anything for one grain per grind. Dropped without a
+    // `Renamed`, so an ini tuned for the old layer does not carry a value into a
+    // feature it was never about.
     RDS_HRULE(AlgorithmConfig, "Slide", "bGrainEnabled", kBool, strategies.scrape.grainEnabled, 0,
-              1, 1, "Slide and scrape", "Catches",
-              "Fire a short scrape grain on the moments a limb catches on something.\n"
-              "This is the single biggest thing between a slide and a noise file. A real body "
-              "sliding on stone carries sixty-five little grit peaks a second riding on the "
-              "rumble, and the loop has the rumble and none of the grit; a slide's whole character "
-              "is its irregularity. Each catch is a contact the solver really reported and the "
-              "mod was throwing away - nothing here is invented."),
+              1, 1, "Slide and scrape", "Entry scuff",
+              "Play a short scrape grain the moment a grind starts - the scuff of the limb "
+              "arriving on the surface, under the head of the loop it introduces.\n"
+              "A slide is not declared until 150 ms or 45 units into a grind that is already "
+              "happening, so the loop always opens into a body that has been scraping for a "
+              "moment, and it used to open with nothing marking the arrival. That is the "
+              "'somebody turned a noise on' this fixes, and it is the same shape as the transient "
+              "in front of an impact's sub.\n"
+              "This is what the catch layer became. It used to fire all the way through a slide, "
+              "on any rub harder than the slide's own average: sixty-five grit peaks a second is "
+              "what a real slide has, but at cue rate that arrives as a rattle of separate little "
+              "impacts over a grind rather than as grit in it. The density belongs to the file "
+              "now; the entry is the one moment in a slide that is genuinely an event."),
     RDS_PAIRS(AlgorithmConfig, "Slide", "fGrainGainDb", kFloat, strategies.scrape.grainGainDb, -60,
-              6, 0.5, "Slide and scrape", "Catch level",
-              "How loud a catch is against the contact it came from."),
-    RDS_PARAM(AlgorithmConfig, "Slide", "fGrainCatchRatio", kFloat,
-              strategies.scrape.grainCatchRatio, 1, 6, 0.05, "Slide and scrape", "Catch threshold",
-              "How much harder than the slide has been grinding lately a contact has to be to "
-              "count as a catch. At 1 every rub is one, which is a rattle rather than a texture."),
-    RDS_PAIRS(AlgorithmConfig, "Slide", "fGrainMinGapMs", kFloat, strategies.scrape.grainMinGapMs,
-              0, 1000, 5, "Slide and scrape", "Catch gap",
-              "The floor under how often one may fire."),
-    RDS_PARAM(AlgorithmConfig, "Slide", "fGrainProbability", kFloat,
-              strategies.scrape.grainProbability, 0, 1, 0.05, "Slide and scrape", "Catch chance",
-              "And the chance one does when it is allowed to. Both, because a gate that is only a "
-              "rate limiter turns a dense stream into a metronome."),
+              6, 0.5, "Slide and scrape", "Scuff level",
+              "How loud the scuff is against the grind it introduces. Against the loop's level "
+              "and not a contact's, so it scales with the grind: a limb barely dragging scuffs "
+              "quietly and a body arriving at speed scuffs hard, with nothing to tune twice."),
     RDS_PARAM(AlgorithmConfig, "Slide", "fGrainPitchScatter", kFloat,
               strategies.scrape.grainPitchScatter, 0, 1, 0.01, "Slide and scrape",
-              "Catch pitch scatter",
-              "How far either way a catch's pitch is thrown. Catches all at one pitch read as a "
-              "single sample repeating, which is the thing this layer exists to stop."),
+              "Scuff pitch scatter",
+              "How far either way a scuff's pitch is thrown. It still earns its place at one per "
+              "grind: a body that grinds, launches and lands three times in a fall enters three "
+              "times, and three entries at one pitch read as one sample repeating."),
+    RDS_PARAM(AlgorithmConfig, "Slide", "bGrainOnBody", kBool, strategies.scrape.grainOnBody, 0, 1,
+              1, "Slide and scrape", "Also scuff the body grind",
+              "Give the body grind an entry scuff as well as the limb grinds.\n"
+              "Off by default, and that is about the picture rather than caution. A limb arriving "
+              "is a scuff - a foot catching, a hand slapping down and dragging - and has a real "
+              "edge to it. A torso arriving flat is not a scuff, it is a fall, and the impact "
+              "composite has already voiced it: a knockdown that ends in a skid has just put a "
+              "full stack with a sub on it into the same 100 ms, and a scuff on top is a fifth "
+              "layer on the loudest moment in the mod.\n"
+              "Turn it on for the entry the composite does not cover: a body already down and "
+              "still, then dragged. There is no collision there for the impact path to have "
+              "voiced, so the grind opens out of silence - which is the case this layer is for."),
 
     // -- how still the level sits ---------------------------------------------
     RDS_HPAIR(AlgorithmConfig, "Slide", "fContactSpeedBlend", kFloat,
@@ -2107,6 +2130,67 @@ const ParamDesc kAlgorithmParams[] = {
               "figure is three-quarters of a decibel, which is most of what a breathing grind "
               "does - the loop was being held flat by the thing meant to keep the cue list "
               "readable."),
+
+    // -- the rumble bed -------------------------------------------------------
+    RDS_HRULE(AlgorithmConfig, "Slide", "bRumbleEnabled", kBool, strategies.scrape.rumbleEnabled, 0,
+              1, 1, "Slide and scrape", "Rumble bed",
+              "Hold a low bed under the grinds for as long as anything is grinding: the mass of "
+              "the floor being loaded by a body crossing it, with none of the grit that rides on "
+              "top.\n"
+              "This is the missing half of the slide, and it is measured rather than guessed. "
+              "Against GTA 4's slide events our grinds are 35-45 dB out on the bass-to-hiss "
+              "balance and in the opposite direction - theirs bass-led with the sub band loudest "
+              "and a hard rolloff over 8 kHz, ours broadband and flat to 20 kHz with the sub 40 dB "
+              "down. The grain rates match, so density was never the problem. And no EQ rescues "
+              "it: there is nothing under the shelf to boost.\n"
+              "One voice for the whole actor rather than one per grind, because the floor is one "
+              "object - and its own voice rather than baked into the six grind files, because the "
+              "bed and the grit want opposite things from the runtime: the grit's pitch tracks "
+              "speed and the bed's must not. Off, the slide is the grinds alone, which is the "
+              "fastest A/B for whether this is what fixed it."),
+    RDS_PARAM(AlgorithmConfig, "Slide", "fRumbleGainDb", kFloat, strategies.scrape.rumbleGainDb,
+              -60, 6, 0.5, "Slide and scrape", "Bed level",
+              "How loud the bed is at the top of its ramp. Over the body grind's own level rather "
+              "than under it, which looks wrong and is the point: in the references the sub band "
+              "is the loudest band of a slide and the grit rides on top of it. The same inversion "
+              "the impact sub has against its transient, for the same reason - the layer carrying "
+              "the mass is not the layer carrying the character.\n"
+              "The bed has no depth or curve of its own to set beside this. It rides the limb "
+              "grinds' ramp - 'Limb quiet at', 'Limb loud at' and 'Limb speed range' - measured "
+              "on how hard the body is rubbing rather than on how fast it is travelling. Body "
+              "speed is smooth by definition, and a bed levelled on it read as a switch rather "
+              "than a swell. Tuning the limb grinds' depth now moves the bed's with it, which is "
+              "the price of not having two knobs over one quantity."),
+    RDS_PAIRS(AlgorithmConfig, "Slide", "fRumblePitch", kFloat, strategies.scrape.rumblePitch, 0.25,
+              2, 0.01, "Slide and scrape", "Bed pitch",
+              "A fixed pitch for the bed. Leave it at 1 unless the recording itself needs "
+              "transposing to sit right - this is a tuning of the file, not a response to "
+              "anything the body is doing."),
+    RDS_PARAM(AlgorithmConfig, "Slide", "fRumblePitchPerThousandUnits", kFloat,
+              strategies.scrape.rumblePitchPerThousandUnits, 0, 2, 0.01, "Slide and scrape",
+              "Bed pitch with speed",
+              "The one ramp in this section that is deliberately flat, exposed so the claim can "
+              "be tested by ear instead of believed. Floor and body resonance do not move with "
+              "how fast the body is going - the reference slides hold a static spectrum and swell "
+              "in level - and pitching bass down at a crawl is flubby, blooms on a subwoofer and "
+              "vanishes on a laptop speaker. 0 is the design's answer; the flubbiness arrives well "
+              "before the movement reads as speed."),
+    RDS_PAIRS(AlgorithmConfig, "Slide", "bRumbleOnLimbs", kBool, strategies.scrape.rumbleOnLimbs, 0,
+              1, 1, "Slide and scrape", "Bed under limb grinds",
+              "Whether a limb-only slide gets a bed at all. A single dragging foot is a small "
+              "contact patch, and a small contact patch still loads the floor - the difference "
+              "between a foot and a torso is how hard, not whether."),
+    RDS_PARAM(AlgorithmConfig, "Slide", "fRumbleLimbGainDb", kFloat,
+              strategies.scrape.rumbleLimbGainDb, -60, 0, 0.5, "Slide and scrape", "Bed limb trim",
+              "How much less bed a limb-only slide gets. Interpolated on the same contact fraction "
+              "the body grind's weight uses, so it arrives with the body rather than switching: "
+              "all of this at 'Body grind from' and none of it at 'Body grind full at'. One file, "
+              "one voice, one number between the two cases.\n"
+              "With no body grind running at all - the switch off, or under 'Body grind from', or "
+              "the body slower than 'Body quiet at' - the whole of this is applied however much of "
+              "the body happens to be touching. Otherwise a body lying flat with the body grind "
+              "switched off measures a full contact fraction, cancels this trim, and plays the bed "
+              "at full body level under nothing but limb grinds."),
 
     // -- the floor ------------------------------------------------------------
     RDS_HRULE(AlgorithmConfig, "Slide", "bSurfaceVariants", kBool,
@@ -2635,9 +2719,8 @@ const ParamDesc kAlgorithmParams[] = {
               "The wet squelch: the top damage tier, and the one layer all three parts share. The fastest way to check the gore thresholds are not opening on ordinary knockdowns."),
     RDS_PARAM(AlgorithmConfig, "Layers", "bScrapeGrain", kBool, layers.scrapeGrain, 0, 1, 1,
               "Layers", "scrape_grain",
-              "The catches a slide is punctuated by. Mute it and the grinds are left running "
-              "underneath, which is the A/B for whether the irregularity is what makes a slide "
-              "sound like a body."),
+              "The scuff a grind opens with. Mute it and the grinds still start, just out of "
+              "nothing - which is the A/B for whether a slide needs an arrival marked at all."),
     RDS_PARAM(AlgorithmConfig, "Layers", "bScrapeLoop", kBool, layers.scrapeLoop, 0, 1, 1, "Layers",
               "scrape_loop",
               "The full-weight sliding rumble, surface variants included. The A/B for the body "
@@ -2648,6 +2731,12 @@ const ParamDesc kAlgorithmParams[] = {
               "The light grind of one limb dragging, surface variants included. Mute it and a "
               "dragging foot goes silent while a full slide is untouched, which is the cleanest "
               "way to hear what the two-loop split bought."),
+    RDS_PARAM(AlgorithmConfig, "Layers", "bScrapeLoopRumble", kBool, layers.scrapeLoopRumble, 0, 1,
+              1, "Layers", "scrape_loop_rumble",
+              "The bed of mass under both grinds. Mute it and the grinds run exactly as they did "
+              "before the layer existed, which is the A/B the whole thing was built for: our "
+              "grinds measure 35-45 dB brighter than a real slide, and this is the half that was "
+              "missing rather than the half that was wrong."),
     RDS_PARAM(AlgorithmConfig, "Layers", "bAirWhoosh", kBool, layers.airWhoosh, 0, 1, 1, "Layers",
               "air_whoosh",
               "The airborne anticipation rise. Mute it to judge whether the fall still reads as a fall without being told one is coming."),

@@ -88,6 +88,6 @@ why the numbers alone decide nothing — the specs gate character, not identity 
   tilt +3 to +10) but carries 6–13 lo-mid transients against the 15 floor: right colour, too sparse.
 - **`fst/grass/scuff`** — tilt −18 to −21, against `scrape_loop`'s +5 to +19. A hiss, and the exact
   trap `04-Reference-Analysis.md` §7 flags.
-- **Every loop slot.** Not one file in 1,261 passes `scrape_loop`, `foley_cloth` or `air_whoosh` —
+- **Every loop slot.** Not one file in 1,261 passes `scrape_loop` or `air_whoosh` —
   they are all short one-shots that fail steadiness and seam. Nothing vanilla helps those three.
 - `fst/water/land/fst_waterland_01.wav` and `_02.wav` hold 0.0 ms of audio — vanilla duds.

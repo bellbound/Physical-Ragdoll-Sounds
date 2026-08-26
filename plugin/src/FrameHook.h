@@ -26,6 +26,9 @@ public:
     /// Write the hook. Safe to call twice; the second call is a no-op. False if
     /// the call site could not be verified, in which case nothing is patched and
     /// the caller should say so rather than pretending to run.
+    ///
+    /// The caller must have allocated the trampoline already - see plugin.cpp.
+    /// Allocating it here would release the block VanillaImpactHook is using.
     static bool Install(void (*onFrame)());
 
     [[nodiscard]] static bool Installed();

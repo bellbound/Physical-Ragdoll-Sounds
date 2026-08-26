@@ -90,10 +90,51 @@ struct ParamDesc {
     /// group the filter has thinned out never opens with a rule under its
     /// header. Set by the RDS_HRULE / RDS_HPAIR rows in ConfigSchema.cpp.
     bool ruleBefore{};
+
+    /// The name before *that* one, for a row that has moved twice.
+    ///
+    /// The slide keys were `[Phase]`, then `[Motion]`, and are `[Slide]` today.
+    /// With one legacy slot the second move would quietly have cost everybody
+    /// the tuning from before the first, which is most of the saved configs in
+    /// the testbench. `Renamed()` chains and pushes the older name in here.
+    ///
+    /// Last in the struct on purpose: the RDS_PAIRS and RDS_HRULE macros
+    /// initialise by position up to `ruleBefore`, so anything added before that
+    /// point silently shifts nine hundred rows one field to the right.
+    std::string_view legacySection2;
+    std::string_view legacyKey2;
 };
 
 /// Every parameter of RagdollSounds_Algorithm.ini, in file order.
+///
+/// Includes the generated per-surface rows, which live in a *second* file. That
+/// is deliberate: everything that reasons about parameters - the panel, the
+/// filter, the diff, the remote patcher, the export - wants one table, and only
+/// the two functions that write files care which file a row belongs to.
 [[nodiscard]] std::span<const ParamDesc> AlgorithmParams();
+
+/// The rows that belong in RagdollSounds_Algorithm.ini: everything except the
+/// surfaces list. A prefix of `AlgorithmParams()`.
+[[nodiscard]] std::span<const ParamDesc> AlgorithmFileParams();
+
+/// The rows that belong in RagdollSounds_Algorithm_Surfaces.ini: eight per
+/// surface class, in class order, whether or not the class is opened. A suffix
+/// of `AlgorithmParams()`.
+[[nodiscard]] std::span<const ParamDesc> SurfaceParams();
+
+/// How many rows each class contributes to `SurfaceParams()`, so a caller can
+/// index it by class without knowing the field list.
+[[nodiscard]] std::size_t SurfaceRowsPerClass();
+
+/// Which surface a row belongs to, or kCount for the great majority of rows
+/// that are not part of the list. Lets the panel hide a closed class's rows
+/// without matching on section names itself.
+[[nodiscard]] SurfaceClass SurfaceClassOfParam(const ParamDesc& p);
+
+/// Just the opened classes' rows, in class order - what the surfaces file is
+/// actually written from. A closed class contributes nothing, which is how an
+/// unopened surface costs no ini lines and stays closed on the next load.
+[[nodiscard]] std::vector<ParamDesc> OpenedSurfaceParams(const AlgorithmConfig& config);
 
 /// Every parameter of RagdollSounds.ini.
 [[nodiscard]] std::span<const ParamDesc> GeneralParams();

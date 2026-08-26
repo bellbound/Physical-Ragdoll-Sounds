@@ -55,7 +55,14 @@ TRIM_DB    = 40.0    # long-variant trim: keep everything within this of the pea
 WET   = ("wet_slap", "squelch", "crushing", "twisting", "bone_crack", "crunsh_gran")
 # textures: judged whole, never split into contacts
 LOOPY = {"dragged_slowly": "scrape_loop", "glides_slowly": "scrape_loop",
-         "sliding": "scrape_loop", "rustle": "foley_cloth"}
+         "sliding": "scrape_loop",
+         # 2026-08-24: hand-named limb-drag exports. These are textures and must not
+         # be split into contacts -- a limb scrape is 25-120 grains/s, so the contact
+         # pass would shred one into dozens of useless one-shots. "scrape_grain" is
+         # deliberately absent: that slot IS a single catch, and wants the event cut.
+         "scrape_long_limb": "scrape_limb", "scrape_stone": "scrape_limb",
+         "scrape_wood": "scrape_limb", "scrape_dirt": "scrape_limb",
+         "scrape_soft": "scrape_limb"}
 
 
 def write_wav(path, x, sr):

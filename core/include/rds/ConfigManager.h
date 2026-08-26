@@ -11,8 +11,16 @@
 // Path, matching the other mods here:
 //   Data\SKSE\Plugins\RagdollSounds\RagdollSounds.ini
 //   Data\SKSE\Plugins\RagdollSounds\RagdollSounds_Algorithm.ini
+//   Data\SKSE\Plugins\RagdollSounds\RagdollSounds_Algorithm_Surfaces.ini
 //   Data\SKSE\Plugins\RagdollSounds\RagdollSounds_SFX.ini
 // The testbench points it at its own directory instead.
+//
+// The surfaces file is a schema walk like the algorithm file - the same
+// ParamDesc rows, the same reader and the same writer - and is a separate file
+// only so that thirteen surfaces' worth of blocks do not bury the ninety
+// decisions in the main one. It is also the one file here that is written
+// *partially*: only the classes you have opened appear, so a fresh install's
+// copy is a header and nothing else.
 //
 // The third file is not a schema walk like the other two: it is a list of
 // filenames per slot rather than a table of numbers, so it carries its own
@@ -48,9 +56,14 @@ public:
     /// values are clamped and logged at warn with both numbers.
     void Load();
 
-    /// Write both files, preserving the comments. Only called on an explicit
+    /// Write every file, preserving the comments. Only called on an explicit
     /// save; nothing in the engine writes config behind the user's back.
     void Save();
+
+    /// Write the surfaces file alone, from scratch, with only the opened blocks
+    /// in it. Part of `Save()`, and public because opening or closing a surface
+    /// is worth persisting on its own without rewriting the other three files.
+    bool SaveSurfaces();
 
     [[nodiscard]] const GeneralConfig& General() const { return m_general; }
 
@@ -117,6 +130,27 @@ public:
     static bool SaveFrom(const std::filesystem::path& file, const void* root,
                          std::span<const ParamDesc> params, std::string_view header);
 
+    /// Which surface classes have a block in `file`, by its `[Surface.<name>]`
+    /// headers.
+    ///
+    /// The file *is* the list: a section that is present means the class is
+    /// opened, and there is no separate roster to keep in agreement with it. So
+    /// deleting a block by hand closes that surface, which is what somebody
+    /// editing an ini would expect deleting a block to do.
+    static void ReadOpenedSurfaces(const std::filesystem::path& file, AlgorithmConfig& config);
+
+    /// Fold a pre-list ini's three surface trims and three mutes into the list.
+    ///
+    /// Reads the old `[Surfaces]` keys - and the `[SlotGain]` / `[Layers]` names
+    /// they had before that - straight out of the algorithm file, and opens
+    /// exactly the classes that carried a value differing from its default. A
+    /// user who never touched them gets thirteen closed blocks and an empty
+    /// surfaces file, which is the right answer: their tuning was the defaults.
+    ///
+    /// Returns how many classes it opened, so the caller can say so in the log.
+    static std::size_t MigrateSurfaces(const std::filesystem::path& algorithmFile,
+                                       AlgorithmConfig& config);
+
     /// The same file, as a string: every section, every key, each with the
     /// comment that says what it changes perceptually.
     ///
@@ -136,6 +170,7 @@ private:
     std::filesystem::path m_directory;
     std::filesystem::path m_generalPath;
     std::filesystem::path m_algorithmPath;
+    std::filesystem::path m_surfacePath;
     std::filesystem::path m_sfxPath;
 
     GeneralConfig m_general{};

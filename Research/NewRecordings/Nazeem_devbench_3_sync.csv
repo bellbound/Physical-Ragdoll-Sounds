@@ -1,0 +1,80 @@
+# Lining the impacts CSV up with the video.
+#
+# t_ms            this take's own clock - the column the impacts CSV also stamps
+# obs_duration_ms OBS's output clock at that instant, in milliseconds
+# rtt_ms          how long the round trip took, and so how much the row is worth
+#
+# video_time_ms = t_ms + offset. Fit the offset through the low-rtt rows rather
+# than taking the first one: over a long take the two clocks drift apart, and a
+# piecewise fit follows that where a single number cannot.
+#
+# Written by the devbench, which drove the recording itself - so the mp4 beside
+# this file is OBS's whole output and the fitted offset needs no cut subtracted
+# out of it. t_ms comes off the game's session clock read across the link, so a
+# millisecond or two of the intercept is the socket rather than the picture; the
+# slope is unaffected, because that error is the same on every row.
+t_ms,obs_duration_ms,rtt_ms
+-951,0,0
+50,749,0
+1051,1749,0
+2052,2749,0
+3052,3749,0
+4053,4733,0
+5054,5733,0
+6055,6733,0
+7056,7749,0
+8057,8749,0
+9058,9749,0
+10059,10749,0
+11059,11749,0
+12060,12749,0
+13061,13766,0
+14062,14766,0
+15063,15766,0
+16064,16749,0
+17065,17749,0
+18065,18749,0
+19067,19749,0
+20067,20749,0
+21068,21766,0
+22069,22766,0
+23070,23766,0
+24071,24766,0
+25072,25766,0
+26073,26766,0
+27073,27766,0
+28074,28766,0
+29075,29766,0
+30076,30766,0
+31077,31766,0
+32077,32766,0
+33078,33766,0
+34079,34766,0
+35080,35783,0
+36081,36783,0
+37082,37783,0
+38083,38783,0
+39084,39783,0
+40084,40766,0
+41085,41766,0
+42086,42766,0
+43087,43783,0
+44088,44783,0
+45089,45783,0
+46090,46783,0
+47091,47783,0
+48091,48783,0
+49092,49783,0
+50093,50799,0
+51094,51799,0
+52095,52783,0
+53096,53783,0
+54096,54783,0
+55097,55783,0
+56098,56783,0
+57099,57783,0
+58100,58799,0
+59101,59799,0
+60102,60799,0
+61103,61799,0
+61537,62233,0

@@ -23,6 +23,57 @@ When the exe is locked:
 3. Report what is still pending, so a run that ends before the app closes does
    not look finished when it is not.
 
+## Changing the config: patch the running testbench
+
+**When the user asks for a tuning change - louder, softer, fewer, later, "the
+slides start too eagerly" - do it through `tools/tune.py`, not by editing an
+ini.** The testbench is open (see the rule above), it is the thing making the
+sound he is judging, and it holds a session that is not written down anywhere
+else. A hand-edited ini is a file that session will never read.
+
+    python tools/tune.py status
+    python tools/tune.py set Slide:fSlideMinDurationMs=120 -m "slides started too eagerly"
+
+That patches the config the focused side is playing **in the running program**,
+saves the result as a **new** file in `testbench\configs\`, and selects it in
+the picker. No restart, no reload; the next play is the new sound, and a
+connected game gets it on the same frame. Nothing is overwritten - the file it
+was patched from is still there - and the edit is on the app's undo stack, so
+**Ctrl+Z in the testbench takes back anything this does**.
+
+The name is the next number in the family it came from (`config_24_08_7` ->
+`config_24_08_8`) and the picker is newest first, so what the user is being
+asked to listen to is at the top of the list. Say the name in your reply: it is
+how he finds it and how he goes back to it.
+
+| what | how |
+|---|---|
+| is it up, what is it playing | `python tools/tune.py status` |
+| the configs in the picker | `python tools/tune.py list` |
+| what a parameter is set to now | `python tools/tune.py get slide` |
+| change one or several | `python tools/tune.py set A:x=1 B:y=2 -m "why"` |
+| against another config | `python tools/tune.py set ... --from config_24_08_3` |
+| an audition, no file | `python tools/tune.py set ... --no-save` |
+| put an existing config back on | `python tools/tune.py load config_24_08_7` |
+
+Notes that save time:
+
+- The section may be dropped when the key is unique: `fSlideMinDurationMs=120`
+  works. A near-miss name comes back with the candidates.
+- A patch is all or nothing. One bad key and nothing moves, so a failed command
+  has left the session exactly as it was.
+- A value outside the schema's range is clamped and the reply says so - read it,
+  because a clamp is a change that did not happen.
+- `-m` is not decoration: it goes into the new ini's header comment and into the
+  log, and it is the only thing that says what a config found tomorrow was for.
+- `--no-save` for a sweep of a dozen values, then one `set` for the one that
+  won. A folder of twelve near-identical configs is a folder nobody reads.
+
+It talks to a loopback socket on the devbench port plus one (27861), described
+in `testbench\src\Control.h`. "no testbench on 127.0.0.1:27861" means the app
+is not running - **ask him to start it**, and do not go and edit the ini
+instead.
+
 ## Always deploy what changed
 
 A change that only exists in the repo is a change the game has not got. When
@@ -33,6 +84,8 @@ work is done and the locks are gone, deploy the halves that actually changed:
 | `plugin\`, `core\` | `pwsh -File ..\..\build-skse-mods.ps1 -Mod Physical-Ragoll-Sounds` |
 | `assets\sfx\` (the pack or the library) | `pwsh -File deploy-pack.ps1` |
 | `testbench\` only | nothing to deploy - relink and it is done |
+
+NO need to ask the user for permission to deploy the mod
 
 `core\` is in the first row on purpose: it is a static lib linked into the game
 DLL, so an engine change is a DLL change even when no file under `plugin\` was
@@ -65,8 +118,16 @@ any parameter in the schema (this is the cheapest A/B there is - no rebuild),
 `--debug` for the firehose. Note `-v` is **not** the debug flag; it is silently
 eaten as the bank directory.
 
-**The failure total moves by one or two between identical runs.** The
-per-take `determinism` check is byte-exact within a process, but the totals
-across processes are not: `Slots:iRngSeed` defaults to 0, which seeds from the
-clock. Pin it with `--set Slots:iRngSeed=12345` before comparing two configs, or
-you will read dice as a regression.
+**Pin the seed before comparing two configs.** `Slots:iRngSeed` defaults to 0,
+which seeds from the clock, so two runs of the same config are two different
+dice rolls. `--set Slots:iRngSeed=12345` and the totals are repeatable to the
+check.
+
+They are repeatable now. Until 2026-08-24 the totals wandered by one or two
+between identical runs on a pinned seed as well, and that was the `determinism`
+check itself: it compared cues with `memcmp`, and `Cue` has three bytes of
+padding after `collapsed` that the copy into the collector's vector does not
+carry across - so it was reading the allocator's leftovers and failing two takes
+out of nine at random on runs whose cue lists were identical. It compares field
+by field now (`SameCue` in `Offline.cpp`), so a determinism failure means
+something.

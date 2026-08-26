@@ -18,6 +18,7 @@ std::string_view ToString(EventKind k) {
         case EventKind::kState: return "state";
         case EventKind::kLimbSample: return "limb_sample";
         case EventKind::kListener: return "listener";
+        case EventKind::kVanillaSound: return "vanilla_sound";
     }
     return "impact";
 }
@@ -26,34 +27,86 @@ std::string_view ToString(CueReason r) {
     switch (r) {
         case CueReason::kImpactComposite: return "composite";
         case CueReason::kSurfaceSkin: return "surface";
+        case CueReason::kArmorSkin: return "armor";
         case CueReason::kHeadImpact: return "head";
         case CueReason::kCrunch: return "crunch";
         case CueReason::kGore: return "gore";
         case CueReason::kLimbTap: return "tap";
         case CueReason::kScrape: return "scrape";
-        case CueReason::kFoleyBed: return "bed";
         case CueReason::kAirborneRise: return "rise";
-        case CueReason::kSettleClose: return "settle";
+        case CueReason::kRustle: return "rustle";
     }
     return "composite";
 }
 
-float CompressThresholdDb(const CompressConfig& cfg, CueReason reason) {
+std::string_view ToString(CompressBand band) {
+    // The ini key rather than a word for it: every use of this is a tooltip
+    // saying which slider held a cue down, and "fBodyDb" is the thing you then
+    // go and find. A prose name would need translating back.
+    switch (band) {
+        case CompressBand::kTransient: return "fTransientDb";
+        case CompressBand::kBody:      return "fBodyDb";
+        case CompressBand::kBass:      return "fBassDb";
+        case CompressBand::kBodyLimb:  return "fBodyLimbDb";
+        case CompressBand::kImpact:    return "fImpactDb";
+        case CompressBand::kTap:       return "fTapDb";
+        case CompressBand::kHead:      return "fHeadDb";
+        case CompressBand::kCrunch:    return "fCrunchDb";
+        case CompressBand::kGore:      return "fGoreDb";
+        case CompressBand::kScrape:    return "fScrapeDb";
+        case CompressBand::kAirborne:  return "fAirborneDb";
+    }
+    return "fImpactDb";
+}
+
+CompressBand CompressBandFor(SlotId slot, CueReason reason) {
+    // The slot first, and only for the four impact layers. All four carry
+    // `kImpactComposite`, so asking the reason first would collapse the split
+    // this function exists for before it ever got to look.
+    switch (slot) {
+        case SlotId::kImpTransient: return CompressBand::kTransient;
+        case SlotId::kImpBody:      return CompressBand::kBody;
+        case SlotId::kImpSub:       return CompressBand::kBass;
+        case SlotId::kImpBodyLimb:  return CompressBand::kBodyLimb;
+        default:                    break;
+    }
     switch (reason) {
-        // The surface skin is not a class of moment: it is only ever a layer
-        // inside a composite, which is one moment and takes one cut. So it
-        // answers with the composite's threshold rather than wanting a line of
-        // its own in the ini.
+        // Neither skin is a class of moment: each is only ever a layer inside a
+        // composite, riding the body about twelve decibels under it. So they
+        // answer with the composite's catch-all rather than wanting a line of
+        // their own in the ini.
         case CueReason::kImpactComposite:
-        case CueReason::kSurfaceSkin:  return cfg.impactDb;
-        case CueReason::kLimbTap:      return cfg.tapDb;
-        case CueReason::kHeadImpact:   return cfg.headDb;
-        case CueReason::kCrunch:       return cfg.crunchDb;
-        case CueReason::kGore:         return cfg.goreDb;
-        case CueReason::kScrape:       return cfg.scrapeDb;
-        case CueReason::kFoleyBed:     return cfg.foleyDb;
-        case CueReason::kAirborneRise: return cfg.airborneDb;
-        case CueReason::kSettleClose:  return cfg.settleDb;
+        case CueReason::kSurfaceSkin:
+        case CueReason::kArmorSkin:    return CompressBand::kImpact;
+        case CueReason::kLimbTap:      return CompressBand::kTap;
+        case CueReason::kHeadImpact:   return CompressBand::kHead;
+        case CueReason::kCrunch:       return CompressBand::kCrunch;
+        case CueReason::kGore:         return CompressBand::kGore;
+        // The rustle answers to the scrape's threshold rather than owning a
+        // line of its own. Both are continuous beds whose level is already a
+        // ramp on a measured quantity, so what the compressor has to decide
+        // about them is the same decision, and a second key would be a second
+        // place for it to be made differently.
+        case CueReason::kScrape:
+        case CueReason::kRustle:       return CompressBand::kScrape;
+        case CueReason::kAirborneRise: return CompressBand::kAirborne;
+    }
+    return CompressBand::kImpact;
+}
+
+float CompressThresholdDb(const CompressConfig& cfg, CompressBand band) {
+    switch (band) {
+        case CompressBand::kTransient: return cfg.transientDb;
+        case CompressBand::kBody:      return cfg.bodyDb;
+        case CompressBand::kBass:      return cfg.bassDb;
+        case CompressBand::kBodyLimb:  return cfg.bodyLimbDb;
+        case CompressBand::kImpact:    return cfg.impactDb;
+        case CompressBand::kTap:       return cfg.tapDb;
+        case CompressBand::kHead:      return cfg.headDb;
+        case CompressBand::kCrunch:    return cfg.crunchDb;
+        case CompressBand::kGore:      return cfg.goreDb;
+        case CompressBand::kScrape:    return cfg.scrapeDb;
+        case CompressBand::kAirborne:  return cfg.airborneDb;
     }
     return cfg.impactDb;
 }

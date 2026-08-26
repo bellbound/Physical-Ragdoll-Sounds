@@ -123,6 +123,7 @@ void App::Shutdown() {
         m_recordState = RecordState::kIdle;
     }
     m_link.Stop();
+    m_control.Stop();
     obs::Disconnect();
 }
 
@@ -217,6 +218,63 @@ void App::DrawLinkRow() {
         ImGui::SetCursorPosX(rightEdge - kWidth);
     }
 
+    // The A/B switch, in this row rather than buried in Options because it is
+    // clicked between one shove and the next: a comparison is only worth anything
+    // while the same body is falling down the same stairs.
+    //
+    // Outside the connected branch, because it no longer needs a game. With one
+    // attached it swaps the mix in Skyrim; with a take open it swaps that take's
+    // playback to the vanilla track the take recorded. Usually both at once,
+    // which is the point of it.
+    {
+        const bool haveTrack = m_recording != nullptr && !m_recording->VanillaTrack().empty();
+        if (m_useVanillaAudio) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.78f, 0.35f, 1.0f));
+        }
+        ImGui::Checkbox("Use Vanilla Audio", &m_useVanillaAudio);
+        if (m_useVanillaAudio) {
+            ImGui::PopStyleColor();
+        }
+
+        // What it will do to *this* take, which is the half a tooltip about the
+        // game cannot answer. "Silent because there is no track" and "silent
+        // because the library is not set" sound identical and are not the same
+        // problem, so both are named.
+        std::string take;
+        if (m_recording == nullptr) {
+            take = "\n\nNo take is open, so this only affects the game.";
+        } else if (!haveTrack) {
+            take =
+                "\n\nThis take has no vanilla track, so its playback is unchanged. Takes\n"
+                "recorded before the hook existed have none, and neither does one recorded\n"
+                "on a runtime where the hook could not be installed.";
+        } else if (m_useVanillaAudio) {
+            take = std::format(
+                "\n\nThis take: {} row(s) played, {} with no file found.{}", m_vanillaPlayed,
+                m_vanillaMisses,
+                m_vanillaLibrary.FileCount() == 0
+                    ? "\nThe vanilla sound library is empty - point --vanilla-sounds at an\n"
+                      "extract of the game's sound/fx tree."
+                    : "");
+        } else {
+            take = std::format("\n\nThis take has a vanilla track: {} row(s).",
+                               m_recording->VanillaTrack().size());
+        }
+
+        Tip(std::string(
+                "Listen to what this mod replaces, for as long as this is ticked.\n\n"
+                "With a game connected: it stops dropping vanilla's body impacts and stops\n"
+                "playing ours - every cue is still made and still recorded, it just never\n"
+                "becomes a voice. So what you hear is a knockdown with the mod not installed.\n\n"
+                "With a take open: the take plays its own vanilla track instead of our mix -\n"
+                "the sounds Skyrim actually chose while that take was recorded, from the wavs\n"
+                "in the vanilla sound library. Which variant of a descriptor was drawn is not\n"
+                "knowable and is picked from the seed; the per-play dB roll is left flat.\n"
+                "<take>_vanilla.csv says the same, at more length.") +
+            take);
+        ImGui::SameLine();
+    }
+
     ImGui::BeginGroup();
 
     if (link.connected) {
@@ -264,28 +322,6 @@ void App::DrawLinkRow() {
                 "ignored rather than reinterpreted. Config still gets through. Rebuild both\n"
                 "halves from the same tree.");
         }
-
-        // The A/B switch, in this row rather than buried in Options because it
-        // is clicked between one shove and the next: a comparison is only worth
-        // anything while the same body is falling down the same stairs.
-        ImGui::SameLine();
-        if (m_useVanillaAudio) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.78f, 0.35f, 1.0f));
-        }
-        ImGui::Checkbox("Use Vanilla Audio", &m_useVanillaAudio);
-        if (m_useVanillaAudio) {
-            ImGui::PopStyleColor();
-        }
-        Tip("Hand the mix back to Skyrim for as long as this is ticked.\n\n"
-            "On: the game puts vanilla's own body impact sounds back on the impact records\n"
-            "this mod silenced, and the mod stops playing - every cue is still made and\n"
-            "still recorded, it just never becomes a voice. So what you hear is what a\n"
-            "knockdown sounds like with the mod not installed.\n\n"
-            "Off: ours again, and vanilla goes back to being silenced - unless\n"
-            "[Suppression] bSuppressVanillaBodyImpacts is 0 in RagdollSounds.ini, in which\n"
-            "case that choice is left alone.\n\n"
-            "Nothing is left behind by it: the mod puts itself back the moment the link\n"
-            "drops, so a session can never be left silently muted by a closed testbench.");
 
         ImGui::SameLine();
         switch (m_recordState) {
@@ -829,9 +865,27 @@ void App::DrawOptions() {
     ImGui::TextDisabled("  [Devbench] sObsPath = %s",
                         m_general.devbench.obsPath[0] != '\0' ? m_general.devbench.obsPath
                                                               : "(unset)");
+    // The control socket has no key of its own - it is the port next door - so
+    // this row is the only place its number is written down.
+    if (m_control.Listening()) {
+        ImGui::TextDisabled("  control socket on 127.0.0.1:%u, %llu request(s) this session",
+                            static_cast<unsigned>(m_control.Port()),
+                            static_cast<unsigned long long>(m_control.Served()));
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.5f, 1.0f), "  control socket down");
+    }
+    Tip(m_control.Listening()
+            ? "The command line's way into this session: tools/tune.py patches the config the\n"
+              "focused side is playing, saves it as a new file and selects it, without a restart.\n"
+              "The port is the devbench port plus one."
+            : std::string("The control listener never opened, so tools/tune.py cannot reach this\n"
+                          "session. Usually a second testbench already has the port.\n\n") +
+                  m_control.Error());
     if (ImGui::Button("Reload that file")) {
         m_link.Stop();
+        m_control.Stop();
         StartLink();
+        StartControl();
     }
     Tip("Re-reads RagdollSounds.ini and re-opens the listener on whatever port it now\n"
         "names. For changing the port without restarting both halves.");

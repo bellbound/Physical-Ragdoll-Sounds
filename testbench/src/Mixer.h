@@ -18,6 +18,8 @@
 #include "rds/Feed.h"
 #include "rds/SlotManifest.h"
 
+#include "VanillaLibrary.h"
+
 namespace tb {
 
 struct MixedAudio {
@@ -47,9 +49,8 @@ struct MixedAudio {
 ///
 /// A cue carries the slot and the variant the bank already picked, so this does
 /// not go back through SoundBank::Resolve - that would advance the shuffle bag
-/// and pick a different file than the engine did. Files are looked up by the
-/// bank's own naming convention, `<slot name>_<NN>.wav`; anything missing falls
-/// through to the procedural stand-in, which today is everything.
+/// and pick a different file than the engine did. A slot with no recording
+/// comes back empty and its cue is skipped, exactly as the game skips it.
 class SoundSource {
 public:
     /// The bank stays owned by the caller and must outlive this.
@@ -57,20 +58,14 @@ public:
     /// Through the bank rather than by rebuilding `<slot>_<NN>.wav` here, which
     /// is what this used to do and got wrong twice over: the variant index is a
     /// position in a sorted set and not the number in the filename, so variant 0
-    /// looked for `imp_body_00.wav`, never found it, and played a procedural
-    /// stand-in for the first variant of every slot. And now that a slot's files
-    /// can be named anything at all, a filename is not something a second place
-    /// can derive.
+    /// looked for `imp_body_00.wav` and never found it. And now that a slot's
+    /// files can be named anything at all, a filename is not something a second
+    /// place can derive.
     void SetBank(const rds::SoundBank* bank, int sampleRate);
 
-    /// Mono at the mixer's sample rate. Never fails; an unfilled voice slot
+    /// Mono at the mixer's sample rate. Never fails; a slot with no recording
     /// comes back empty and the cue is skipped.
     const std::vector<float>& Get(rds::SlotId slot, std::uint8_t variant);
-
-    [[nodiscard]] bool IsProcedural(rds::SlotId slot, std::uint8_t variant) const;
-
-    /// "imp_sub: 0/2 files, procedural" - the same line the bank logs, for the UI.
-    [[nodiscard]] std::vector<std::string> Report() const;
 
     /// Drop every decoded buffer. Called when a slot's assignment changes: the
     /// cache is keyed on (slot, variant) and that key now means a different file.
@@ -91,7 +86,6 @@ public:
 private:
     struct Entry {
         std::vector<float> samples;
-        bool procedural{true};
     };
     std::map<std::uint32_t, Entry> m_cache;
     const rds::SoundBank* m_bank{};
@@ -114,5 +108,29 @@ private:
 MixedAudio MixCues(const std::vector<rds::Cue>& cues, double audioDurationMs,
                    const rds::ListenerState& listener, SoundSource& sources, int sampleRate,
                    float masterGainDb, bool limiter);
+
+/// The same, for a take's vanilla track - what Skyrim's own impact system played.
+///
+/// One row is one file at its descriptor's static attenuation, panned from the
+/// listener exactly as a cue is. **No distance rolloff**, for the reason
+/// Engine.cpp gives at length where it declines to apply one: the game attenuates
+/// a positioned voice itself through its output model, so neither side of this
+/// comparison has falloff in it and both are the un-attenuated thing. A rolloff
+/// here would make the A/B a comparison of my distance law.
+///
+/// Two pieces of vanilla's randomness are not reproduced and cannot be: which of
+/// a descriptor's wavs was drawn, and what its dB and frequency variance rolled.
+/// The draw is made here from `seed`, so a replay is repeatable and an A/B is
+/// honest; the variance is left flat rather than rolled, because inventing a
+/// number and calling it vanilla's is worse than admitting there is none.
+/// VanillaTrack.h says the same about the file these rows came from.
+///
+/// `played` counts the rows that found a file and `misses` the ones that did
+/// not - the difference between "vanilla was quiet here" and "the library is not
+/// set", which sound identical and are not the same problem.
+MixedAudio MixVanilla(const std::vector<rds::FeedEvent>& track, double audioDurationMs,
+                      const rds::ListenerState& listener, const VanillaLibrary& library,
+                      int sampleRate, float masterGainDb, bool limiter, std::uint32_t seed,
+                      std::size_t& played, std::size_t& misses);
 
 }  // namespace tb

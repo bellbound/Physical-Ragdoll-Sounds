@@ -7,6 +7,9 @@
 #include <cstdlib>
 #include <ctime>
 #include <format>
+#include <fstream>
+#include <numbers>
+#include <span>
 #include <sstream>
 
 #include <windows.h>
@@ -269,10 +272,14 @@ struct SourceInfo {
            info.channels == kTargetChannels && info.codec == "pcm_s16le";
 }
 
-/// Convert to mono / 48 kHz / 16-bit PCM. `extraFilter` lets the correlation
-/// probe ask for the same conversion at two channels instead.
+/// Convert to mono / 48 kHz / 16-bit PCM.
+///
+/// `channels` is 2 for the correlation probe, which wants the same conversion
+/// without the fold. `filter` is the one case where the fold itself is wrong:
+/// `pan=mono|c0=c0` keeps the left channel instead of summing two that would
+/// comb-filter each other.
 [[nodiscard]] bool Convert(const fs::path& source, const fs::path& destination, int channels,
-                           std::string& error) {
+                           std::string& error, std::string_view filter = {}) {
     const Tools& tools = FindTools();
     if (tools.ffmpeg.empty()) {
         error = "ffmpeg is not on PATH, so " + source.extension().string() +
@@ -280,8 +287,11 @@ struct SourceInfo {
         return false;
     }
     std::wostringstream cmd;
-    cmd << L'"' << Widen(tools.ffmpeg) << L'"' << L" -y -v error -i \"" << source.wstring() << L'"'
-        << L" -ac " << channels << L" -ar " << kTargetRate << L" -c:a pcm_s16le -map_metadata -1 \""
+    cmd << L'"' << Widen(tools.ffmpeg) << L'"' << L" -y -v error -i \"" << source.wstring() << L'"';
+    if (!filter.empty()) {
+        cmd << L" -af \"" << Widen(filter) << L'"';
+    }
+    cmd << L" -ac " << channels << L" -ar " << kTargetRate << L" -c:a pcm_s16le -map_metadata -1 \""
         << destination.wstring() << L'"';
 
     std::string out;
@@ -338,6 +348,196 @@ struct SourceInfo {
     return true;
 }
 
+// ── repair ───────────────────────────────────────────────────────────────────
+
+/// Write mono float samples as the pack's 16-bit PCM wav.
+///
+/// Through rds::EncodeWavPcm16 rather than ffmpeg, because the samples are
+/// already decoded and in hand: bouncing them out to a temp file so ffmpeg can
+/// apply a `volume` filter and re-quantise them a second time is two conversions
+/// to do arithmetic we have already done.
+[[nodiscard]] bool WriteMonoWav(const fs::path& path, std::span<const float> mono, int sampleRate) {
+    const std::vector<std::uint8_t> bytes = rds::EncodeWavPcm16(mono, sampleRate);
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out) {
+        return false;
+    }
+    out.write(reinterpret_cast<const char*>(bytes.data()),
+              static_cast<std::streamsize>(bytes.size()));
+    return out.good();
+}
+
+/// The delivery rules that are mechanical (Slots.md §5), applied to the samples.
+///
+/// Returns what it changed, empty when there was nothing to change - which is
+/// the normal answer for a file that came out of `sfx.py make`, and is what
+/// makes running this over a whole library safe.
+///
+/// `measured` is the file as it stands. Order is not free: trimming does not
+/// move the peak, subtracting DC does, and the fade has to happen before the
+/// normalise or the last 6 ms would be scaled by a gain worked out from a peak
+/// the fade then removed. So it goes trim, DC, fade, normalise, and the peak is
+/// exact afterwards.
+///
+/// Loops are trimmed and faded by nothing at all. A loop has no head silence by
+/// definition - it measured as a texture - and a fade at the end of one is not a
+/// fix, it is a hole that arrives once a second. Their seam is `sfx.py make`'s
+/// job and it stays a warning.
+[[nodiscard]] std::vector<std::string> RepairSamples(std::vector<float>& mono, int sampleRate,
+                                                     const rds::SfxEntry& measured) {
+    std::vector<std::string> did;
+    if (mono.empty() || sampleRate <= 0) {
+        return did;
+    }
+    const auto perMs = static_cast<double>(sampleRate) / 1000.0;
+
+    if (!measured.loops) {
+        // Head silence. The analysis measured it against an absolute -60 dBFS
+        // floor in 2 ms hops, so the count is hops of silence and cutting all of
+        // them lands on the first hop that had something in it; a millisecond
+        // stays behind so a hop boundary cannot eat the front of the attack.
+        if (measured.leadInMs > sfxrepair::kLeadInMs) {
+            const auto cut = static_cast<std::size_t>((measured.leadInMs - 1.0f) * perMs);
+            if (cut > 0 && cut < mono.size()) {
+                mono.erase(mono.begin(), mono.begin() + static_cast<std::ptrdiff_t>(cut));
+                did.push_back(std::format("trimmed {:.0f} ms of head silence", measured.leadInMs));
+            }
+        }
+
+        // Digital silence at the end. Not the room tail - where a decay stops
+        // being the sound is a judgement, and it stays a warning - only the
+        // nothing that a bad export leaves after it.
+        constexpr float kFloor = 0.001f;  // -60 dBFS, the same floor as the lead-in
+        std::size_t last = mono.size();
+        while (last > 0 && std::fabs(mono[last - 1]) < kFloor) {
+            --last;
+        }
+        const auto guard = static_cast<std::size_t>(sfxrepair::kTailGuardMs * perMs);
+        const std::size_t keep = std::min(mono.size(), last + guard);
+        const auto trailingMs = static_cast<float>((mono.size() - keep) / perMs);
+        if (last > 0 && trailingMs > sfxrepair::kTrailingMs) {
+            mono.resize(keep);
+            did.push_back(std::format("trimmed {:.0f} ms of trailing silence", trailingMs));
+        }
+    }
+
+    // DC, measured here rather than taken from `measured`: that number is the
+    // mean of the file as it arrived, and what is left after the trim is a
+    // different file. A take with 300 ms of digital silence in front of 200 ms
+    // of offset tone averages its offset down by the ratio of the two, so
+    // subtracting the whole file's mean from the trimmed part leaves most of the
+    // offset in place - and the normalise below then multiplies what is left by
+    // however much gain the file needed.
+    {
+        double sum = 0.0;
+        for (const float s : mono) {
+            sum += s;
+        }
+        const auto mean = static_cast<float>(sum / static_cast<double>(mono.size()));
+        if (std::fabs(mean) > sfxrepair::kDcOffset) {
+            for (float& s : mono) {
+                s -= mean;
+            }
+            did.push_back(std::format("subtracted {:+.3f} DC", mean));
+        }
+    }
+
+    // The end fade, which is `sfx.py make`'s: 6 ms of cos^2. Only for a one-shot
+    // that stops while it is still loud - a sound that has already decayed into
+    // the floor has nothing to click.
+    if (!measured.loops && mono.size() > static_cast<std::size_t>(sfxrepair::kEndFadeMs * perMs)) {
+        float peak = 0.0f;
+        for (const float s : mono) {
+            peak = std::max(peak, std::fabs(s));
+        }
+        // The question is "does this file stop mid-waveform", and only the very
+        // last samples answer it. Level does not: `imp_sub` is specified to end
+        // on a quiet tail holding its settled pitch, so 0.5 ms from the end it
+        // is still well above any level threshold worth setting - and fading it
+        // again over the fade it already has is a change to a file that verify
+        // passes. The final samples of a cosine fade are zero, and the final
+        // sample of a hard cut is wherever the waveform happened to be, so a
+        // hundredth of the file's own peak separates the two by orders.
+        const auto window = std::min<std::size_t>(mono.size(), 5);
+        float last = 0.0f;
+        for (std::size_t i = mono.size() - window; i < mono.size(); ++i) {
+            last = std::max(last, std::fabs(mono[i]));
+        }
+        if (last > peak * sfxrepair::kEndFadeRatio) {
+            const auto fade = static_cast<std::size_t>(sfxrepair::kEndFadeMs * perMs);
+            for (std::size_t i = 0; i < fade; ++i) {
+                const auto t = static_cast<float>(i) / static_cast<float>(fade) *
+                               std::numbers::pi_v<float> * 0.5f;
+                const float g = std::cos(t) * std::cos(t);
+                mono[mono.size() - fade + i] *= g;
+            }
+            did.push_back(std::format("{:.0f} ms end fade", sfxrepair::kEndFadeMs));
+        }
+    }
+
+    // Level, last, so it is exact. The band in the middle is left alone on
+    // purpose: it holds both of Slots.md §3's targets, so adopting the built
+    // pack does not pull `imp_sub` off its own -1.0 on the way in.
+    float peak = 0.0f;
+    for (const float s : mono) {
+        peak = std::max(peak, std::fabs(s));
+    }
+    const float peakDb = 20.0f * std::log10(std::max(peak, 1e-9f));
+    if (peakDb > sfxrepair::kPeakFloorDb &&
+        (peakDb > sfxrepair::kPeakHotDb || peakDb < sfxrepair::kPeakQuietDb)) {
+        const float gain = std::pow(10.0f, (sfxrepair::kPeakTargetDb - peakDb) / 20.0f);
+        for (float& s : mono) {
+            s *= gain;
+        }
+        did.push_back(std::format("normalised {:.1f} -> {:.1f} dBFS", peakDb,
+                                  sfxrepair::kPeakTargetDb));
+    }
+    return did;
+}
+
+/// Warnings JudgeSfx cannot recompute, because they are about where the file
+/// came from rather than about what it holds.
+///
+/// A re-measure replaces the warning list wholesale, which is right for
+/// everything measured and wrong for these: the mp3 an entry was decoded from is
+/// gone, and nothing in the samples says it was 96 kbps. Without this, pressing
+/// `repair` on a lossy import quietly clears the badge that says it is lossy.
+void CarryOverSourceWarnings(const rds::SfxEntry& from, rds::SfxEntry& to) {
+    static constexpr std::string_view kSourceCodes[] = {"lossy", "low bitrate", "low rate",
+                                                        "downmixed", "uncorrelated"};
+    for (const rds::SfxWarning& w : from.warnings) {
+        if (std::ranges::find(kSourceCodes, w.code) != std::ranges::end(kSourceCodes)) {
+            to.warnings.push_back(w);
+        }
+    }
+}
+
+/// The same sound already in the library under another name.
+///
+/// 03-Asset-Status.md §7 hit this twice in one batch of 102 - a copy of the
+/// damp-soil take filed as a limb tap, and a duplicated download. Two files that
+/// hash the same are one sound taking two slots in a shuffle bag, which is a
+/// variant that is not a variant.
+void FlagDuplicate(const rds::SfxLibrary& library, rds::SfxEntry& entry) {
+    if (entry.contentHash == 0) {
+        return;
+    }
+    for (const rds::SfxEntry& other : library.Entries()) {
+        if (other.file == entry.file || other.contentHash != entry.contentHash) {
+            continue;
+        }
+        entry.warnings.push_back(
+            {"duplicate",
+             std::format("the same samples as `{}`, which is already in the library. Two names for "
+                         "one sound, and a slot that plays both draws the same file twice as often "
+                         "as it looks like it does - a variant that is not a variant.\n\nDelete one "
+                         "of them. Nothing is lost: they are identical.",
+                         other.name),
+             false, true});
+        return;
+    }
+}
+
 /// Everything the *source* was wrong about, as opposed to what the file now
 /// measures. These survive the conversion because the conversion cannot undo
 /// them: upsampling a 22 kHz recording does not put the top octave back.
@@ -352,7 +552,10 @@ void JudgeSource(const SourceInfo& info, rds::SfxEntry& entry) {
     if (info.sampleRate < 32000) {
         warn("low rate", std::format("the source was {} Hz. It is at 48 kHz now, but resampling "
                                      "does not put back a top octave that was never recorded - "
-                                     "expect it to sound dull against the rest of the pack.",
+                                     "expect it to sound dull against the rest of the pack.\n\n"
+                                     "Nothing repairs this. It is fine on `imp_body` or `imp_sub`, "
+                                     "which live below 4 kHz anyway, and wrong on `imp_transient` "
+                                     "or `surf_stone`, where the top end is the character.",
                                      info.sampleRate));
     }
     if (info.Lossy()) {
@@ -360,17 +563,22 @@ void JudgeSource(const SourceInfo& info, rds::SfxEntry& entry) {
         if (kbps > 0 && kbps < 96) {
             warn("low bitrate",
                  std::format("{} at {} kbps. Lossy encoders spend their bits on tone and throw away "
-                             "exactly the transient detail an impact is made of.",
+                             "exactly the transient detail an impact is made of - and an impact is "
+                             "nothing but its first 15 ms.\n\nNothing repairs it either: the "
+                             "detail is not in the file. Re-source it if you can, and A/B it "
+                             "against the pack before assigning it to a transient layer.",
                              info.codec, kbps));
         } else {
             warn("lossy", std::format("the source was {}. Fine for a bed, worth re-sourcing for a "
-                                      "transient layer.",
+                                      "transient layer - the encoder throws away the first "
+                                      "milliseconds of an attack before anything else.",
                                       info.codec));
         }
     }
     if (info.channels > 2) {
         warn("downmixed", std::format("{} channels folded to mono. Check it still sounds like what "
-                                      "you picked.",
+                                      "you picked: a surround bed summed to one channel loses "
+                                      "whatever the rears were carrying.",
                                       info.channels));
     }
 }
@@ -416,7 +624,18 @@ ImportOutcome ImportSfx(const fs::path& source, rds::SfxLibrary& library,
     float correlation = 1.0f;
     const bool haveCorrelation = info.channels == 2 && MeasureCorrelation(source, correlation);
 
-    if (AlreadyCorrect(info, source)) {
+    // 03-Asset-Status.md §3.1, the most common technical failure in the whole
+    // batch: two channels that do not correlate comb-filter each other when
+    // summed, and summing is what the mono fold does. `make`'s fix is to take
+    // the left channel instead of the sum, so that is what happens here - the
+    // sound the file was picked for arrives intact, and nothing is said about
+    // it because nothing needs deciding.
+    const bool takeLeft = haveCorrelation && correlation < sfxrepair::kCorrelationFold;
+    if (takeLeft) {
+        outcome.repairs = std::format("left channel only (corr {:.2f})", correlation);
+    }
+
+    if (AlreadyCorrect(info, source) && !takeLeft) {
         fs::copy_file(source, destination, fs::copy_options::overwrite_existing, ec);
         if (ec) {
             outcome.error = "could not copy: " + ec.message();
@@ -424,7 +643,8 @@ ImportOutcome ImportSfx(const fs::path& source, rds::SfxLibrary& library,
         }
     } else {
         std::string error;
-        if (!Convert(source, destination, kTargetChannels, error)) {
+        if (!Convert(source, destination, kTargetChannels, error,
+                     takeLeft ? "pan=mono|c0=c0" : std::string_view{})) {
             // No ffmpeg and a wav source is still worth a try: miniaudio decodes
             // wav on its own, so the file can be copied as it is and measured.
             // It keeps its own rate and channel count, and JudgeSfx says so.
@@ -479,25 +699,57 @@ ImportOutcome ImportSfx(const fs::path& source, rds::SfxLibrary& library,
         entry.bitsPerSample = wav.bitsPerSample;
     }
 
+    // ── the repair pass ──────────────────────────────────────────────────────
+    //
+    // Only on a file that reached the pack's format, which is every import that
+    // had ffmpeg. Without it a wav is copied at whatever rate it was, and
+    // rewriting the samples then would fold a stereo file to mono while leaving
+    // its rate wrong - clearing the `stereo` badge and keeping the `rate` one,
+    // for a file that is no more correct than it was.
+    const bool atTargetFormat = entry.sampleRate == kTargetRate &&
+                                entry.channels == kTargetChannels &&
+                                entry.bitsPerSample == kTargetBits;
+    if (atTargetFormat) {
+        const std::vector<std::string> fixes = RepairSamples(mono, rate, entry);
+        if (!fixes.empty() && WriteMonoWav(destination, mono, rate)) {
+            for (const std::string& fix : fixes) {
+                outcome.repairs += outcome.repairs.empty() ? fix : ", " + fix;
+            }
+            // Everything measured again from the samples that were written, so
+            // the sidecar describes the file that is on disk rather than the one
+            // that arrived.
+            MeasureSfx(mono, rate, entry);
+        }
+    }
+
     JudgeSfx(entry);
     JudgeSource(info, entry);
-    if (haveCorrelation && correlation < 0.6f) {
+    if (haveCorrelation && correlation < sfxrepair::kCorrelationDead) {
+        // Above this the left channel is the fix and it has already been taken.
+        // Below it the two channels are not one recording in stereo, they are
+        // two recordings, and there is no answer to which of them is the sound.
         entry.warnings.push_back(
             {"uncorrelated",
-             std::format("the source's two channels correlate at {:.2f}. Below about 0.6 they comb-"
-                         "filter when summed, and summing is what the mono fold does - this will "
-                         "sound thinner and hollower than the stereo file did.",
+             std::format("the source's two channels correlate at only {:.2f}. Between 0.45 and 0.6 "
+                         "the import keeps the left channel rather than summing them, which is "
+                         "`sfx.py make`'s own fix - under 0.45 there is nothing to keep: these are "
+                         "two different recordings sharing a file, and the left one alone is not "
+                         "what you auditioned.\n\n03-Asset-Status.md §3.1 calls this dead below "
+                         "0.45. Re-source it.",
                          correlation),
-             false});
+             false, true});
     }
+    FlagDuplicate(library, entry);
     entry.suggested = SuggestSlots(entry);
 
     library.Upsert(entry);
     outcome.file = filename;
 
-    spdlog::info("sfx: imported {} -> {} ({:.0f} ms, {}{}{} warning(s))", source.filename().string(),
-                 filename, entry.durationMs, entry.loops ? "loops, " : "",
-                 outcome.converted ? "converted, " : "", entry.warnings.size());
+    spdlog::info("sfx: imported {} -> {} ({:.0f} ms, {}{}{} warning(s)){}{}",
+                 source.filename().string(), filename, entry.durationMs,
+                 entry.loops ? "loops, " : "", outcome.converted ? "converted, " : "",
+                 entry.warnings.size(), outcome.repairs.empty() ? "" : "; repaired: ",
+                 outcome.repairs);
     return outcome;
 }
 
@@ -532,9 +784,122 @@ bool MeasureExisting(rds::SfxLibrary& library, const std::string& file, std::str
         entry.bitsPerSample = wav.bitsPerSample;
     }
     JudgeSfx(entry);
+    CarryOverSourceWarnings(*existing, entry);
+    FlagDuplicate(library, entry);
     entry.suggested = SuggestSlots(entry);
 
     library.Upsert(entry);
+    return true;
+}
+
+bool NeedsRepair(const rds::SfxEntry& entry) {
+    // The codes RepairSamples and the container conversion between them clear.
+    // Every other warning is either a decision (`satellite`, `tail`, `seam`) or
+    // a dead end (`clipped`, `noise floor`), and offering a button that would
+    // rewrite the file and change nothing about the badge is worse than not
+    // offering one.
+    static constexpr std::string_view kRepairable[] = {"rate", "stereo",  "bits", "hot",
+                                                       "quiet", "dc", "lead-in"};
+    return std::ranges::any_of(entry.warnings, [](const rds::SfxWarning& w) {
+        return std::ranges::find(kRepairable, w.code) != std::ranges::end(kRepairable);
+    });
+}
+
+bool RepairExisting(rds::SfxLibrary& library, const std::string& file, std::string& error,
+                    std::string* repairs) {
+    const rds::SfxEntry* found = library.Find(file);
+    if (found == nullptr) {
+        error = "not in the library";
+        return false;
+    }
+    const rds::SfxEntry before = *found;
+    const fs::path path = library.PathOf(file);
+    std::vector<std::string> did;
+
+    // ── the container ────────────────────────────────────────────────────────
+    //
+    // wav only. A library entry that is still an .mp3 was dropped into the
+    // folder by hand, and converting it in place would leave wav samples under
+    // an `.mp3` name - which the ini names, so the name cannot change either.
+    // Importing it again is the answer, and that path already does all of this.
+    std::error_code ec;
+    auto extension = path.extension().string();
+    std::ranges::transform(extension, extension.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    const rds::WavInfo wav = rds::ProbeWav(path.string());
+    const bool wrongContainer = !wav.Valid() || wav.sampleRate != kTargetRate ||
+                                wav.channels != kTargetChannels ||
+                                wav.bitsPerSample != kTargetBits || wav.floatFormat;
+    if (wrongContainer) {
+        if (extension != ".wav") {
+            error = "it is not a wav - import it again instead, so it can be converted under a "
+                    "name that matches what is in it";
+            return false;
+        }
+        if (!FfmpegAvailable()) {
+            error = "ffmpeg is not on PATH, so the format cannot be converted";
+            return false;
+        }
+        const fs::path temp = fs::path(path).replace_extension(".repair.wav");
+        if (!Convert(path, temp, kTargetChannels, error)) {
+            fs::remove(temp, ec);
+            return false;
+        }
+        fs::rename(temp, path, ec);
+        if (ec) {
+            fs::remove(temp, ec);
+            error = "could not replace the file: " + ec.message();
+            return false;
+        }
+        did.emplace_back("converted to 48 kHz mono 16-bit");
+    }
+
+    std::vector<float> mono;
+    int rate = 0;
+    if (!DecodeMonoFile(path.string(), mono, rate) || mono.empty()) {
+        error = "could not decode it";
+        return false;
+    }
+
+    // The name and the mute are the user's and the import date is when the file
+    // arrived; all three survive, exactly as they do a re-measure.
+    rds::SfxEntry entry;
+    entry.file = before.file;
+    entry.name = before.name;
+    entry.importedAt = before.importedAt;
+    entry.disabled = before.disabled;
+
+    MeasureSfx(mono, rate, entry);
+    const std::vector<std::string> fixes = RepairSamples(mono, rate, entry);
+    if (!fixes.empty()) {
+        if (!WriteMonoWav(path, mono, rate)) {
+            error = "could not write it";
+            return false;
+        }
+        did.insert(did.end(), fixes.begin(), fixes.end());
+        MeasureSfx(mono, rate, entry);
+    }
+
+    if (const rds::WavInfo after = rds::ProbeWav(path.string()); after.Valid()) {
+        entry.sampleRate = after.sampleRate;
+        entry.channels = after.channels;
+        entry.bitsPerSample = after.bitsPerSample;
+    }
+    JudgeSfx(entry);
+    CarryOverSourceWarnings(before, entry);
+    FlagDuplicate(library, entry);
+    entry.suggested = SuggestSlots(entry);
+    library.Upsert(entry);
+
+    std::string note;
+    for (const std::string& one : did) {
+        note += note.empty() ? one : ", " + one;
+    }
+    if (repairs != nullptr) {
+        *repairs = note;
+    }
+    spdlog::info("sfx: repaired {}: {}", file, note.empty() ? "nothing to do" : note);
     return true;
 }
 

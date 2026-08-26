@@ -14,6 +14,10 @@
 //   RagdollSoundsTestbench --recordings <dir> --configs <dir> --sounds <dir>
 //                          --general <RagdollSounds.ini>
 //
+// While the GUI is up it also answers a control socket on the devbench port plus
+// one, which is how `tools/tune.py` edits the config of a session that is
+// already running rather than one it starts. See Control.h.
+//
 // The GUI also listens for a running game on the port `[Devbench] iDevbenchPort`
 // names in RagdollSounds.ini, pushes the sliders at it, and can record a take
 // out of it with OBS driven alongside. See AppLive.cpp.
@@ -66,6 +70,11 @@ struct Args {
     fs::path sounds;
     fs::path library;
     fs::path sfxIni;
+    /// An extract of the game's `sound/fx` tree, for playing a take's recorded
+    /// vanilla track back. Bethesda's files: dev-only, never deployed, and
+    /// nothing reads it but this program. Absent is fine - the vanilla side is
+    /// then silent and the switch's tooltip says why.
+    fs::path vanillaSounds;
     /// RagdollSounds.ini in the deployed mod. Read for `[Devbench]` - the port
     /// the game listens for us on, and where OBS lives.
     fs::path generalIni;
@@ -107,6 +116,8 @@ Args ParseArgs(int argc, char** argv) {
             a.sounds = next();
         else if (s == "--library")
             a.library = next();
+        else if (s == "--vanilla-sounds")
+            a.vanillaSounds = next();
         else if (s == "--sfx")
             a.sfxIni = next();
         else if (s == "--general")
@@ -130,6 +141,7 @@ Args ParseArgs(int argc, char** argv) {
     }
     if (a.sounds.empty()) a.sounds = a.configs.parent_path() / "sounds";
     if (a.library.empty()) a.library = RDS_DEFAULT_LIBRARY;
+    if (a.vanillaSounds.empty()) a.vanillaSounds = RDS_DEFAULT_VANILLA_SOUNDS;
     if (a.sfxIni.empty()) a.sfxIni = RDS_DEFAULT_SFX_INI;
     if (a.generalIni.empty()) a.generalIni = a.sfxIni.parent_path() / "RagdollSounds.ini";
     return a;
@@ -566,6 +578,7 @@ int RunGui(const Args& args) {
     paths.frameCache = args.frameCache;
     paths.sounds = args.sounds;
     paths.library = args.library;
+    paths.vanillaSounds = args.vanillaSounds;
     paths.sfxIni = args.sfxIni;
     paths.generalIni = args.generalIni;
     app.Init(paths);
@@ -574,6 +587,11 @@ int RunGui(const Args& args) {
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
+        // Before the minimised check on purpose: a script patching this session
+        // is usually doing it while the window is behind the game, and a control
+        // socket that only answered a window somebody can see would be one more
+        // thing to remember.
+        app.PumpControl();
         if (glfwGetWindowAttrib(window, GLFW_ICONIFIED)) {
             glfwWaitEventsTimeout(0.1);
             continue;

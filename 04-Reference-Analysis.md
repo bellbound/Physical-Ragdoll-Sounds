@@ -266,7 +266,6 @@ Roles now reflect the layered timing model. Offsets are from the impact frame.
 | Slot | Var | Length | Notes |
 |---|---|---|---|
 | `scrape_loop` | 1 | 1.5–3 s | Low-tilted grinding rumble with grain. Not a hiss |
-| `foley_cloth` | 1 | 1.5–3 s | Cloth rustle, no transients |
 | `air_whoosh` | 1 | 1–2 s | Low airy movement |
 
 ### Accents
@@ -284,5 +283,5 @@ Roles now reflect the layered timing model. Offsets are from the impact frame.
 | `scream_big` | 1 | 800–1500 ms |
 
 **Full set: 30 files. First taste: 13** — `imp_transient` ×3, `imp_body` ×3, **`imp_sub` ×2**,
-`limb_tap` ×3, `scrape_loop`, `foley_cloth`. Build the sub layer in the first pass; without it
+`limb_tap` ×3, `scrape_loop`. Build the sub layer in the first pass; without it
 none of this will feel like the references.

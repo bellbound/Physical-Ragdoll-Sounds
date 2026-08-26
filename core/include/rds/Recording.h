@@ -69,6 +69,11 @@ struct RecordingInfo {
     bool hasBodySamples{};
     std::size_t poseFrames{};
 
+    /// Rows in `<stem>_vanilla.csv` - what Skyrim's own impact system played
+    /// during the take. Zero for every take recorded before the hook existed, and
+    /// for any recorded on a runtime where it could not be installed.
+    std::size_t vanillaRows{};
+
     /// Present when the take has video beside it.
     std::filesystem::path videoPath;
     /// video_time_ms = t_ms + offsetMs + driftMsPerSec * t_ms / 1000.
@@ -134,13 +139,28 @@ public:
 
     [[nodiscard]] const std::vector<FeedEvent>& Events() const { return m_events; }
 
+    /// The vanilla track, in file order. Empty when the take has none.
+    ///
+    /// Held apart from `m_events` rather than merged into the replay stream, and
+    /// that is deliberate: these rows are not something the solver saw, they are
+    /// what the *game* did with what it saw. Merging them would put them in front
+    /// of the engine, into `eventsIn`, and into the frame-boundary derivation - a
+    /// reference track quietly becoming an input.
+    [[nodiscard]] const std::vector<FeedEvent>& VanillaTrack() const { return m_vanilla; }
+
 private:
     RecordingInfo m_info;
     ActorProfile m_profile;
     ListenerState m_listener;
     std::vector<FeedEvent> m_events;  ///< sorted by timeMs
+    std::vector<FeedEvent> m_vanilla;  ///< the vanilla track, in file order
     std::vector<TimeMs> m_frames;
     std::size_t m_cursor{};
+    /// How far into `m_frames` the frame-time derivation has already walked.
+    /// Separate from `m_cursor` because the two advance on different things -
+    /// one on events consumed, one on frame boundaries passed - and a tick with
+    /// no contacts in it moves the second without moving the first.
+    std::size_t m_frameCursor{};
     float m_frameTimeSec{};
     double m_frameStepMs{16.6};
 };

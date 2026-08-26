@@ -19,9 +19,11 @@
 
 #include "Bench.h"
 #include "Capture.h"
+#include "Control.h"
 #include "Export.h"
 #include "Link.h"
 #include "Mixer.h"
+#include "VanillaLibrary.h"
 #include "Obs.h"
 #include "Player.h"
 #include "SfxBrowser.h"
@@ -81,19 +83,27 @@ struct SfxEdit {
 /// A cue carries a slot and a variant index, and neither of those is the answer
 /// to "what am I hearing": the variant is a position in a list the assignment
 /// panel re-orders, the slot may be pinned to one file for the session, and a
-/// slot with nothing assigned plays a procedural stand-in rather than anything
-/// on disk. Resolving all three in one place means the timeline, the cue table
-/// and the export cannot give three different answers.
+/// slot with nothing assigned plays its declared fallback's files, and one with
+/// no fallback either does not sound at all. Resolving all four in one place
+/// means the timeline, the cue table and the export cannot give three different
+/// answers.
 struct CueSound {
-    std::string label;  ///< what to show: the library name, or "(procedural)" / "(unfilled)"
-    std::string file;   ///< the library filename, empty for a stand-in
+    std::string label;  ///< what to show: the library name, or "(no recording)"
+    std::string file;   ///< the library filename, empty when nothing sounds
     int variant{};
     int variantCount{};  ///< how many files the slot has to pick between
+    /// The slot whose files this is, when that is not the slot the cue named:
+    /// `scrape_limb_wood` with nothing recorded plays `scrape_limb`. Equal to
+    /// the cue's own slot in the ordinary case.
+    rds::SlotId plays{};
+    bool fellBack{};
+    /// Nothing to play: no recording on this slot and none on anything it falls
+    /// back to, so the cue is in the list and silent in the mix.
+    bool silent{};
     /// The slot is pinned, so this file was not picked - it was the only one
     /// allowed. Worth saying, because a pin is invisible from anywhere but the
     /// slot's own widget and it is what makes the variant column stop moving.
     bool forced{};
-    bool procedural{};
 };
 
 /// One half of the right-hand panel. In split mode there are two of these and
@@ -138,6 +148,13 @@ struct ConfigSide {
     // switching it costs no re-run.
     std::string compareName;  ///< empty means no comparison is running
     rds::AlgorithmConfig compareCfg{};
+
+    /// What the last patch off the control socket said it was for, if one has
+    /// landed on this side. Shown on the picker's tooltip: a config that
+    /// appeared while you were listening to something else should be able to
+    /// say where it came from. Cleared by loading a file, which is a new
+    /// baseline and not that patch any more.
+    std::string patchNote;
 };
 
 class App {
@@ -159,6 +176,12 @@ public:
         /// you A/B between, and the sfx assignment is the one thing the mod
         /// ships with. There is nothing to iterate over.
         std::filesystem::path sfxIni;
+        /// An extract of the game's `sound/fx` tree, for playing a take's vanilla
+        /// track back. Dev-only and never deployed - Bethesda's files, exactly
+        /// like `assets/sfx/skyrim/`, and kept outside everything that ships for
+        /// the three reasons that folder's README sets out. Empty is fine: the
+        /// vanilla side is then silent and says why.
+        std::filesystem::path vanillaSounds;
     };
 
     bool Init(const Paths& paths);
@@ -180,6 +203,14 @@ public:
     /// goes away, because a capture that finishes into a dead window is a crash
     /// on the way out.
     void Shutdown();
+
+    /// Answer one request off the control socket, if one is waiting.
+    ///
+    /// Called from the frame loop rather than from Draw, and *before* the check
+    /// that skips drawing while the window is minimised: patching a testbench
+    /// that is sitting in the taskbar behind the game is the ordinary case for
+    /// this, not the edge one. Defined in Control.cpp.
+    void PumpControl();
 
 private:
     // ── state ────────────────────────────────────────────────────────────────
@@ -275,7 +306,9 @@ private:
     /// The persisted switches, as (ini key, member). One list, walked by both
     /// the load and the save, so remembering a new checkbox is one line here
     /// and nothing else.
-    [[nodiscard]] std::vector<std::pair<std::string_view, bool*>> UiPrefFields();
+    /// Owned keys rather than views: the per-slot timeline switches build their
+    /// names from the slot's own, so there is nothing static to point at.
+    [[nodiscard]] std::vector<std::pair<std::string, bool*>> UiPrefFields();
 
     /// One remembered splitter: the ini key, the fraction, and the range its own
     /// bar drags between.
@@ -320,6 +353,15 @@ private:
     /// slot has at most one pin, so pinning a second file moves it.
     void ToggleSfxForce(rds::SlotId slot, std::string_view file);
     void ToggleSfxMute(rds::SlotId slot, std::string_view file);
+    /// Move placement `index` of `from` onto `to` under `condition`, or copy it
+    /// there when `copy`. What dropping a dragged row does, and one undo step.
+    ///
+    /// Within one slot a move is a re-tag, because the placement's position is
+    /// the variant index a recorded cue carries: sending the row to the end of
+    /// the list to put a condition on it would change which sound every take in
+    /// the corpus plays. A drop back where the file already is does nothing.
+    void DropSfxPlacement(rds::SlotId from, int index, rds::SlotId to,
+                          rds::VariantCondition condition, bool copy);
     [[nodiscard]] int SfxForceCount() const;
     [[nodiscard]] int SfxMuteCount() const;
     void ClearSfxForces();
@@ -346,6 +388,21 @@ private:
     /// Read `[Devbench]` out of RagdollSounds.ini, open the listener, and point
     /// the OBS driver at the exe the same file names.
     void StartLink();
+
+    // ── the control socket ───────────────────────────────────────────────────
+    //
+    // Defined in Control.cpp, which also holds the server itself.
+
+    /// Open the control listener on the devbench port plus one. After
+    /// StartLink, which is what read that port.
+    void StartControl();
+
+    /// Do what one request asks and render the reply. UI thread only.
+    [[nodiscard]] std::string ApplyControl(const ControlRequest& request);
+
+    /// The config file a name picks out: an exact stem, or a substring when it
+    /// picks out exactly one. Null when it names none or several.
+    [[nodiscard]] const std::filesystem::path* FindConfigFile(std::string_view name) const;
 
     /// Push whatever changed to the game: the focused side's config, the sfx
     /// table, the library path. Called every frame; sends only on a difference,
@@ -413,6 +470,8 @@ private:
     /// more inches of DrawTransport, which is already the second longest thing
     /// in this file.
     void DrawBenchmarkRow();
+    void DrawSimulateRow();
+    void MarkPretendDirty();
     /// Push the two cue-window switches at the transport, once per frame.
     ///
     /// Not part of drawing them: the skip has to happen whether or not the
@@ -449,7 +508,33 @@ private:
     /// playing - doing it always would fight the scroll wheel.
     void FollowPlayhead(const std::vector<double>& times) const;
     void DrawRight(int side, float height, bool split);
+
+public:
+    /// Read a whole testbench config: the algorithm rows, then which surfaces
+    /// the file has blocks for, then those blocks, then Resolve.
+    ///
+    /// Public, with the writer's half below, because a testbench config is one
+    /// file where the game keeps two - so anything that reads or writes one has
+    /// to splice the surfaces list in the same way, and Export and Control both
+    /// do. Two spellings of "which rows belong in this file" is how the export
+    /// would quietly start disagreeing with the file it claims to be a copy of.
+    static void LoadAlgorithmFile(const std::filesystem::path& file, rds::AlgorithmConfig& cfg);
+
+    /// The rows a testbench config is written from: everything, plus the
+    /// surfaces that are opened. Closed classes contribute nothing.
+    static std::vector<rds::ParamDesc> AlgorithmAndOpenedSurfaces(const rds::AlgorithmConfig& cfg);
+
+private:
     void DrawParams(int side);
+
+    /// The `+` at the bottom of the parameter panel, and the popup that lists
+    /// every surface without a block of its own. Not a schema row, because it
+    /// decides whether a set of schema rows is shown at all.
+    void DrawSurfaceAdd(int side);
+
+    /// What a surface inherits from, for the button and the popup labels:
+    /// the parent class's name, or `[Surfaces]` at a root.
+    static std::string SurfaceParentName(rds::SurfaceClass surface);
     /// One parameter: its name, its widget, and the edit history around them.
     ///
     /// `startX` and `width` are the column it draws into, both measured from the
@@ -514,6 +599,16 @@ private:
     /// empty when nothing is being auditioned.
     int m_auditionSlot{-1};
     std::string m_auditionFile;
+    /// The condition the file about to be chosen in the library will land with.
+    ///
+    /// `+ variant` asks what the new one is for and then opens the picker, so
+    /// the answer is given a window and a frame before the file it belongs to
+    /// arrives - which is why this is state rather than an argument. -1 when
+    /// the picker was opened by `+ add` or `change`, both of which mean a plain
+    /// variant and both of which clear it on the way past, so a popover that
+    /// was opened and abandoned cannot tag the next file somebody assigns.
+    int m_pendingConditionSlot{-1};
+    rds::VariantCondition m_pendingCondition{};
     char m_sfxFilter[64]{};
     SoundSource m_sources;
     Player m_player;
@@ -554,6 +649,15 @@ private:
     /// stacked burst does not wrap, but the flag and the pre-limiter peak are
     /// both on screen (00 section 13).
     bool m_limiter{true};
+
+    /// Pretend the take happened somewhere else, in something else.
+    ///
+    /// Session-only and deliberately not in `m_prefs`: coming back tomorrow to a
+    /// testbench that is quietly pretending, and tuning under it, is the worst
+    /// thing this control could do. It also belongs to the *take* rather than to
+    /// a config, so both A/B sides share it - an A/B compares two configs in one
+    /// pretend world, not two worlds.
+    rds::OfflineOptions m_pretend;
     bool m_showTrace{true};
     bool m_showContacts{true};
     /// Snap the timeline to the loop region when playback starts.
@@ -584,6 +688,21 @@ private:
     /// per frame, and it is cleared when a different take is loaded, where it
     /// would be a claim about the wrong recording.
     std::array<bool, static_cast<std::size_t>(rds::SlotId::kCount)> m_slotSeen{};
+
+    /// Slots kept off the timeline, by index. Set from each slot's `timeline`
+    /// checkbox in the sfx panel and remembered between launches.
+    ///
+    /// Hidden rather than shown, so the zero value is the honest one: a fresh
+    /// install, a deleted prefs file and a slot added after this was written all
+    /// mean "draw it", and none of them need an entry to say so.
+    ///
+    /// A drawing switch and nothing else. Unlike a mute, which silences a layer
+    /// the arbitrator still chose and paid for, this does not reach the engine
+    /// at all - the cue list, the table, the export and the sound are identical
+    /// with a slot hidden. It exists because the lane is 150 pixels tall and a
+    /// take with a long slide spends most of them on scrape envelopes that are
+    /// drawn over the impacts they are the context for.
+    std::array<bool, static_cast<std::size_t>(rds::SlotId::kCount)> m_slotHidden{};
 
     bool m_limitToCues{};
 
@@ -713,6 +832,9 @@ private:
     // ═════════════════════════════════════════════════════════════════════════
 
     GameLink m_link;
+    /// The command line's way in - see Control.h. Started alongside the game
+    /// link because it needs the same port out of the same file.
+    ControlServer m_control;
     rds::GeneralConfig m_general{};
     std::filesystem::path m_generalIni;
     /// Which takes are in the Num4 / Num6 cycle.
@@ -722,9 +844,20 @@ private:
     /// a take can be recorded against what the mod's own inis say rather than
     /// against whatever is on the sliders.
     bool m_pushToGame{true};
+    /// Where the wavs behind a take's vanilla track are found.
+    VanillaLibrary m_vanillaLibrary;
+    /// What the last vanilla mix managed. Shown beside the switch, because "the
+    /// vanilla side is silent" has two causes and they need telling apart.
+    std::size_t m_vanillaPlayed{};
+    std::size_t m_vanillaMisses{};
+    /// The value of m_useVanillaAudio the current buffers were mixed for, so a
+    /// click on the switch re-renders instead of being noticed only by the game.
+    bool m_vanillaAudioApplied{};
+
     /// On, the connected game puts vanilla's own body impacts back and plays
-    /// nothing of ours - the A/B switch for judging the mix against what it
-    /// replaces, inside one session rather than across two launches.
+    /// nothing of ours, and a take plays its recorded vanilla track instead of
+    /// our mix - the A/B switch for judging the mix against what it replaces,
+    /// inside one session rather than across two launches.
     ///
     /// Deliberately not remembered between launches: it is a thing done for the
     /// length of a comparison, and a testbench that started with the mod muted

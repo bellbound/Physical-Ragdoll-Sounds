@@ -29,7 +29,10 @@ bool FrameHook::Install(void (*onFrame)()) {
     }
     s_onFrame = onFrame;
 
-    SKSE::AllocTrampoline(1 << 5);
+    // The trampoline is allocated once, by plugin.cpp, before either hook is
+    // installed. Not here: SKSE::AllocTrampoline *releases* whatever block it
+    // held, so a second caller would free the branch the first one is already
+    // running through.
     auto& trampoline = SKSE::GetTrampoline();
 
     const auto address = REL::VariantID(35565, 36564, 0x5BAB10).address();

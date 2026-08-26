@@ -1,0 +1,102 @@
+# Lining the impacts CSV up with the video.
+#
+# t_ms            this take's own clock - the column the impacts CSV also stamps
+# obs_duration_ms OBS's output clock at that instant, in milliseconds
+# rtt_ms          how long the round trip took, and so how much the row is worth
+#
+# video_time_ms = t_ms + offset. Fit the offset through the low-rtt rows rather
+# than taking the first one: over a long take the two clocks drift apart, and a
+# piecewise fit follows that where a single number cannot.
+#
+# Written by the devbench, which drove the recording itself - so the mp4 beside
+# this file is OBS's whole output and the fitted offset needs no cut subtracted
+# out of it. t_ms comes off the game's session clock read across the link, so a
+# millisecond or two of the intercept is the socket rather than the picture; the
+# slope is unaffected, because that error is the same on every row.
+t_ms,obs_duration_ms,rtt_ms
+210,0,0
+1227,749,0
+2227,1749,0
+3227,2749,0
+4227,3749,0
+5244,4783,0
+6244,5766,0
+7244,6766,0
+8244,7766,0
+9244,8766,0
+10244,9766,0
+11261,10799,0
+12261,11783,0
+13261,12783,0
+14278,13799,0
+15294,14833,0
+16294,15833,0
+17294,16816,0
+18294,17816,0
+19294,18816,0
+20294,19816,0
+21294,20816,0
+22294,21816,0
+23294,22833,0
+24294,23833,0
+25294,24816,0
+26295,25816,0
+27295,26816,0
+28295,27816,0
+29295,28816,0
+30311,29849,0
+31311,30833,0
+32311,31833,0
+33311,32833,0
+34311,33833,0
+35311,34833,0
+36312,35833,0
+37312,36849,0
+38328,37849,0
+39345,38866,0
+40362,39899,0
+41362,40899,0
+42378,41899,0
+43378,42899,0
+44379,43899,0
+45379,44899,0
+46379,45916,0
+47379,46916,0
+48379,47899,0
+49379,48899,0
+50395,49916,0
+51395,50916,0
+52395,51916,0
+53396,52933,0
+54412,53933,0
+55413,54933,0
+56429,55949,0
+57429,56966,0
+58446,57966,0
+59446,58966,0
+60446,59966,0
+61446,60966,0
+62446,61966,0
+63446,62983,0
+64446,63983,0
+65446,64983,0
+66446,65966,0
+67446,66966,0
+68446,67966,0
+69463,68983,0
+70463,69999,0
+71463,70999,0
+72480,71999,0
+73496,73016,0
+74496,74033,0
+75496,75033,0
+76496,76016,0
+77496,77016,0
+78513,78033,0
+79530,79066,0
+80530,80066,0
+81530,81049,0
+82547,82066,0
+83563,83099,0
+84564,84099,0
+84697,84233,0

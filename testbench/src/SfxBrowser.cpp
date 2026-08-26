@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <ctime>
@@ -163,8 +164,18 @@ void Badges(const rds::SfxEntry& entry, bool showSuggestions) {
 
     for (const rds::SfxWarning& w : entry.warnings) {
         ImGui::SameLine();
-        Pill(w.code, w.blocking ? kBlocked : kWarn);
-        Tip(w.blocking ? "Cannot be played at all.\n\n" + w.detail : w.detail);
+        Pill(w.code, (w.blocking || w.dead) ? kBlocked : kWarn);
+        // Three openings, because the three mean three different things to do:
+        // nothing, another file, or the thing the detail goes on to name. The
+        // colour only says "red or orange" and a badge that says `clipped` on
+        // one file and `clipped` on another has to be able to say which.
+        if (w.blocking) {
+            Tip("Cannot be played at all.\n\n" + w.detail);
+        } else if (w.dead) {
+            Tip("Not usable, and no amount of processing changes that.\n\n" + w.detail);
+        } else {
+            Tip(w.detail);
+        }
     }
 
     if (showSuggestions) {
@@ -460,6 +471,84 @@ void SfxBrowser::DisableButton(std::size_t entry) {
     ImGui::PopID();
 }
 
+void SfxBrowser::CorrectionRow(std::size_t entry) {
+    if (m_library == nullptr || entry >= m_library->Size()) {
+        return;
+    }
+    rds::SfxEntry& e = m_library->MutableEntries()[entry];
+    ImGui::PushID(static_cast<int>(entry));
+    ImGui::PushID("correct");
+
+    // Semitones rather than a ratio, because "it is a bit low" is a musical
+    // complaint and 1.0595 is not an answer to one. The ratio is what is stored
+    // and what the engine multiplies by; this is only how it is asked for.
+    float semis = 12.0f * std::log2(std::max(0.01f, e.pitch));
+    bool changed = false;
+
+    ImGui::TextUnformatted("pitch");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(120.0f);
+    if (ImGui::DragFloat("##semis", &semis, 0.05f, -12.0f, 12.0f, "%+.2f st")) {
+        e.pitch = std::clamp(std::pow(2.0f, semis / 12.0f), 0.5f, 2.0f);
+        changed = true;
+    }
+    Tip("Correct this recording's pitch. It applies wherever the sound is used, because a file "
+        "that is flat is flat on every slot that names it - the same rule the mute beside it "
+        "follows.\n\n"
+        "It multiplies the pitch the engine already chose rather than replacing it, so the "
+        "per-cue scatter and the intensity bias still do their work on top.\n\n"
+        "This is resampling, not a formant shift, so it changes how long the file plays - the "
+        "length beside it is the real one. That matters for a one-shot, whose slot has a "
+        "min/max and whose place in the impact stack is timed; it does not for a loop.");
+
+    ImGui::SameLine();
+    ImGui::TextUnformatted("level");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(120.0f);
+    if (ImGui::DragFloat("##trim", &e.trimDb, 0.1f, -24.0f, 12.0f, "%+.1f dB")) {
+        e.trimDb = std::clamp(e.trimDb, -24.0f, 12.0f);
+        changed = true;
+    }
+    Tip("Level for this file alone, applied at Stage 5 with the other trims.\n\n"
+        "It cannot change which cue was chosen, and that is the ordering rather than a promise: "
+        "nothing knows which *file* a layer resolved to until after arbitration has sorted, "
+        "rate-capped and burst-shaped. See config.md.\n\n"
+        "For one take that sits hot or shy against its siblings on a slot. If the whole slot is "
+        "wrong, that is `SlotGain:f...` in the config panel, not this.");
+
+    // The consequence of the pitch, in the place the pitch is turned. A length
+    // that only appears in the metadata file is a length nobody reads until it
+    // has already broken a spec.
+    if (e.pitch != 1.0f && e.durationMs > 0.0f) {
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, kQuiet);
+        ImGui::Text("plays %.0f ms (was %.0f)", e.EffectiveDurationMs(), e.durationMs);
+        ImGui::PopStyleColor();
+    }
+
+    if (e.Corrected()) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("reset")) {
+            e.pitch = 1.0f;
+            e.trimDb = 0.0f;
+            changed = true;
+        }
+        Tip("Back to the file as recorded - 1.00x and 0 dB.");
+    }
+
+    if (changed) {
+        MarkDirty(e.file);
+        // Same three as a mute, and for the same reason: a correction is a
+        // statement about what the take plays, so it has to be audible on the
+        // next block rather than after a reload.
+        m_stale = true;
+        m_libraryChanged = true;
+    }
+
+    ImGui::PopID();
+    ImGui::PopID();
+}
+
 void SfxBrowser::Save() {
     if (m_library == nullptr) {
         return;
@@ -526,6 +615,11 @@ void SfxBrowser::Rebuild() {
             std::string tags;
             for (const rds::SfxWarning& w : entry.warnings) {
                 tags += " " + Lower(w.code);
+                // So "dead" finds everything nothing can mend in one search,
+                // whatever each of them is called.
+                if (w.dead) {
+                    tags += " dead";
+                }
             }
             for (const rds::SlotId slot : entry.suggested) {
                 tags += " " + Lower(rds::Slot(slot).name);
@@ -559,6 +653,17 @@ void SfxBrowser::Rebuild() {
         // have sorted into is how it gets picked again by mistake.
         if (a.disabled != b.disabled) {
             return !a.disabled;
+        }
+        // Then, while picking, the ones nothing can mend - a squared-off
+        // waveform, hiss inside 30 dB of the hero, a duplicate of something
+        // already in the library. Not hidden and not refused: they sort under
+        // the sounds that are actually candidates, in the band above the muted,
+        // because a slot filled with one of these is a slot that has to be
+        // filled again later.
+        const bool deadA = entries[a.entry].Dead();
+        const bool deadB = entries[b.entry].Dead();
+        if (m_picking && deadA != deadB) {
+            return !deadA;
         }
         // Fitting lengths to the top - the right length is the hard filter,
         // everything after it is taste.
@@ -678,8 +783,9 @@ SfxBrowser::Pick SfxBrowser::Draw() {
         "each name shows - so an evening's downloads come back as one block at the top.\n"
         "`name` is the library's own order, alphabetical.\n\n"
         "This only ever orders *inside* the bands. While picking for a slot the right length "
-        "still comes first and the muted are still last; while searching, a name hit still "
-        "beats a badge hit. Newest decides the order within each of those.");
+        "still comes first, the ones nothing can repair sit under the rest and the muted are "
+        "still last; while searching, a name hit still beats a badge hit. Newest decides the "
+        "order within each of those.");
 
     ImGui::SameLine();
     ImGui::TextDisabled("%d / %d", static_cast<int>(m_rows.size()),
@@ -809,7 +915,15 @@ void SfxBrowser::DrawHeader() {
     }
     Tip("Pick one or more files. Each is converted to the pack's mono / 48 kHz / 16-bit, copied "
         "into the library, measured, and given a metadata file. Nothing is ever rejected - what is "
-        "wrong with a file comes back as a badge you can read and ignore.");
+        "wrong with a file comes back as a badge you can read and ignore.\n\n"
+        "On the way in it is also repaired, silently: peak normalised to -1.5 dBFS for the runtime "
+        "pitch scatter, DC subtracted, head and trailing silence trimmed, a hard ending faded, and "
+        "a stereo source whose channels fight each other kept as its left channel rather than "
+        "summed. Those are Slots.md §5's delivery rules and none of them is a judgement, so none "
+        "of them arrives as a badge.\n\n"
+        "What is left on the row is what needs you: a decision (a second contact, a baked tail, a "
+        "seam) or a dead end (a squared-off waveform, hiss inside 30 dB of the hit). Hover any "
+        "badge for what it means and what to do.");
 
     ImGui::SameLine();
     if (ImGui::Checkbox("FMTS fix", &m_fixNames)) {
@@ -850,6 +964,43 @@ void SfxBrowser::DrawHeader() {
                         "Names are kept exactly as they are, whatever the FMTS box says: the name "
                         "is what seeds the assignment.",
                         pending, m_packDirectory.string()));
+    }
+
+    // Same rule as the row button: only while there is something to repair, so
+    // the header bar never carries a control that does nothing.
+    if (const std::size_t broken = std::ranges::count_if(m_library->Entries(), NeedsRepair);
+        broken != 0) {
+        ImGui::SameLine();
+        if (ImGui::Button(std::format("Repair {}##repairall", broken).c_str())) {
+            int done = 0;
+            // A copy of the names, for the same reason the re-measure takes one:
+            // the library is written through while it is being walked.
+            std::vector<std::string> files;
+            for (const rds::SfxEntry& entry : m_library->Entries()) {
+                if (NeedsRepair(entry)) {
+                    files.push_back(entry.file);
+                }
+            }
+            for (const std::string& file : files) {
+                std::string error;
+                if (RepairExisting(*m_library, file, error, nullptr)) {
+                    ++done;
+                } else {
+                    spdlog::warn("sfx: repair {}: {}", file, error);
+                }
+            }
+            m_importNote = std::format("repaired {} of {}", done, files.size());
+            m_stale = true;
+        }
+        Tip(std::format("Run the import's own repair pass over the {} file(s) carrying a fault it "
+                        "can fix: a rate or channel count that is not the pack's, a peak off "
+                        "-1.5 dBFS, DC, head silence.\n\n"
+                        "Everything an import touches is already repaired on the way in, so these "
+                        "are files that arrived another way. Nothing else in the library is "
+                        "opened, and a file whose only faults are the ones nothing mends - a "
+                        "squared-off wave, a baked tail, a second contact - is not counted here.\n\n"
+                        "Rewrites files in place. There is no undo.",
+                        broken));
     }
 
     ImGui::SameLine();
@@ -1080,14 +1231,53 @@ void SfxBrowser::DrawRow(const Row& row, int index, Pick& pick) {
         Tip(std::format("{}\n\ndouble-click to rename. The filename never changes, so renaming "
                         "cannot break an assignment.\n\n"
                         "{:.0f} ms, {} Hz, {} ch, {}-bit. peak {:.1f} dBFS, tilt {:+.1f} dB, "
-                        "centroid {:.0f} Hz, {} lo-mid transients.",
+                        "centroid {:.0f} Hz, {} lo-mid transients.\n"
+                        "{}{}",
                         entry.file, entry.durationMs, entry.sampleRate, entry.channels,
                         entry.bitsPerSample, entry.peakDb, entry.tiltDb, entry.centroidHz,
-                        entry.loMidTransients));
+                        entry.loMidTransients,
+                        entry.noiseFloorDb < 99.0f
+                            ? std::format("noise floor {:.0f} dB down. ", entry.noiseFloorDb)
+                            : std::string(),
+                        entry.contacts > 1
+                            ? std::format("{} contacts, the second {:.0f} dB down at {:+.0f} ms.",
+                                          entry.contacts, entry.satelliteDb, entry.satelliteAtMs)
+                            : (entry.contacts == 1 ? std::string("one contact.") : std::string())));
     }
 
     ImGui::SameLine();
     sfxui::Badges(entry, true);
+
+    // Only when it would do something. Every import is repaired on the way in,
+    // so this is for the files that arrived another way - dropped into the
+    // folder, written by sfx.py at another rate, imported before ffmpeg was on
+    // PATH - and on everything else it is absent rather than inert.
+    if (NeedsRepair(entry)) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("repair")) {
+            const std::string file = entry.file;
+            std::string error;
+            std::string did;
+            if (RepairExisting(*m_library, file, error, &did)) {
+                m_importNote = did.empty() ? "nothing to repair" : "repaired: " + did;
+            } else {
+                m_importNote = "repair failed: " + error;
+                spdlog::warn("sfx: repair {}: {}", file, error);
+            }
+            m_stale = true;
+        }
+        Tip("Rewrite the file the way an import would have: convert it to the pack's mono / "
+            "48 kHz / 16-bit, subtract any DC, trim head and trailing silence, fade a hard "
+            "ending, and normalise the peak to -1.5 dBFS for the runtime pitch scatter.\n\n"
+            "Every one of those is mechanical - Slots.md §5 - which is why an import does them "
+            "without asking and without saying so. This button exists for files that did not come "
+            "through it.\n\n"
+            "It does nothing to a file that is already right: a pack file at -1.0 dBFS sits inside "
+            "the band that is left alone and comes back byte-identical. Loops are never trimmed or "
+            "faded - their seam is `sfx.py make`'s job.\n\n"
+            "The name, the mute and the import date are kept. There is no undo: the file is "
+            "rewritten in place.");
+    }
 
     ImGui::SameLine();
     DisableButton(row.entry);
@@ -1134,6 +1324,7 @@ void SfxBrowser::DrawRow(const Row& row, int index, Pick& pick) {
         "library folder by hand - shows the file's own date instead, which is the same "
         "moment for everything the importer copied in.\n\n"
         "The sort box orders the list by this.");
+    CorrectionRow(row.entry);
     ImGui::Unindent(52.0f);
 
     ImGui::EndGroup();

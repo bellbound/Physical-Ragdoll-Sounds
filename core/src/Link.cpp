@@ -4,6 +4,7 @@
 #include <ws2tcpip.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <charconv>
 #include <cstring>
@@ -437,8 +438,26 @@ std::string EncodeSfx(const SfxAssignments& assignments) {
             }
             muted += file;
         }
+        // `file>surface>armour`, pipe-separated, one per tagged placement -
+        // `file#2` where the slot plays that name twice, exactly as the ini
+        // writes it. Names rather than integers unlike the profile message,
+        // because this one is the same text the ini carries and a heartbeat
+        // that can be read in a log is worth the handful of bytes.
+        std::string conds;
+        for (std::size_t i = 0; i < assignment.files.size(); ++i) {
+            const VariantCondition cond = assignment.ConditionAt(i);
+            if (cond.Unconditional()) {
+                continue;
+            }
+            if (!conds.empty()) {
+                conds += '|';
+            }
+            conds += std::format("{}>{}>{}", assignment.PlacementTag(i), ToString(cond.surface),
+                                 ToString(cond.coverage));
+        }
         out += std::format("{}={}\n", slot.name, files);
         out += std::format("{}.mute={}\n", slot.name, muted);
+        out += std::format("{}.cond={}\n", slot.name, conds);
         out += std::format("{}.loop={}\n", slot.name, assignment.looping ? 1 : 0);
     }
     return out;
@@ -447,6 +466,14 @@ std::string EncodeSfx(const SfxAssignments& assignments) {
 void DecodeSfx(std::string_view text, SfxAssignments& out) {
     const auto slots = Slots();
     std::vector<std::string_view> parts;
+    // Held back until every line is in, for the reason the ini's parser holds
+    // them: a condition names a placement, and the placements arrive on the
+    // slot's other line. Nothing in the wire format promises which comes first.
+    struct PendingConditions {
+        bool present{};
+        std::vector<std::string> entries;
+    };
+    std::array<PendingConditions, static_cast<std::size_t>(SlotId::kCount)> pending{};
     ForEachLine(text, [&](std::string_view line) {
         std::string_view key;
         std::string_view value;
@@ -455,11 +482,15 @@ void DecodeSfx(std::string_view text, SfxAssignments& out) {
         }
         bool isLoop = false;
         bool isMute = false;
+        bool isCond = false;
         if (key.size() > 5 && key.substr(key.size() - 5) == ".loop") {
             isLoop = true;
             key.remove_suffix(5);
         } else if (key.size() > 5 && key.substr(key.size() - 5) == ".mute") {
             isMute = true;
+            key.remove_suffix(5);
+        } else if (key.size() > 5 && key.substr(key.size() - 5) == ".cond") {
+            isCond = true;
             key.remove_suffix(5);
         }
         for (const SlotDesc& slot : slots) {
@@ -471,11 +502,31 @@ void DecodeSfx(std::string_view text, SfxAssignments& out) {
                 assignment.looping = ToInt(value) != 0;
                 return;
             }
+            if (isCond) {
+                // Recorded as present even when empty, for the same reason the
+                // lists below are cleared: an empty value has to mean "none of
+                // them", or clearing the last tag would never reach the game.
+                PendingConditions& hold = pending[static_cast<std::size_t>(slot.id)];
+                hold.present = true;
+                hold.entries.clear();
+                if (value.empty()) {
+                    return;
+                }
+                SplitPipe(value, parts);
+                for (const std::string_view entry : parts) {
+                    hold.entries.emplace_back(Trim(entry));
+                }
+                return;
+            }
             // Cleared before the parse either way, so an empty value means "none
             // of them" rather than "no opinion" - which is what makes unmuting
             // the last file reach the game.
             std::vector<std::string>& into = isMute ? assignment.muted : assignment.files;
             into.clear();
+            if (!isMute) {
+                // The tags named positions in the list this line replaces.
+                assignment.conditions.clear();
+            }
             if (value.empty()) {
                 return;
             }
@@ -489,6 +540,38 @@ void DecodeSfx(std::string_view text, SfxAssignments& out) {
             return;
         }
     });
+
+    for (const SlotDesc& slot : slots) {
+        const PendingConditions& hold = pending[static_cast<std::size_t>(slot.id)];
+        if (!hold.present) {
+            continue;
+        }
+        SlotAssignment& assignment = out.For(slot.id);
+        assignment.conditions.assign(assignment.files.size(), VariantCondition{});
+        for (const std::string& entry : hold.entries) {
+            const std::string_view field{entry};
+            const std::size_t first = field.find('>');
+            if (first == std::string_view::npos) {
+                continue;
+            }
+            const std::size_t second = field.find('>', first + 1);
+            const std::size_t span =
+                second == std::string_view::npos ? std::string_view::npos : second - first - 1;
+            VariantCondition cond{};
+            cond.surface = SurfaceMatchFrom(Trim(field.substr(first + 1, span)));
+            cond.coverage = second == std::string_view::npos
+                                ? CoverageMatch::kAny
+                                : CoverageMatchFrom(Trim(field.substr(second + 1)));
+            const int index = assignment.PlacementOf(Trim(field.substr(0, first)));
+            // An unconditional entry, or one for a placement this side does not
+            // have, is dropped rather than stored - so the two ends agree about
+            // what "no condition" looks like, and a stale tag never lands on
+            // whichever file happens to sit where it used to.
+            if (index >= 0 && !cond.Unconditional()) {
+                assignment.conditions[static_cast<std::size_t>(index)] = cond;
+            }
+        }
+    }
 }
 
 std::string EncodeProfile(const ProfileMessage& message) {

@@ -71,6 +71,11 @@ layer is built from the measured curves in `04-Reference-Analysis.md` §1 rather
 Verified against the references: dominant frequency descent, sub-band dominance, 8-14 dB tonality,
 and 16-52 ms to −20 dB.
 
+`--scale 1.1 1.25 …` transposes variant 01's whole sweep — start, mid and floor together — and
+writes `imp_sub_<start>hz.wav` instead of the pack pair, for auditioning a pitch ladder. The
+envelope, length and drive are held so the pitch is the only thing that moved; nothing in this mode
+can overwrite `imp_sub_01/02`.
+
 # preview.py
 
 Renders the impact composite — transient at 0 ms, body at +20, sub at +65 — into
@@ -115,3 +120,36 @@ from source silently changes them.
 
 Add an entry to `SPEC` and, if it has a prompt, its first 20 prompt characters to `PROMPT_HEADS`.
 Requires numpy and ffmpeg on PATH; no scipy.
+
+---
+
+# tools/tune.py
+
+Edit the config of a **running** `RagdollSoundsTestbench.exe` from the command line.
+
+```
+python tools/tune.py status
+python tools/tune.py list
+python tools/tune.py get slide
+python tools/tune.py set Slide:fSlideMinDurationMs=120 -m "slides started too eagerly"
+python tools/tune.py load config_24_08_7
+```
+
+`set` patches the config the focused side is playing, saves it as a **new** file in
+`testbench/configs/` and selects it in the picker — no restart, no reload, and a connected game gets
+it on the same frame. Nothing is ever overwritten, and the edit lands on the app's undo stack, so
+Ctrl+Z in the testbench takes it back.
+
+| flag | what it does |
+|---|---|
+| `-m`, `--note` | why — goes into the new ini's header comment and the log |
+| `--from <name>` | patch that config instead of what the side is holding |
+| `--name <stem>` | name the new file yourself (default: the next number in the family) |
+| `--side A\|B` | default is whichever side has focus |
+| `--no-save` | patch in place without writing a file: an audition, not a config |
+| `--port` | the control port (default: `[Devbench] iDevbenchPort` + 1) |
+
+The section can be dropped when a key is unique (`fSlideMinDurationMs=120`), a near-miss name comes
+back with candidates, and a patch is all-or-nothing — one bad key and nothing moves. It talks to the
+socket described in `testbench/src/Control.h`; "no testbench on 127.0.0.1:27861" means the app is not
+running, and this tool edits a session rather than starting one.

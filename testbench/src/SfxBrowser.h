@@ -197,6 +197,13 @@ private:
     /// The `disable` / `enable` button, drawn the same in the list and in the
     /// pair of previews at the top.
     void DisableButton(std::size_t entry);
+    /// The two corrections - pitch and trim - on their own line under the name.
+    ///
+    /// A correction to the recording, so it belongs to the file and not to the
+    /// assignment: it applies wherever the sound is used, exactly like the mute
+    /// beside it. Writes to the metadata file, so it wants a Ctrl+S like a
+    /// rename does, and rebuilds the bank so the next block is the new sound.
+    void CorrectionRow(std::size_t entry);
     /// Write the row being renamed back into the library, if there is one. Called
     /// before anything that moves the rows out from under it.
     void CommitEdits();

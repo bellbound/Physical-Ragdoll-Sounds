@@ -135,7 +135,7 @@ running, what it is configured to, and whether it heard the knockdown, without a
 a setting and do it again:**
 
 - **info** — init, both ini paths, every value differing from default, the sound bank's per-slot
-  resolution (`imp_sub: 0/2 files, procedural` is exactly the line that explains a thin mix), vanilla
+  resolution (`imp_sub: 0/2 files, nothing to play` is exactly the line that explains a thin mix), vanilla
   suppression naming every form it touched, **one summary line per knockdown** (contacts in, cues
   out, bursts, reduction ratio, peak, duration), voice-cap hits, and every refusal to start
 - **debug** — the firehose: per-contact admit/reject with the reason, phase transitions, every
@@ -243,6 +243,11 @@ only contact with the backend is `core/`'s public headers; if it ever needs more
   "push config to the running game": which mix the game plays is not one of the overrides, and
   letting the game run its own inis is exactly when the comparison is worth making. It is never
   remembered between launches and never survives the link dropping.
+- **The config picker** — newest first, ordered by when each file was *created* rather than by name:
+  a save writes a new file, so creation order is the order the configs were tried in, and the one
+  you want is nearly always the one you saved last with the one it came from under it. The mouse
+  wheel over the closed combo steps through the list, which is what an A/B actually is — the one
+  above this, then the one below it.
 - **Keys** — `Num5` play, `Num4`/`Num6` previous/next recording, `Num8`/`Num2` previous/next config.
   (The brief said `Num8`/`Num6` for configs, but `Num6` is already next-recording; `Num8`/`Num2` is
   the up/down pair that matches `Num4`/`Num6` being left/right.)
@@ -258,6 +263,13 @@ only contact with the backend is `core/`'s public headers; if it ever needs more
   frame budget. Synchronous, and therefore a visible freeze: a background thread would need its own
   copy of the recording and the bank (`RunOffline` mutates both) and would be measuring against a
   UI that is drawing at the same time. `testbench/src/Bench.{h,cpp}`.
+- **The control socket** — a second loopback listener, on the devbench port plus one, so a command
+  line can edit the config of a session that is *already running*: `tools/tune.py` patches the
+  focused side, writes the result as a new `configs/*.ini` and selects it, with no restart and no
+  reload. Same seam as the sliders and the same undo stack, so a scripted change is a step the user
+  can hear on the next play and take back with Ctrl+Z. The socket thread only parses and queues;
+  the frame loop applies, because a patch moves the config the mixer is reading and saves a file the
+  picker is listing. `testbench/src/Control.{h,cpp}`, and the reason it exists is in that header.
 - **`--verify`** — headless, runs `Verify()` over every recording and exits non-zero on a failure.
 - **`--bench`** — the benchmark button's headless twin, over every take (`--take` for one,
   `--config` for a config). For the question the button cannot ask: *did this commit make the

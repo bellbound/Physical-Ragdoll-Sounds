@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "rds/Config.h"
@@ -74,6 +75,21 @@ struct BodySample {
     /// EngineStats::heroReanchors exists to count.
     std::uint32_t heroSeq{};
     TimeMs heroSinceMs{};
+
+    /// The garment, before and after its envelope.
+    ///
+    /// Both, because the envelope is most of the tuning and one value cannot
+    /// show it working. The timeline draws the smoothed level as a filled curve
+    /// with the raw drive as a line over it, and the gap between the two *is*
+    /// the attack and the release - which is the only way to set them by eye
+    /// rather than by guessing at milliseconds.
+    float rustleDriveRaw{};
+    float rustleDrive{};
+    /// The damage rule's violence window. Drawn beside the garment because they
+    /// are the same measurement held two ways, and the difference between them
+    /// is the thing worth seeing: the garment tracks every spike including the
+    /// impacts, the violence average deliberately ignores them.
+    float motionViolence{};
 };
 
 struct OfflineResult {
@@ -97,9 +113,72 @@ struct OfflineResult {
     std::vector<BodySample> body;
 };
 
+/// The coverage sites a take can be re-dressed on, matching what the game reads
+/// per biped slot. Fewer than there are limb sites, because several sites share
+/// one slot: torso, upper arm and thigh are all "the body piece".
+enum class CoverageSite : std::uint8_t {
+    kHead = 0,
+    kHands,
+    kForearms,
+    kFeet,
+    kCalves,
+    kBody,
+    kCount
+};
+
+[[nodiscard]] std::string_view ToString(CoverageSite site);
+
+/// Which coverage site a limb site is dressed from. The engine-side twin of the
+/// plugin's `SlotForSite`, and it has to agree with it: if they disagree, a take
+/// re-dressed in the testbench is not the body the game would have built.
+[[nodiscard]] CoverageSite CoverageSiteFor(LimbSite site);
+
+/// A representative MATERIAL_ID for a surface class, for pretending a take
+/// happened on a different floor.
+///
+/// Rewriting the material rather than the resolved class on purpose: the class
+/// is what `SurfaceFromMaterial` decides, so going in through the material means
+/// the pretend path and the real path run the same mapping. A pretend that
+/// bypassed it could disagree with the game about what stone sounds like.
+[[nodiscard]] std::uint32_t RepresentativeMaterial(SurfaceClass surface);
+
 struct OfflineOptions {
     std::uint32_t seed{1};
     bool trace{true};
+
+    // -- pretending ----------------------------------------------------------
+    //
+    // Session-only, and never written to a config: coming back tomorrow to a
+    // testbench that is quietly pretending, and tuning under it, is the worst
+    // thing this control could do.
+
+    /// Force every *world* contact onto this floor. `kCount` replays the take as
+    /// it was.
+    ///
+    /// World contacts only. Self- and body-contacts are routed by `otherLimb`
+    /// and forcing one onto stone would move it into a different branch of
+    /// Ingest, which is a change to behaviour that has nothing to do with the
+    /// surface.
+    SurfaceClass surfaceAs{SurfaceClass::kCount};
+
+    /// Re-dress each site, or `kCount` at that site to leave it as recorded.
+    /// Indexed by `CoverageSite`, so "heavy boots, naked otherwise" is two
+    /// entries and is the only way to test the per-limb rule at all.
+    Coverage coverageAs[static_cast<std::size_t>(CoverageSite::kCount)]{};
+    bool coverageSet[static_cast<std::size_t>(CoverageSite::kCount)]{};
+
+    /// Whether anything is being pretended, for the warning chip.
+    [[nodiscard]] bool Pretending() const {
+        if (surfaceAs != SurfaceClass::kCount) {
+            return true;
+        }
+        for (const bool set : coverageSet) {
+            if (set) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /// Replay only the window the ragdoll is actually in. The capture files open
     /// before the knockdown and close after it, and the dead air at each end is

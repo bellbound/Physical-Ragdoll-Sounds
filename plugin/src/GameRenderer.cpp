@@ -51,6 +51,14 @@ constexpr double kRetireGraceMs = 1000.0;
 /// and an eighth at VR rates, and it costs at most twelve messages per voice.
 constexpr std::uint8_t kPlaceAttempts = 12;
 
+/// The same, for a loop's opening volume. See `Loop::volumeAttempts`.
+///
+/// A loop needs far less of this than a one-shot does - it re-sends on every
+/// level change for as long as it runs - but it needs some: a slide shorter than
+/// a couple of frames' start latency would otherwise play at the level the voice
+/// happened to open with, which is full scale.
+constexpr std::uint8_t kVolumeAttempts = 12;
+
 /// How often the placement line is worth saying, in milliseconds. It is at info
 /// rather than debug on purpose: "our audio is N metres from your ears and the
 /// body is not" is the one thing a shipping log has to be able to answer about a
@@ -64,9 +72,22 @@ constexpr float kUnitsPerMetre = 69.99124f;
 
 /// How long a loop buffer is, and how much of the next one overlaps the last.
 ///
-/// Four seconds is long enough that a re-issue is rare and short enough that a
-/// gain change is picked up promptly; the overlap is crossfaded inside the buffer
-/// by MixLoop, so the seam is ours rather than the engine's.
+/// Four seconds is long enough that a re-issue is rare; the overlap is
+/// crossfaded inside the buffer by MixLoop, so the seam is ours rather than the
+/// engine's.
+///
+/// It used to say "and short enough that a gain change is picked up promptly",
+/// which was the bug rather than the design. A loop's gain was baked into its
+/// buffer and only re-read here, so a slide shorter than four seconds - which is
+/// nearly all of them - took one level at `kStartLoop` and held it to the stop
+/// cue. Every slide in the game came out the same loudness and then cut off from
+/// full level, because the speed ramp that is supposed to fade a grind out as
+/// the body slows had no way to reach the voice. The testbench ramps between
+/// control points (`Mixer.cpp`), which is why it sounded right there and wrong
+/// in game.
+///
+/// **Level is a live message now** and does not wait for this at all. Pitch
+/// still does - see `StartLoopVoice`.
 constexpr float kLoopBufferMs = 4000.0f;
 constexpr float kLoopOverlapMs = 150.0f;
 
@@ -98,7 +119,10 @@ public:
         a_resolution.playbackCharacteristics =
             reinterpret_cast<RE::BSISoundDescriptor::BSIPlaybackCharacteristics*>(&characteristics);
         a_resolution.outputModel = const_cast<RE::BSISoundOutputModel*>(outputModel);
-        a_resolution.soundCategory = nullptr;
+        // Null until the esp shipped two of them, and null again if it is not
+        // installed. An uncategorised sound plays at the level we mixed it at,
+        // which is what the whole mod did before there were sliders.
+        a_resolution.soundCategory = const_cast<RE::BSISoundCategory*>(soundCategory);
         return true;
     }
 
@@ -106,8 +130,30 @@ public:
 
     RE::BSResource::ID resourceID{};
     const RE::BSISoundOutputModel* outputModel = nullptr;
+    const RE::BSISoundCategory* soundCategory = nullptr;
     PlaybackCharacteristics characteristics{};
 };
+
+/// Which slider a cue plays under.
+///
+/// The reason and not the slot: `CrunchSlot` picks a different recording per
+/// body part, so a slot-keyed mapping would have to be kept in step with that
+/// list and would silently miss the day somebody adds one. `kCrunch` and `kGore`
+/// are the two the design calls damage, and they are exactly what the gore
+/// slider was asked to govern.
+[[nodiscard]] SoundBus BusFor(CueReason reason) {
+    switch (reason) {
+        case CueReason::kCrunch:
+        case CueReason::kGore:
+            return SoundBus::kGore;
+        default:
+            return SoundBus::kMain;
+    }
+}
+
+[[nodiscard]] const char* ToString(SoundBus bus) {
+    return bus == SoundBus::kGore ? "gore" : "main";
+}
 
 [[nodiscard]] RE::NiPoint3 ToNiPoint(const Vec3& v) { return RE::NiPoint3{v.x, v.y, v.z}; }
 
@@ -117,6 +163,7 @@ GameRenderer::GameRenderer() {
     m_groups.reserve(16);
     m_voices.reserve(32);
     m_loops.reserve(8);
+    m_busCues.reserve(8);
     m_encoded.reserve(64 * 1024);
     m_mixParams.sampleRate = kSampleRate;
 }
@@ -234,6 +281,9 @@ void GameRenderer::Emit(const Cue& cue) {
                 existing->pitch = cue.pitch;
                 existing->position = cue.position;
                 existing->boneIndex = cue.boneIndex;
+                existing->limbIndex = cue.limbIndex;
+                existing->collapsed = cue.collapsed;
+                Follow(*existing);
                 return;
             }
             Loop loop;
@@ -244,6 +294,8 @@ void GameRenderer::Emit(const Cue& cue) {
             loop.pitch = cue.pitch;
             loop.position = cue.position;
             loop.boneIndex = cue.boneIndex;
+            loop.limbIndex = cue.limbIndex;
+            loop.collapsed = cue.collapsed;
             loop.actorId = cue.actorId;
             m_loops.push_back(loop);
             return;
@@ -255,15 +307,32 @@ void GameRenderer::Emit(const Cue& cue) {
             if (it == m_loops.end()) {
                 return;
             }
-            // Position takes effect at once, on the live handle. Gain and pitch
-            // are baked into the buffer, so they are picked up by the next
-            // re-issue - which is at most kLoopBufferMs away and inaudible as a
-            // step, because the crossfade carries it.
+            // Position and **level** take effect at once, on the live handle.
+            // Pitch is still baked into the buffer and so is picked up by the
+            // next re-issue, up to kLoopBufferMs away.
+            //
+            // The two are not symmetrical and that is not an oversight. Level is
+            // a plain multiply, so moving it live changes nothing else. Pitch is
+            // a resample of the tile, and the buffer is always kLoopBufferMs of
+            // output whatever the pitch - so `endsMs` is pitch-independent as it
+            // stands. Move pitch onto `SetFrequency` and the buffer drains at
+            // frequency x rate instead, which means `endsMs` has to integrate the
+            // rate over the life of the loop or every re-issue puts MixLoop's
+            // crossfade in the wrong place. That is a real change and it is not
+            // this one; the level is what a listener hears a slide *do*.
             it->gainDb = cue.gainDb;
             it->pitch = cue.pitch;
             it->position = cue.position;
             it->boneIndex = cue.boneIndex;
-            if (it->handle.IsValid() && it->boneIndex < 0) {
+            it->limbIndex = cue.limbIndex;
+            it->collapsed = cue.collapsed;
+            ApplyLoopVolume(*it);
+            // A limb grind moves between the bones of its own limb while it
+            // runs, so the attachment is re-sent here rather than only at the
+            // next re-issue - which is up to a buffer length away, and a scrape
+            // that follows the wrong foot for four seconds is not following
+            // anything. Follow falls back to the position when no node resolves.
+            if (it->handle.IsValid() && !Follow(*it)) {
                 it->handle.SetPosition(ToNiPoint(it->position));
             }
             return;
@@ -286,8 +355,8 @@ void GameRenderer::Emit(const Cue& cue) {
 }
 
 bool GameRenderer::Open(std::span<const std::uint8_t> wav, const Vec3& position,
-                        RE::NiAVObject* follow, RE::BSSoundHandle& handleOut,
-                        std::uint64_t& tokenOut) {
+                        RE::NiAVObject* follow, const RE::BSISoundOutputModel* model, SoundBus bus,
+                        RE::BSSoundHandle& handleOut, std::uint64_t& tokenOut) {
     auto* manager = RE::BSAudioManager::GetSingleton();
     if (manager == nullptr || wav.empty()) {
         return false;
@@ -309,7 +378,11 @@ bool GameRenderer::Open(std::span<const std::uint8_t> wav, const Vec3& position,
     descriptor.resourceID.file = fileId;
     descriptor.resourceID.dir = dirId;
     std::memcpy(descriptor.resourceID.ext, "wav", 3);
-    descriptor.outputModel = DefaultOutputModel();
+    descriptor.outputModel = model;
+    // Resolved per voice rather than once: the lookup retries while it is null,
+    // and a voice opened before the load order was up would otherwise pin the
+    // answer for the session. It is two atomic loads once it has resolved.
+    descriptor.soundCategory = CategoryFor(bus);
 
     if (descriptor.outputModel == nullptr && !m_warnedNoModel) {
         m_warnedNoModel = true;
@@ -424,14 +497,26 @@ void GameRenderer::Place(Voice& voice, bool playing) {
     }
 }
 
-bool GameRenderer::StartComposite(const MixBuffer& mixed, ActorId actorId, TimeMs nowMs) {
+bool GameRenderer::GroupIsDry(std::span<const Cue> cues) {
+    if (cues.empty()) {
+        return false;
+    }
+    return std::ranges::all_of(cues, [](const Cue& cue) {
+        return cue.reason == CueReason::kLimbTap || cue.reason == CueReason::kSurfaceSkin ||
+               cue.reason == CueReason::kArmorSkin;
+    });
+}
+
+bool GameRenderer::StartComposite(const MixBuffer& mixed, ActorId actorId, TimeMs nowMs, bool dry,
+                                  SoundBus bus) {
     EncodeWavPcm16Into(mixed.samples, mixed.sampleRate, m_encoded);
 
     RE::NiAVObject* follow =
         NodeFor(actorId, mixed.boneIndex, mixed.limbIndex, mixed.collapsed);
 
     Voice voice;
-    if (!Open(m_encoded, mixed.position, follow, voice.handle, voice.token)) {
+    if (!Open(m_encoded, mixed.position, follow, dry ? TapOutputModel() : DefaultOutputModel(), bus,
+              voice.handle, voice.token)) {
         return false;
     }
     voice.startedMs = nowMs;
@@ -449,21 +534,97 @@ bool GameRenderer::StartComposite(const MixBuffer& mixed, ActorId actorId, TimeM
     return true;
 }
 
+void GameRenderer::StartBus(const Group& group, SoundBus bus, TimeMs nowMs) {
+    m_busCues.clear();
+    for (const Cue& cue : group.cues) {
+        if (BusFor(cue.reason) == bus) {
+            m_busCues.push_back(cue);
+        }
+    }
+    // The overwhelmingly common case: nothing in this moment was damage, so the
+    // gore half is empty and this costs one pass over four cues.
+    if (m_busCues.empty()) {
+        return;
+    }
+
+    // `group.earliestMs` and not the subset's own earliest. See MixComposite.
+    if (!MixComposite(m_busCues, m_cache, m_mixParams, m_mix, group.earliestMs) || m_mix.Empty()) {
+        return;
+    }
+
+    if (m_mix.rawPeak > 1.0f) {
+        spdlog::debug("render: composite seq {} ({}) peaked at {:.2f} before the clip - the "
+                      "layer balance is hotter than the config thinks",
+                      group.sourceSeq, ToString(bus), m_mix.rawPeak);
+    }
+
+    // Asked here rather than inside StartComposite because the mixed buffer has
+    // no reasons left in it - the layers are summed by then, and which model the
+    // sum wants is a question about the cues. Asked of this bus's cues, which is
+    // the same question it always was: a tap and a crunch were never in one
+    // voice together, they were in one group.
+    const bool dry = GroupIsDry(m_busCues);
+    if (!StartComposite(m_mix, group.actorId, nowMs, dry, bus)) {
+        spdlog::debug("render: seq {} ({}) could not be started", group.sourceSeq, ToString(bus));
+        return;
+    }
+    spdlog::debug("render: seq {} ({}) - {} layers into one {:.0f} ms {} voice, peak {:.2f}",
+                  group.sourceSeq, ToString(bus), m_busCues.size(), m_mix.LengthMs(),
+                  dry ? "dry" : "wet", m_mix.rawPeak);
+}
+
+bool GameRenderer::Follow(Loop& loop) {
+    RE::NiAVObject* node = NodeFor(loop.actorId, loop.boneIndex, loop.limbIndex, loop.collapsed);
+    if (node == nullptr) {
+        return false;
+    }
+    // Only when it actually changed. SetObjectToFollow has no return to check
+    // and re-sending it every tick of every loop is a message per loop per frame
+    // for no effect at all.
+    if (node != loop.follow) {
+        loop.follow = node;
+        if (loop.handle.IsValid()) {
+            loop.handle.SetObjectToFollow(node);
+        }
+    }
+    return true;
+}
+
 bool GameRenderer::StartLoopVoice(Loop& loop, TimeMs nowMs) {
-    if (!MixLoop(loop.slot, loop.variant, loop.gainDb, loop.pitch, kLoopBufferMs, kLoopOverlapMs,
+    // Rendered at full scale, with the level carried by `SetVolume` instead.
+    //
+    // `BSGameSound::SetVolume` clamps to 1.0, so a volume message can only ever
+    // attenuate - which is all the mod ever asks of a loop, since every gain in
+    // the config is negative. Only a positive excess (a slot trim over 0 dB) has
+    // to go into the buffer, and that is what `bakedDb` is.
+    //
+    // Baking nothing is also the better of the two for quality: the blob is
+    // PCM16, so baking a -30 dB slide level into it threw away five bits before
+    // the engine ever saw the samples. Full scale in, attenuate on the handle.
+    loop.bakedDb = std::max(0.0f, loop.gainDb);
+    if (!MixLoop(loop.slot, loop.variant, loop.bakedDb, loop.pitch, kLoopBufferMs, kLoopOverlapMs,
                  m_cache, m_mixParams, m_mix)) {
         return false;
     }
     EncodeWavPcm16Into(m_mix.samples, m_mix.sampleRate, m_encoded);
 
-    // A loop is a continuous texture rather than a moment, so it hangs on the
-    // body: a scrape that jumped between limbs as the contact moved would smear
-    // rather than track.
-    RE::NiAVObject* follow = NodeFor(loop.actorId, loop.boneIndex, 0, true);
+    // Where the grind is. The engine already says which limb it came from and
+    // this used to discard it and pin every loop to the actor's root - so a
+    // dragging foot played from the pelvis, and the player's own scrape, which
+    // the mod goes out of its way to attach to the player's bones, played from
+    // inside their head. What the discard was guarding against - a scrape
+    // hopping between limbs smearing instead of tracking - is now handled where
+    // it belongs, on the hop.
+    RE::NiAVObject* follow =
+        NodeFor(loop.actorId, loop.boneIndex, loop.limbIndex, loop.collapsed);
+    loop.follow = follow;
 
     RE::BSSoundHandle handle{};
     std::uint64_t token = 0;
-    if (!Open(m_encoded, loop.position, follow, handle, token)) {
+    // Always the main bus. A scrape and a cloth bed are texture, not damage, and
+    // there is no loop the gore slider should reach.
+    if (!Open(m_encoded, loop.position, follow, DefaultOutputModel(), SoundBus::kMain, handle,
+              token)) {
         return false;
     }
 
@@ -477,7 +638,36 @@ bool GameRenderer::StartLoopVoice(Loop& loop, TimeMs nowMs) {
     loop.token = token;
     loop.issuedMs = nowMs;
     loop.endsMs = nowMs + static_cast<double>(m_mix.LengthMs());
+    // A new handle is a new voice, so the level has to be sent again - and
+    // re-sent for a few frames, because the engine drops the message until the
+    // voice exists.
+    loop.sentVolume = -1.0f;
+    loop.volumeAttempts = kVolumeAttempts;
+    ApplyLoopVolume(loop);
     return true;
+}
+
+/// Push a loop's level onto its live handle.
+///
+/// The whole of a loop's dynamics in the game, and the thing that was missing.
+/// Sent when it has moved and while the opening attempts are still counting
+/// down; not every frame unconditionally, because that is a message per loop per
+/// frame for no effect - the same reason `Follow` checks before re-sending.
+void GameRenderer::ApplyLoopVolume(Loop& loop) {
+    if (!loop.handle.IsValid()) {
+        return;
+    }
+    // What is left after whatever went into the buffer. Never over 1.0, so it is
+    // never fighting the clamp in `BSGameSound::SetVolume`.
+    const float volume = std::clamp(DbToLinear(loop.gainDb - loop.bakedDb), 0.0f, 1.0f);
+    if (loop.volumeAttempts == 0 && std::fabs(volume - loop.sentVolume) < 0.0005f) {
+        return;
+    }
+    if (loop.volumeAttempts > 0) {
+        --loop.volumeAttempts;
+    }
+    loop.sentVolume = volume;
+    loop.handle.SetVolume(volume);
 }
 
 void GameRenderer::ReleaseVoice(Voice& voice) {
@@ -498,19 +688,14 @@ void GameRenderer::Update(TimeMs nowMs) {
             continue;
         }
 
-        if (MixComposite(group.cues, m_cache, m_mixParams, m_mix) && !m_mix.Empty()) {
-            if (m_mix.rawPeak > 1.0f) {
-                spdlog::debug("render: composite seq {} peaked at {:.2f} before the clip - the "
-                              "layer balance is hotter than the config thinks",
-                              group.sourceSeq, m_mix.rawPeak);
-            }
-            if (!StartComposite(m_mix, group.actorId, nowMs)) {
-                spdlog::debug("render: seq {} could not be started", group.sourceSeq);
-            } else {
-                spdlog::debug("render: seq {} - {} layers into one {:.0f} ms voice, peak {:.2f}",
-                              group.sourceSeq, group.cues.size(), m_mix.LengthMs(), m_mix.rawPeak);
-            }
-        }
+        // One moment, but up to two voices: the damage layers play on their own
+        // sound category so the player has a gore slider that does not take the
+        // impacts with it. Both halves are mixed against the moment's own
+        // earliest time and opened in this same frame, so the +20 ms a crunch
+        // sits behind its transient survives the split to the sample - which is
+        // the property mixing exists for and the one a naive split would lose.
+        StartBus(group, SoundBus::kMain, nowMs);
+        StartBus(group, SoundBus::kGore, nowMs);
 
         m_groups.erase(m_groups.begin() + static_cast<std::ptrdiff_t>(i));
     }
@@ -521,6 +706,15 @@ void GameRenderer::Update(TimeMs nowMs) {
         // Re-issued one overlap before the buffer runs out, so the crossfade
         // MixLoop baked into the head of the new one lands over the tail of the
         // old one rather than after it.
+        // The opening volume, re-sent until it has certainly landed. A slide
+        // that ends inside the start latency would otherwise be left at the
+        // level the voice opened with, which is now full scale rather than a
+        // baked-in attenuation - so this is the one place where dropping the
+        // message got *louder* rather than quieter.
+        if (loop.volumeAttempts > 0) {
+            ApplyLoopVolume(loop);
+        }
+
         const bool neverStarted = !loop.handle.IsValid();
         const bool nearlyOut = nowMs >= loop.endsMs - static_cast<double>(kLoopOverlapMs);
         if (neverStarted || nearlyOut) {

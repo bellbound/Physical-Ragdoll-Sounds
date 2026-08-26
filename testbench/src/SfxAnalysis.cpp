@@ -5,6 +5,7 @@
 #include <cmath>
 #include <complex>
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <limits>
 #include <numbers>
@@ -103,6 +104,32 @@ struct Envelope {
     return e;
 }
 
+/// Peak magnitude in `ms`-wide hops, in dB.
+///
+/// The onset detector's envelope, and it is a peak rather than the RMS every
+/// other measurement here uses for one reason: a 2 ms RMS window over a 30 Hz
+/// tone is a window inside one sixth of a cycle, so it swings tens of dB twice
+/// per cycle and every one of those swings looks like a contact. A 10 ms peak
+/// window over the same tone varies by under 5 dB, which is under the 8 dB an
+/// onset has to rise - so `imp_sub`'s sweep reads as the one contact it is.
+[[nodiscard]] Envelope PeakEnvelopeDb(std::span<const float> x, int sampleRate, float ms = 10.0f) {
+    Envelope e;
+    e.hop = std::max<std::size_t>(1, static_cast<std::size_t>(sampleRate * ms / 1000.0f));
+    const std::size_t count = x.size() > e.hop ? (x.size() - e.hop) / e.hop : 0;
+    e.db.reserve(std::max<std::size_t>(count, 1));
+    for (std::size_t i = 0; i < count; ++i) {
+        float peak = 0.0f;
+        for (std::size_t k = 0; k < e.hop; ++k) {
+            peak = std::max(peak, std::fabs(x[i * e.hop + k]));
+        }
+        e.db.push_back(Db(peak));
+    }
+    if (e.db.empty()) {
+        e.db.push_back(Db(0.0f));
+    }
+    return e;
+}
+
 /// Peaks in the envelope more than `floorDb` under the loudest and at least
 /// `minGapMs` apart. sfx.py's count_peaks, which is what "grains" and "lo-mid
 /// transients" both are.
@@ -171,6 +198,60 @@ struct Event {
     return ev;
 }
 
+/// Contact positions, in envelope hops. sfx.py's `onsets()`: a rise of at least
+/// 8 dB inside 12 ms, at least 46 ms apart, and within 32 dB of the loudest.
+///
+/// The 46 ms is not a tuning constant. It is the onset-gap floor measured in
+/// three independent reference clips (04-Reference-Analysis.md §2) - about where
+/// hearing stops resolving two impacts as two - so anything closer is one
+/// contact, not two, and the engine's own rate cap is the same number.
+[[nodiscard]] std::vector<std::size_t> OnsetHops(const Envelope& e, int sampleRate) {
+    std::vector<std::size_t> hits;
+    if (e.db.size() < 3) {
+        return hits;
+    }
+    const float top = *std::ranges::max_element(e.db);
+    const float threshold = top - 32.0f;
+    const auto look = std::max<std::size_t>(
+        1, static_cast<std::size_t>(12.0 * sampleRate / 1000.0 / static_cast<double>(e.hop)));
+    const double gap = 46.0 * sampleRate / 1000.0 / static_cast<double>(e.hop);
+    double last = -1e9;
+
+    // A contact is a rise, so a file that *starts* on one has nothing to rise
+    // from and the detector walks straight past it. sfx.py can live with that -
+    // it reads takes, and a take has room tone in front of it - but a library
+    // file has had its head silence trimmed on the way in, which is precisely a
+    // file that starts on its own attack. Without this, a trimmed one-shot with
+    // a satellite in it reports the satellite as its only contact.
+    if (e.db.front() >= top - 12.0f) {
+        hits.push_back(0);
+        last = 0.0;
+    }
+
+    for (std::size_t i = look; i + 1 < e.db.size(); ++i) {
+        if (e.db[i] < threshold || e.db[i] < e.db[i + 1]) {
+            continue;
+        }
+        const auto first = e.db.begin() + static_cast<std::ptrdiff_t>(i - look);
+        const auto here = e.db.begin() + static_cast<std::ptrdiff_t>(i);
+        if (e.db[i] - *std::min_element(first, here) < 8.0f) {
+            continue;
+        }
+        if (static_cast<double>(i) - last < gap) {
+            // Two contacts inside the resolution floor are one contact, and it
+            // is the louder of the pair.
+            if (!hits.empty() && e.db[i] > e.db[hits.back()]) {
+                hits.back() = i;
+                last = static_cast<double>(i);
+            }
+            continue;
+        }
+        hits.push_back(i);
+        last = static_cast<double>(i);
+    }
+    return hits;
+}
+
 // ── slot targets ─────────────────────────────────────────────────────────────
 //
 // The measurable half of Slots.md §3, which is `tools/sfx.py`'s SPEC. It is
@@ -204,9 +285,35 @@ constexpr SlotTarget kTargets[] = {
     {rds::SlotId::kSurfSoft, 15, 200, 300, 3200, 3, kNone, -1, -1, 0, 0, 0, 0},
     {rds::SlotId::kLimbTap, 3, 60, 600, 9000, kNone, kNone, 0, 4, 0, 0, 0, 0},
     {rds::SlotId::kCrunchGran, 30, 400, 500, 4500, kNone, kNone, 15, 99, 0, 0, 0, 0},
+    // The spine and limb crunches are the same brief on a different bone, so
+    // they are held to the same density floor. The limb's band runs higher and
+    // its tail shorter: a snap out on an arm is drier and tighter than a skull
+    // being crushed, and holding it to the head's centroid window would pass a
+    // file that sounds like the wrong bone.
+    {rds::SlotId::kSpineCrunch, 30, 400, 400, 4000, kNone, kNone, 15, 99, 0, 0, 0, 0},
+    {rds::SlotId::kLimbCrunch, 25, 350, 700, 6000, kNone, kNone, 15, 99, 0, 0, 0, 0},
     {rds::SlotId::kGoreWet, 20, 350, 400, 4000, kNone, kNone, -1, -1, 0, 0, 0, 0},
     {rds::SlotId::kScrapeLoop, 0, 0, 0, 0, 5, 19, -1, -1, 2.5f, 8.0f, 8, 40},
-    {rds::SlotId::kFoleyCloth, 0, 0, 0, 0, kNone, kNone, -1, -1, 0.5f, 5.0f, 0, 0},
+    // The surface variants are the same brief on a different floor, so they are
+    // held to the same measurements. The limb grind is not: a small contact
+    // patch has no low shelf to speak of and catches far more often per second,
+    // so its tilt floor comes off and its grain range goes up.
+    {rds::SlotId::kScrapeBodyWood, 0, 0, 0, 0, 5, 19, -1, -1, 2.5f, 8.0f, 8, 40},
+    {rds::SlotId::kScrapeBodyStone, 0, 0, 0, 0, 5, 19, -1, -1, 2.5f, 8.0f, 8, 40},
+    {rds::SlotId::kScrapeLimb, 0, 0, 0, 0, kNone, 8, -1, -1, 2.0f, 8.0f, 25, 120},
+    {rds::SlotId::kScrapeLimbWood, 0, 0, 0, 0, kNone, 8, -1, -1, 2.0f, 8.0f, 25, 120},
+    {rds::SlotId::kScrapeLimbStone, 0, 0, 0, 0, kNone, 8, -1, -1, 2.0f, 8.0f, 25, 120},
+    {rds::SlotId::kScrapeGrain, 40, 400, 300, 6000, kNone, kNone, 6, 40, 0, 0, 0, 0},
+    // The bed, and the one loop in the set held to the *opposite* of the grinds'
+    // tilt window. A grind is judged for having a low shelf at all - +5 to +19 -
+    // and this is judged for having almost nothing else: over +20, with a
+    // centroid down where the references put the loudest band of a slide. Its
+    // steadiness band is the whoosh's rather than a grind's, because the one
+    // thing it must not have is features - a bump in a bed becomes a pulse the
+    // moment the file loops, and there is no grit here to hide it. No grain
+    // range: counting grit peaks in a layer whose whole definition is having
+    // none would fail every correct file.
+    {rds::SlotId::kScrapeLoopRumble, 0, 0, 20, 1200, 20, kNone, -1, -1, 0.5f, 6.0f, 0, 0},
     {rds::SlotId::kAirWhoosh, 0, 0, 50, 2000, kNone, kNone, -1, -1, 0.5f, 6.0f, 0, 0},
     {rds::SlotId::kHeadImpact, 20, 300, 400, 3500, 2, kNone, 4, 14, 0, 0, 0, 0},
     {rds::SlotId::kSettleRest, 20, 400, 300, 3200, kNone, kNone, -1, -1, 0, 0, 0, 0},
@@ -235,6 +342,17 @@ constexpr SlotTarget kTargets[] = {
 void MeasureSfx(std::span<const float> mono, int sampleRate, rds::SfxEntry& entry) {
     entry.sampleRate = sampleRate;
     entry.channels = 1;
+    // Cleared rather than assumed clear: the importer measures a file, repairs
+    // it and measures it again into the same entry, and a count that accumulates
+    // across the two would double. Everything below either assigns or is reset
+    // here first.
+    entry.clipRuns = 0;
+    entry.clipPct = 0.0f;
+    entry.contacts = 0;
+    entry.satelliteDb = 0.0f;
+    entry.satelliteAtMs = 0.0f;
+    entry.noiseFloorDb = 99.0f;
+    entry.topOctaveDb = 0.0f;
     entry.durationMs = sampleRate > 0 ? 1000.0f * static_cast<float>(mono.size()) /
                                             static_cast<float>(sampleRate)
                                       : 0.0f;
@@ -250,6 +368,54 @@ void MeasureSfx(std::span<const float> mono, int sampleRate, rds::SfxEntry& entr
     }
     entry.peakDb = Db(peak);
     entry.dcOffset = static_cast<float>(sum / static_cast<double>(mono.size()));
+
+    // ── flat tops ────────────────────────────────────────────────────────────
+    //
+    // Clipping, measured as clipping rather than as a peak reading. A peak over
+    // -0.2 dBFS is a *headroom* fault and the import pass normalises it away;
+    // what it cannot touch is a wave whose top is already gone, and that is what
+    // this counts: runs of samples sitting at the file's own maximum.
+    //
+    // Against the maximum, not against full scale, so the measurement survives
+    // the normalise - a plateau is still a plateau 1.5 dB down. Five samples at
+    // 48 kHz (104 us) with 0.02% tolerance is the shortest run that a bass note
+    // cannot produce on its own: a 100 Hz sine falls 0.05% off its crest in that
+    // time, and anything slower than about 50 Hz is the one blind spot, which
+    // `imp_sub`'s decaying sweep only reaches on its single loudest crest.
+    if (peak > 0.05f) {
+        const float ceiling = peak * 0.9998f;
+        std::size_t run = 0;
+        std::size_t flat = 0;
+        for (std::size_t i = 0; i <= mono.size(); ++i) {
+            const bool at = i < mono.size() && std::fabs(mono[i]) >= ceiling;
+            if (at) {
+                ++run;
+                continue;
+            }
+            if (run >= 5) {
+                ++entry.clipRuns;
+                flat += run;
+            }
+            run = 0;
+        }
+        entry.clipPct = 100.0f * static_cast<float>(flat) / static_cast<float>(mono.size());
+    }
+
+    // ── identity ─────────────────────────────────────────────────────────────
+    //
+    // FNV-1a over the samples quantised to 16 bits, which is what the file
+    // holds: two downloads of the same sound under two names hash the same, and
+    // a re-encode of one of them does not have to.
+    {
+        std::uint64_t hash = 1469598103934665603ULL;
+        for (const float s : mono) {
+            const auto q = static_cast<std::uint16_t>(
+                static_cast<std::int16_t>(std::lrint(std::clamp(s, -1.0f, 1.0f) * 32767.0f)));
+            hash = (hash ^ static_cast<std::uint8_t>(q & 0xFF)) * 1099511628211ULL;
+            hash = (hash ^ static_cast<std::uint8_t>(q >> 8)) * 1099511628211ULL;
+        }
+        entry.contentHash = hash;
+    }
 
     // ── loop metrics, measured on the whole file ─────────────────────────────
     //
@@ -356,6 +522,83 @@ void MeasureSfx(std::span<const float> mono, int sampleRate, rds::SfxEntry& entr
                 break;
             }
         }
+
+        // ── the noise floor, sfx.py's `snr` ──────────────────────────────────
+        //
+        // The quietest 50 ms in front of the attack, against the peak. Measured
+        // in the pre-roll rather than in the tail because the tail is the sound
+        // decaying into the floor and there is no line between the two; the room
+        // tone before the hit is the floor on its own. Nothing to measure it in
+        // leaves 99, which reads as "not known" and never trips the gate - a
+        // file trimmed to its attack has no floor to measure, and inventing one
+        // out of its decay would fail every short dry one-shot in the pack.
+        //
+        // The attack is found here rather than taken from FindEvent, which walks
+        // back to peak-35 dB: on the one file this measurement exists for - the
+        // one whose hiss sits inside 30 dB of the hit - that walk goes all the
+        // way to sample 0 and hands back no pre-roll at all. The first hop
+        // within 12 dB of the peak cannot do that, and 20 ms in front of it
+        // keeps the foot of the rise out of the measurement.
+        std::size_t before = 0;
+        {
+            const Envelope head = PeakEnvelopeDb(mono, sampleRate, 2.0f);
+            const float top = *std::ranges::max_element(head.db);
+            std::size_t attack = 0;
+            while (attack + 1 < head.db.size() && head.db[attack] < top - 12.0f) {
+                ++attack;
+            }
+            const auto guard = static_cast<std::size_t>(0.02 * sampleRate);
+            const std::size_t at = attack * head.hop;
+            before = at > guard ? at - guard : 0;
+        }
+        if (before > static_cast<std::size_t>(0.1 * sampleRate)) {
+            const auto window = static_cast<std::size_t>(0.05 * sampleRate);
+            float quietest = std::numeric_limits<float>::max();
+            for (std::size_t i = 0; i + window <= before; i += window) {
+                double acc = 0.0;
+                for (std::size_t k = 0; k < window; ++k) {
+                    acc += static_cast<double>(mono[i + k]) * mono[i + k];
+                }
+                quietest = std::min(quietest,
+                                    static_cast<float>(std::sqrt(acc / static_cast<double>(window))));
+            }
+            if (quietest != std::numeric_limits<float>::max()) {
+                // Capped at the sentinel: digital silence in front measures as
+                // -180 dB, and "the floor is 178 dB down" is a number nobody
+                // needs to read past "there is no floor".
+                entry.noiseFloorDb = std::min(99.0f, entry.peakDb - Db(quietest));
+            }
+        }
+
+        // ── how many contacts, and what is riding under the hero ─────────────
+        //
+        // Both come off the same onset list, and neither is a fault on its own:
+        // a take with four contacts in it is four one-shots that have not been
+        // cut apart yet (03-Asset-Status.md §3.3, and every shipped limb_tap),
+        // while one 20+ dB down is the satellite §7 found in 39 takes of 100.
+        const Envelope whole = PeakEnvelopeDb(mono, sampleRate);
+        const std::vector<std::size_t> hits = OnsetHops(whole, sampleRate);
+        entry.contacts = static_cast<int>(hits.size());
+        if (hits.size() > 1) {
+            std::size_t hero = hits.front();
+            for (const std::size_t h : hits) {
+                if (whole.db[h] > whole.db[hero]) {
+                    hero = h;
+                }
+            }
+            const std::size_t* loudest = nullptr;
+            for (const std::size_t& h : hits) {
+                if (h != hero && (loudest == nullptr || whole.db[h] > whole.db[*loudest])) {
+                    loudest = &h;
+                }
+            }
+            if (loudest != nullptr) {
+                entry.satelliteDb = whole.db[*loudest] - whole.db[hero];
+                entry.satelliteAtMs = (static_cast<float>(*loudest) - static_cast<float>(hero)) *
+                                      static_cast<float>(whole.hop) * 1000.0f /
+                                      static_cast<float>(sampleRate);
+            }
+        }
     }
 
     // ── spectrum: centroid, band tilt, lo-mid transient count ────────────────
@@ -372,6 +615,7 @@ void MeasureSfx(std::span<const float> mono, int sampleRate, rds::SfxEntry& entr
 
         double weighted = 0.0;
         double total = 0.0;
+        double topOctave = 0.0;
         std::array<double, std::size(kBands)> energy{};
         for (std::size_t k = 0; k <= half; ++k) {
             const double magnitude = std::abs(spectrum[k]);
@@ -381,6 +625,12 @@ void MeasureSfx(std::span<const float> mono, int sampleRate, rds::SfxEntry& entr
             // Parseval: mean-square over the *unpadded* length, so the trailing
             // zeros do not quietly halve every band.
             const double power = magnitude * magnitude * ((k == 0 || k == half) ? 1.0 : 2.0);
+            // Everything a lossy encoder or a 32 kHz source takes off the top
+            // lands above 16 kHz, so it is worth its own accumulator rather than
+            // being averaged into an air band that starts at 8 k.
+            if (hz >= 16000.0) {
+                topOctave += power;
+            }
             for (std::size_t b = 0; b < std::size(kBands); ++b) {
                 if (hz >= kBands[b].lo && hz < kBands[b].hi) {
                     energy[b] += power;
@@ -396,6 +646,12 @@ void MeasureSfx(std::span<const float> mono, int sampleRate, rds::SfxEntry& entr
             level[b] = Db(static_cast<float>(std::sqrt(energy[b] / norm)));
         }
         entry.tiltDb = (level[0] + level[1]) * 0.5f - (level[4] + level[5]) * 0.5f;
+
+        // Against the 2.5-8 kHz band rather than against the whole file, so a
+        // sound that simply has no top end - a sub layer, a body thud - is not
+        // read as one that had it taken away.
+        entry.topOctaveDb =
+            Db(static_cast<float>(std::sqrt(topOctave / norm))) - level[4];
 
         // The 250-800 Hz transient count, which is what separates a thud from a
         // crunch. Band-limited by zeroing everything outside it and coming back.
@@ -442,62 +698,185 @@ void JudgeSfx(rds::SfxEntry& entry) {
     }
     entry.warnings = std::move(kept);
 
+    // Two kinds, and what separates them is not severity - it is whether there
+    // is anything to do about it.
+    //
+    // Everything `warn` reports has a fix, and the fix is the same one twice:
+    // the repair pass, which runs on every import and is one click on a row for
+    // anything that arrived another way. So a `warn` badge on a file that came
+    // through the importer means the repair could not reach it - a length, a
+    // seam, a second contact - not that nobody has pressed the button.
+    //
+    // `dead` is the other list: a wave whose top is already gone, hiss 29 dB
+    // under the hero, two channels that are different takes. Processing does
+    // not recover any of them and the answer is another file. They are still
+    // assignable, because the library never refuses.
     const auto warn = [&entry](std::string code, std::string detail) {
-        entry.warnings.push_back({std::move(code), std::move(detail), false});
+        entry.warnings.push_back({std::move(code), std::move(detail), false, false});
+    };
+    const auto dead = [&entry](std::string code, std::string detail) {
+        entry.warnings.push_back({std::move(code), std::move(detail), false, true});
     };
 
     if (entry.durationMs <= 0.0f) {
         return;
     }
 
-    // Format. The importer fixes this, so seeing it means the file came in some
-    // other way - dropped into the folder by hand, most likely.
+    // ── format ───────────────────────────────────────────────────────────────
+    //
+    // The importer converts, so these only appear on a file that arrived some
+    // other way: dropped into the folder by hand, written by sfx.py at another
+    // rate, or imported on a machine with no ffmpeg.
     if (entry.sampleRate != 0 && entry.sampleRate != 48000) {
-        warn("rate", std::format("{} Hz, not the pack's 48 kHz. The game resamples it, which is "
-                                 "audible on anything with a bright transient. Re-import to fix.",
+        warn("rate", std::format("{} Hz, not the pack's 48 kHz. The game resamples it at load, "
+                                 "which is audible on anything with a bright transient.\n\n"
+                                 "Fix: `repair` on this row, or import it again. Both convert "
+                                 "through ffmpeg, so both need it on PATH.",
                                  entry.sampleRate));
     }
     if (entry.channels > 1) {
         warn("stereo", std::format("{} channels. The engine plays mono and positions the sound "
                                    "itself, so the second channel is thrown away - and if the two "
                                    "are not correlated, throwing it away comb-filters what is "
-                                   "left. Re-import to fix.",
+                                   "left.\n\nFix: `repair`, which folds it the way the importer "
+                                   "would have.",
                                    entry.channels));
     }
     if (entry.bitsPerSample != 0 && entry.bitsPerSample != 16) {
-        warn("bits", std::format("{}-bit, not the pack's 16. Harmless, but it is not what the rest "
-                                 "of the pack is.",
+        warn("bits", std::format("{}-bit, not the pack's 16. Harmless in itself - everything "
+                                 "downstream is float - but it is not what the rest of the pack "
+                                 "is.\n\nFix: `repair` writes it back at 16.",
                                  entry.bitsPerSample));
     }
 
-    // Level. Slots.md §5: everything is pitch-shifted at runtime and must not
-    // clip there, which is what the headroom rule is for.
-    if (entry.peakDb > -0.2f) {
-        warn("clipped", std::format("peaks at {:.1f} dBFS. There is no headroom for the runtime "
-                                    "pitch scatter, so this will clip in game even though it does "
-                                    "not clip here. The pack normalises to -1.5.",
-                                    entry.peakDb));
-    } else if (entry.peakDb > -0.9f) {
-        // -0.9 rather than the -1.5 the pack normalises to, because Slots.md §3
-        // makes `imp_sub` an explicit exception at -1.0 - and a warning that
-        // fires on every correctly-built sub layer is one nobody reads by the
-        // third file.
+    // ── level ────────────────────────────────────────────────────────────────
+    //
+    // Peak is a repaired quantity now: the import pass normalises to -1.5 dBFS
+    // unless the file already sits in the band that holds both pack targets, so
+    // these two fire on files the repair has not been run on. The band is
+    // `sfxrepair`'s and the warnings are its edges, so there is no gap between
+    // "left alone" and "flagged" for a file to fall into.
+    if (entry.peakDb > sfxrepair::kPeakHotDb) {
         warn("hot", std::format("peaks at {:.1f} dBFS against the pack's -1.5 (-1.0 for imp_sub). "
-                                "Survivable, but the ±3 semitone scatter has almost nothing to "
-                                "work with.",
+                                "Everything is pitch-scattered +/-3 semitones at runtime and has "
+                                "to survive it, and this has almost nothing to work with.\n\n"
+                                "Fix: `repair` normalises it to -1.5.",
                                 entry.peakDb));
-    } else if (entry.peakDb < -30.0f) {
-        warn("quiet", std::format("peaks at {:.1f} dBFS. The engine sets the level, so a file this "
-                                  "quiet only loses resolution - normalise it.",
+    } else if (entry.peakDb < sfxrepair::kPeakQuietDb) {
+        warn("quiet", std::format("peaks at {:.1f} dBFS, under the pack's -1.5. The engine sets "
+                                  "the level, so a quiet file does not play quietly - it plays at "
+                                  "the same level with less resolution behind it, and reads as "
+                                  "softer than its neighbours in the same slot.\n\n"
+                                  "Fix: `repair` normalises it.",
                                   entry.peakDb));
     }
 
-    if (std::fabs(entry.dcOffset) > 0.01f) {
-        warn("dc", std::format("DC offset {:+.3f}. It eats headroom and thumps when the sound is "
-                               "cut off mid-way, which the engine does on a fade.",
+    // Clipping proper, which is the half of "too loud" that no amount of gain
+    // undoes. Slots.md §5 wants everything pre-limited and dry; a squared-off
+    // wave is that rule broken at the source, and the odd harmonics it leaves
+    // ride the +/-3 semitone scatter down as well as up.
+    if (entry.clipRuns >= 5) {
+        const bool bad = entry.clipRuns >= 40 || entry.clipPct >= 0.2f;
+        std::string detail =
+            std::format("the waveform is squared off in {} places, {:.2f}% of the samples sitting "
+                        "flat at the maximum.\n\nThis is not the headroom rule - headroom is "
+                        "normalised on the way in and this file is at {:.1f} dBFS. It is the tops "
+                        "of the waves already gone before the file was written, and the buzz that "
+                        "leaves is in the samples. Turning it down turns down the buzz with it.{}",
+                        entry.clipRuns, entry.clipPct, entry.peakDb,
+                        bad ? "\n\nNothing here can repair it: re-source the file, or generate the "
+                              "take again with the output level down."
+                            : "\n\nA handful of flats on the loudest crest is worth hearing "
+                              "before judging - a heavily limited take reads the same way and can "
+                              "still be the right sound.");
+        if (bad) {
+            dead("clipped", std::move(detail));
+        } else {
+            warn("clipped", std::move(detail));
+        }
+    }
+
+    if (std::fabs(entry.dcOffset) > sfxrepair::kDcOffset * 2.0f) {
+        warn("dc", std::format("DC offset {:+.3f}. It eats headroom on one side and thumps when "
+                               "the sound is cut off mid-way, which the engine does on every "
+                               "fade.\n\nFix: `repair` subtracts it.",
                                entry.dcOffset));
     }
 
+    // ── the noise floor ──────────────────────────────────────────────────────
+    //
+    // 30 dB is tools/sfx.py's gate and it is what ruled `twisting…gristle` out
+    // of the 2026-08-23 batch. Measured in the pre-roll, so a loop - which has
+    // none - is never asked.
+    if (!entry.loops && entry.noiseFloorDb < 40.0f) {
+        if (entry.noiseFloorDb < 30.0f) {
+            dead("noise floor",
+                 std::format("the room tone in front of the hit is only {:.0f} dB under it. "
+                             "tools/sfx.py fails a take at 30 and this is under that.\n\n"
+                             "A slot plays its variants over and over, so the bed comes back every "
+                             "time and reads as hiss rather than as the room. Nothing takes "
+                             "broadband noise out without taking the transient with it - "
+                             "re-source it, or generate the take again.",
+                             entry.noiseFloorDb));
+        } else {
+            warn("noisy", std::format("{:.0f} dB between the hit and the room tone in front of it. "
+                                      "Past the 30 dB gate, so it is usable, but it will be "
+                                      "audible under a quiet cell and it stacks with every other "
+                                      "layer in the impact.\n\nNothing repairs this; it is worth "
+                                      "knowing before it goes on `surf_soft`, which fires on "
+                                      "everything unresolved.",
+                                      entry.noiseFloorDb));
+        }
+    }
+
+    // ── what else is in the file ─────────────────────────────────────────────
+    if (!entry.loops && entry.contacts > 1) {
+        if (entry.satelliteDb <= -20.0f) {
+            warn("satellite",
+                 std::format("a second contact {:+.0f} ms from the hero, {:.0f} dB under it.\n\n"
+                             "03-Asset-Status.md §7 found one of these in 39 takes out of 100 - "
+                             "usually a bright debris wash the generator bolted on. Left in, it "
+                             "lands on top of whatever the engine schedules next and reads as a "
+                             "flam; on an impact layer it collides with `imp_sub`'s own arrival at "
+                             "+55-75 ms.\n\nFix: cut it. `python tools/sfx.py split <file>` cuts at "
+                             "the 46 ms contact floor, and tools/triage_batch.py drops satellites "
+                             "at exactly this 20 dB threshold and records every one.",
+                             entry.satelliteAtMs, entry.satelliteDb));
+        } else if (entry.loMidTransients < 15) {
+            // Under the density `crunch_gran` is specified at. Over it, the
+            // "contacts" are the grains: Slots.md §3 asks that slot for 15-99
+            // transients in 250-800 Hz and §2 for "many small crackles
+            // overlapping into one texture", and both shipped files land 5 and 3
+            // onsets apart on this measure. Telling somebody to split a bone
+            // crunch into its crackles is advice that would ruin it.
+            warn("contacts",
+                 std::format("{} contacts at least 46 ms apart, the loudest pair {:.0f} dB "
+                             "apart.\n\nNot a fault - it is several one-shots in one file, and "
+                             "cutting them is where all four shipped `limb_tap` files came from "
+                             "(03-Asset-Status.md §3.3). But assigned whole it plays whole: the "
+                             "slot fires once and every contact in the file sounds.\n\n"
+                             "Fix: `python tools/sfx.py split <file>`, then import the pieces.",
+                             entry.contacts, -entry.satelliteDb));
+        }
+    }
+
+    // ── what the top end says about where it came from ───────────────────────
+    //
+    // A container that claims 48 kHz proves nothing: an upsample and a lossy
+    // encode both leave the same hole, and neither is undoable. Only asked of
+    // files that have room for a top octave in the first place.
+    if (entry.sampleRate >= 40000 && entry.topOctaveDb < -70.0f && entry.peakDb > -40.0f) {
+        warn("band-limited",
+             std::format("nothing above 16 kHz - it sits {:.0f} dB under the 2.5-8 kHz band. The "
+                         "file says {} Hz, but it was upsampled from something lower or squeezed "
+                         "through a lossy encoder before it got here, and a conversion cannot put "
+                         "a top octave back.\n\nFine for a body or a sub layer, which live below "
+                         "4 kHz anyway. Worth re-sourcing for `imp_transient` or `surf_stone`, "
+                         "where the top end is the whole character.",
+                         entry.topOctaveDb, entry.sampleRate));
+    }
+
+    // ── length and shape ─────────────────────────────────────────────────────
     if (entry.loops) {
         // A loop is a texture, so it is never too long and never has a lead-in.
         // Its seam is the thing: the engine repeats it whole with no crossfade,
@@ -505,39 +884,56 @@ void JudgeSfx(rds::SfxEntry& entry) {
         if (entry.seamDb > 6.0f) {
             warn("seam", std::format("{:.1f} dB step between the first and last 50 ms. Loops are "
                                      "played whole with no crossfade, so this becomes an audible "
-                                     "pulse once a second in game.",
+                                     "pulse once a second in game.\n\nFix: `python tools/sfx.py "
+                                     "make --slot scrape_loop <file>` sweeps for the quietest seam "
+                                     "and folds the tail back over the head with an equal-power "
+                                     "crossfade. That is what took scrape_loop_01 from 3.9 dB to "
+                                     "0.02. The repair pass deliberately leaves loops alone - a "
+                                     "fade at the end of one is a hole, not a fix.",
                                      entry.seamDb));
         }
     } else {
-        if (entry.leadInMs > 20.0f) {
+        if (entry.leadInMs > sfxrepair::kLeadInMs) {
             warn("lead-in", std::format("{:.0f} ms of silence before the sound starts. The cue time "
                                         "*is* the attack, so head silence becomes latency and puts "
-                                        "the +15/+50/+65 ms layer offsets out.",
+                                        "the +15/+50/+65 ms layer offsets out.\n\n"
+                                        "Fix: `repair` trims it.",
                                         entry.leadInMs));
         }
         if (entry.durationMs < 30.0f) {
             warn("very short", std::format("{:.0f} ms. Shorter than every slot's minimum; it will "
-                                           "read as a click rather than a contact.",
+                                           "read as a click rather than as a contact.\n\nNothing "
+                                           "lengthens a sound that is not there - this is a "
+                                           "fragment, most likely a split that cut too tight.",
                                            entry.durationMs));
         }
         if (entry.durationMs > 3000.0f) {
-            warn("very long", std::format("{:.1f} s and not a loop. Either it has a baked room tail "
-                                          "- which double-counts against the game's own cell "
-                                          "reverb - or it is a texture that did not measure as one.",
+            warn("very long", std::format("{:.1f} s and it does not measure as a texture. Either it "
+                                          "has a baked room tail or it is several sounds in one "
+                                          "file.\n\nA long file is not wrong on its own: Slots.md "
+                                          "§6 wants textures cut both ways, and the only "
+                                          "`scrape_loop` to pass the 2026-08-23 batch was a 9.9 s "
+                                          "long cut. It is wrong in a one-shot slot, which plays "
+                                          "the whole of it.\n\nFix: `sfx.py make` windows it.",
                                           entry.durationMs / 1000.0f));
         }
         // A tail far longer than the event is the baked-reverb tell.
         if (entry.usableMs > 0.0f && entry.durationMs > entry.usableMs * 2.0f + 200.0f) {
-            warn("tail", std::format("{:.0f} ms of event inside a {:.0f} ms file. The rest is "
-                                     "room, and the game applies the cell's own - a baked tail "
-                                     "sounds like a cave inside a cave.",
+            warn("tail", std::format("{:.0f} ms of event inside a {:.0f} ms file. The rest is room, "
+                                     "and the game applies the cell's own on top - a baked tail "
+                                     "sounds like a cave inside a cave, and it turns overlapping "
+                                     "impacts to mud.\n\nFix: `sfx.py make --len` cuts to the "
+                                     "event, or generate the take dry. The repair pass will not "
+                                     "do it: where a decay stops being the sound and starts being "
+                                     "the room is a judgement, and trimming it wrong takes the "
+                                     "body off the hit.",
                                      entry.usableMs, entry.durationMs));
         }
     }
 
     if (entry.peakDb <= -60.0f) {
-        warn("silent", "nothing audible in the file at all. It will play, and you will hear "
-                       "nothing.");
+        dead("silent", "nothing audible in the file at all. It will play, and you will hear "
+                       "nothing. Whatever was meant to be here did not survive the export.");
     }
 }
 

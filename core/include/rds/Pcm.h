@@ -22,17 +22,14 @@
 
 namespace rds {
 
-/// Mono float PCM at a known rate. The same shape as `SynthBuffer`, deliberately:
-/// a slot resolves to a file or to a stand-in and the mixer must not care which.
+/// Mono float PCM at a known rate, decoded from a wav on disk.
+///
+/// Empty is a real answer and every caller checks for it: the slot has no
+/// recording, or the file it names would not decode. Nothing is synthesised to
+/// cover either case, so an empty buffer is a layer that does not sound.
 struct PcmBuffer {
     std::vector<float> samples;
     int sampleRate{48000};
-
-    /// True when this came from `Synthesise` rather than off disk. The bank knows
-    /// which slots have files; only the cache knows which of those files actually
-    /// decoded, and the difference between those two is exactly the failure that
-    /// hides as a quieter mod rather than a broken one.
-    bool procedural{true};
 
     [[nodiscard]] bool Empty() const { return samples.empty(); }
     [[nodiscard]] float LengthMs() const {

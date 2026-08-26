@@ -1,0 +1,270 @@
+TAKE
+  stem            Proventus_Avenicci_devbench_1
+  note            devbench live take
+  actor           Proventus Avenicci
+  cell            Dragonsreach
+  duration        45653 ms
+  impacts         1189 (dropped 0, complete yes)
+  playhead        7158 ms
+  seed            1
+  config          config_22_08_103 - EDITED, not what that file holds (side 0)
+
+WINDOW - this export covers the loop region only
+  region          6886 - 7164 ms  (278 ms of 45653)
+  phase at start  unknown (ragdoll_start, set at 4944 ms)
+  NOTE  TIMELINE, CUES and DECISIONS below are cut to this window. SOUND BANK
+        and FUNNEL are the whole take - the funnel counters are accumulated
+        over the run and cannot be re-cut after the fact.
+
+VIDEO
+  file            Proventus_Avenicci_devbench_1.mp4
+  clip length     45867 ms at 30.00 fps, decoded
+  offset in use   +166 ms   (video position = take time + offset)
+  window in video 7052 - 7330 ms  (7.05 - 7.33 s)
+  window frames   212 - 220 at 30.00 fps
+  sync fit        slope 0.996974, intercept 167 ms, drift -3.03 ms/s, min rtt 0 ms
+  NOTE  `offset in use` is the measured value from framecache/video-offsets.ini,
+        which overrides the fit above.
+
+CONFIG - values differing from default
+  GlancingImpact:bEnabled=1 (default 0)
+  GlancingImpact:fNoTransferFrac=0 (default 0.55)
+  GlancingImpact:fMaxIntensityScale=0 (default 0.35)
+  GlancingImpact:fMaxGainCutDb=-13.5 (default 0)
+  GlancingImpact:fMaxTrimCutDb=-7.5 (default 0)
+  Motion:fFreeFallMinMs=140 (default 40)
+  Motion:fLandedHoldMs=200 (default 140)
+  Motion:fBedTrimGlideMs=150 (default 90)
+  Hero:fFloorFrac=0.65 (default 0.3)
+  Hero:fBurstGapFrac=0.15 (default 1)
+  Hero:fBurstWindowMs=270 (default 0)
+  Arbitration:fRateCapMs=43 (default 46)
+  Arbitration:fRateCapOverrideDb=16 (default 6)
+  Arbitration:fBurstWindowMs=110 (default 300)
+  Arbitration:bSpatialCollapseOnHero=0 (default 1)
+  Arbitration:fTorsoWeightDb=4.5 (default 0)
+  Arbitration:fHeadWeightDb=2.5 (default 0)
+  Intensity:fSpeedRefHigh=510 (default 960)
+  Intensity:fCurveExponent=1.2 (default 0.75)
+  Intensity:fSoftClipKnee=0.25 (default 0.85)
+  Intensity:fMassWeight=0.9 (default 0.35)
+  Intensity:fRadiusWeight=2 (default 0.2)
+  Intensity:fObliterateFrac=5.9 (default 1.46)
+  PostIntensity:fExtraRangeDb=-27.5 (default 0)
+  PostIntensity:fCurveExponent=2.4 (default 1)
+  SlotGain:fImpTransient=2 (default 0)
+  SlotGain:fLimbTap=-3 (default 0)
+  Limbs:bMassDeterminesLoudness=1 (default 0)
+  Limbs:fBodyMass=3.5 (default 5)
+  Limbs:fRotationRefRatio=1.1 (default 1)
+  ImpactComposite:fTransientGainAtMaxDb=-5 (default -18)
+  ImpactComposite:fSubGainAtMinDb=-25 (default -30)
+  ImpactComposite:fPitchIntensityBiasSemis=-4 (default -3)
+  Surfaces:fTapGainAtMinDb=-18.5 (default -12)
+  Surfaces:fTapGainAtMaxDb=-12.5 (default -8)
+  HeadImpact:fGateFrac=0.24 (default 0.31)
+  HeadImpact:fGainDb=-12.5 (default -2)
+  HeadImpact:fHeadDownBonus=0 (default 0.25)
+  HeadImpact:bCompanyEnabled=1 (default 0)
+  AirTime:fHeadClearMs=560 (default 250)
+  AirTime:fHeadHandGraceMs=220 (default 200)
+  AirTime:fHeadGateBonus=0.55 (default 0.45)
+  AirTime:fHeadGainDb=9.5 (default 9)
+  AirTime:fHeadCrunchGateFrac=1.38 (default 0.55)
+  AirTime:bBodyEnabled=1 (default 0)
+  AirTime:fBodyClearMs=240 (default 250)
+  AirTime:fBodyIntensity=0.93 (default 0)
+  Damage:bViolenceEnabled=1 (default 0)
+  Damage:fViolenceHoldMs=210 (default 450)
+  Damage:fViolenceChanceBonus=0.65 (default 0.25)
+  Damage:iViolenceBudgetBonus=16 (default 3)
+  Damage:fViolenceLevelBonusDb=12 (default 2.5)
+  Damage:fHeadCrunchAtFrac=0.54 (default 0.45)
+  Damage:fHeadCrunchQuietDb=-28.5 (default -18)
+  Damage:fHeadCrunchLoudDb=-16.5 (default -4)
+  Damage:fHeadCrunchDelayMs=21 (default 25)
+  Damage:fHeadGoreAtFrac=1.21 (default 0.65)
+  Damage:fHeadGoreQuietDb=-23 (default -20)
+  Damage:fHeadGoreLoudDb=-20 (default -6)
+  Damage:fSpineCrunchQuietDb=-33 (default -20)
+  Slide:fSlideMinTangentSpeed=50 (default 120)
+  Slide:fSlideMinDurationMs=180 (default 150)
+  Slide:fSlideMinDistance=10 (default 45)
+  Slide:fSlideHoldSpeed=10 (default 0)
+  Slide:fSlideHoldMaxMs=5950 (default 2000)
+  Slide:bSlidesDontClaim=1 (default 0)
+  Slide:fClaimBelowIntensity=0 (default 0.15)
+  Slide:fSlideTrimDb=0 (default -6)
+  Slide:fStartFadeMs=5 (default 140)
+  Slide:fStopFadeMs=30 (default 110)
+  Slide:fLaunchFadeMs=5 (default 45)
+  Slide:fGainDb=-21 (default -16)
+  Slide:fSpeedForMinGain=30 (default 40)
+  Slide:fSpeedForMaxGain=590 (default 600)
+  Slide:fSpeedRangeDb=-23 (default -32)
+  Slide:fPitchPerThousandUnits=0.18 (default 0.15)
+  Slide:bFractionEnabled=0 (default 1)
+  Slide:fBodyFracStart=0.3 (default 0.2)
+  Slide:fContactHoldMs=400 (default 140)
+  Slide:iMaxLimbLoops=1 (default 3)
+  Slide:fLimbGainDb=-27.5 (default -30)
+  Slide:fLimbSpeedForMinGain=10 (default 80)
+  Slide:fLimbSpeedForMaxGain=400 (default 500)
+  Slide:fLimbSpeedRangeDb=-16 (default -12)
+  Slide:fLimbPitchPerThousandUnits=0.13 (default 0.22)
+  Slide:bBodyDucksLimbs=0 (default 1)
+  Slide:bGrainEnabled=0 (default 1)
+  Rustle:bEnabled=1 (default 0)
+  Rustle:fThrashFull=3940 (default 4000)
+  Rustle:fAttackMs=1 (default 30)
+  Rustle:fPitchAtFloor=0.88 (default 0.94)
+  Rustle:fPitchAtFull=0.99 (default 1.07)
+  Rustle:fWanderHz=1.26 (default 0.23)
+  Rustle:fLevelDeadbandDb=0.5 (default 0.25)
+  Rustle:fStopFadeMs=185 (default 240)
+  Rustle:fGainDb=-20 (default -26)
+  Rustle:fDriveRangeDb=-18 (default -20)
+  Rustle:fBareTrimDb=-40 (default -9)
+  Rustle:fClothTrimDb=1 (default 0)
+  Rustle:fLightTrimDb=-1 (default 1)
+  Rustle:fHeavyTrimDb=-1 (default 2)
+  Rustle:fSlideDuckDb=0 (default -14)
+  Mix:fMasterGainDb=2 (default 0)
+  Mix:fSubTrimDb=0.5 (default 0)
+  Mix:fVoiceFloorDb=-55 (default -48)
+  Balance:fSpineBodyTrimDb=1.5 (default 0)
+  Balance:fSpineSubTrimDb=2 (default 0)
+  Compress:bEnabled=1 (default 0)
+  Compress:fTransientDb=-6 (default 0)
+  Compress:fBodyDb=-6.25 (default 0)
+  Compress:fBassDb=-6.5 (default 0)
+  Compress:fBodyLimbDb=-5.75 (default 0)
+  Compress:fImpactDb=-5.25 (default 0)
+  Compress:fTapDb=-4.5 (default 0)
+  Compress:fHeadDb=-5 (default 0)
+  Compress:fCrunchDb=-5.5 (default 0)
+  Compress:fGoreDb=-5 (default 0)
+  Player:fSubTrimDb=0 (default -9)
+  Slots:iRngSeed=1 (default 0)
+  Layers:bImpTransient=0 (default 1)
+  Layers:bImpBody=0 (default 1)
+  Layers:bImpSub=0 (default 1)
+  Layers:bLimbTap=0 (default 1)
+  Layers:bCrunchGran=0 (default 1)
+  Layers:bGoreWet=0 (default 1)
+  Layers:bScrapeLoop=0 (default 1)
+  Layers:bAirWhoosh=0 (default 1)
+  Layers:bHeadImpact=0 (default 1)
+  Layers:bSettleRest=0 (default 1)
+  Surface.soft:bEnabled=0 (default 1)
+  Surface.soft:fTapGainAtMinDb=-18.5 (default -12)
+  Surface.soft:fTapGainAtMaxDb=-12.5 (default -8)
+  Surface.wood:bEnabled=0 (default 1)
+  Surface.wood:fTapGainAtMinDb=-18.5 (default -12)
+  Surface.wood:fTapGainAtMaxDb=-12.5 (default -8)
+  Surface.stone:bEnabled=0 (default 1)
+  Surface.stone:fTapGainAtMinDb=-18.5 (default -12)
+  Surface.stone:fTapGainAtMaxDb=-12.5 (default -8)
+
+SOUND BANK
+  imp_transient  3/3 files, wav, 120 ms
+  imp_body       4/3 files, wav, 240 ms
+  imp_sub        2/2 files, wav, 300 ms
+  surf_wood      3/2 files, wav, 190 ms
+  surf_stone     2/2 files, wav, 124 ms
+  surf_soft      2/2 files, wav, 250 ms
+  surf_metal     0/0 files, plays surf_stone
+  surf_water     0/0 files, plays surf_soft
+  surf_body      0/0 files, plays surf_soft
+  surf_dirt      0/0 files, plays surf_soft
+  surf_gravel    0/0 files, plays surf_soft
+  surf_snow      0/0 files, plays surf_soft
+  surf_ice       0/0 files, plays surf_stone
+  surf_glass     0/0 files, plays surf_stone
+  surf_water_puddle 0/0 files, plays surf_soft
+  surf_bone      0/0 files, plays surf_soft
+  armor_bare     0/0 files, nothing to play
+  armor_cloth    0/0 files, nothing to play
+  armor_light    0/0 files, nothing to play
+  armor_heavy    0/0 files, nothing to play
+  limb_tap       6/4 files, wav, 74 ms
+  crunch_gran    3/2 files, wav, 320 ms
+  spine_crunch   0/2 files, plays crunch_gran
+  limb_crunch    0/2 files, plays crunch_gran
+  gore_wet       4/2 files, wav, 162 ms
+  scrape_grain   0/3 files, nothing to play
+  scrape_loop    1/1 files, wav, 2008 ms
+  scrape_body_wood 0/1 files, plays scrape_loop
+  scrape_body_stone 0/1 files, plays scrape_loop
+  scrape_limb    1/1 files, wav, 1951 ms
+  scrape_limb_wood 0/1 files, plays scrape_limb
+  scrape_limb_stone 0/1 files, plays scrape_limb
+  air_whoosh     1/1 files, wav, 2000 ms
+  head_impact    3/2 files, wav, 670 ms
+  settle_rest    2/2 files, wav, 400 ms
+  grunt_impact   0/0 files, nothing to play
+  scream_big     0/0 files, nothing to play
+  imp_body_limb  4/3 files, wav, 200 ms
+  cloth_rustle   1/0 files, wav, 1951 ms
+
+FUNNEL - contacts in, cues out (WHOLE TAKE, not the window)
+  events read           41804
+  contacts              683
+    rejected below floor 262
+    rejected blow-up     13
+    mirrored self-hit    177
+    manifold collapsed   54
+    self-contacts dropped 165
+  proposed cues         1972
+    dropped rate cap     125
+    dropped chain merge  10
+    dropped masking      133
+    dropped burst cap    171
+    muted by layer       757
+    compressed by class  0
+  hero moments          6 (+0 re-anchored)
+    on head relief       0
+    driven flights       6
+  slides                13
+  emitted               422 in 47 bursts
+  first cue             355 ms
+  last cue              41532 ms
+  peak contact          1098.7 u/s
+
+AUDIO
+  45271 ms at 48000 Hz, 2173006 frames
+  peak 0.073 heard, 0.073 before the limiter (limiter on)
+
+CUES BY SLOT IN THE WINDOW - 9 cues
+  cloth_rustle   1
+  scrape_limb    8
+
+TIMELINE - state, contacts and cues in one column
+  (a cue's `seq` is the contact row that produced it)
+
+   6889.2 ms      CUE    cloth_rustle   loop-    2.0 dB  pitch 1.00  rustle           Slide        int 0.00  seq 0
+   6932.7 ms    contact  NPC L Foot [Lft ]         39.2 u/s  tan  260.1  body  249.1  ang    1.2  Static  seq 283
+   6932.7 ms      CUE    scrape_limb    loop+  -31.2 dB  pitch 1.03  scrape           Slide        int 0.00  seq 0
+   6954.1 ms      CUE    scrape_limb    loop~  -32.8 dB  pitch 1.03  scrape           Slide        int 0.00  seq 0
+   6975.5 ms      CUE    scrape_limb    loop~  -34.0 dB  pitch 1.02  scrape           Slide        int 0.00  seq 0
+   6996.9 ms      CUE    scrape_limb    loop~  -35.2 dB  pitch 1.02  scrape           Slide        int 0.00  seq 0
+   7018.3 ms      CUE    scrape_limb    loop~  -36.1 dB  pitch 1.02  scrape           Slide        int 0.00  seq 0
+   7039.7 ms      CUE    scrape_limb    loop~  -36.9 dB  pitch 1.02  scrape           Slide        int 0.00  seq 0
+   7061.1 ms      CUE    scrape_limb    loop~  -37.6 dB  pitch 1.01  scrape           Slide        int 0.00  seq 0
+   7082.5 ms      CUE    scrape_limb    loop-    2.0 dB  pitch 1.00  scrape           Slide        int 0.00  seq 0
+
+CUES
+  (`sfx` is the file this cue resolved to; `held` is how many dB its class's compressor took off it)
+
+     time  slot           sfx                    op       gain  held  pitch  reason           phase          int   limb     site  seq
+   6889.2  cloth_rustle   scrape_limb_scrape_dirt_dead_brush-loop loop-     2.0         1.00  rustle           Slide         0.00      0  unknown    0
+   6932.7  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop+   -31.2         1.03  scrape           Slide         0.00      1     foot    0
+   6954.1  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -32.8         1.03  scrape           Slide         0.00      1     foot    0
+   6975.5  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -34.0         1.02  scrape           Slide         0.00      1     foot    0
+   6996.9  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -35.2         1.02  scrape           Slide         0.00      1     foot    0
+   7018.3  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -36.1         1.02  scrape           Slide         0.00      1     foot    0
+   7039.7  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -36.9         1.02  scrape           Slide         0.00      1     foot    0
+   7061.1  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop~   -37.6         1.01  scrape           Slide         0.00      1     foot    0
+   7082.5  scrape_limb    scrape_limb_scrape_dirt_dead_brush-long loop-     2.0         1.00  scrape           Slide         0.00      0  unknown    0
+
+DECISIONS - every contact that reached arbitration, and what became of it

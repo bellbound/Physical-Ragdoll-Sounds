@@ -6,9 +6,9 @@ recording:
   file_index: 1
   csv: "Nazeem_devbench_1.csv"
   pose: "Nazeem_devbench_1_pose.bin"
-  pose_frames: 7838
+  pose_frames: 419
   note: "devbench live take"
-  started_real: "2026-08-23T23:10:52"
+  started_real: "2026-08-24T21:57:28"
   min_impact_speed: 0.0
   units: "positions are game units; speeds are game units/second; angular speed is rad/s"
 
@@ -26,109 +26,109 @@ ragdoll:
       bone: "Ragdoll_NPC COM [COM ]"
       bone_index: 0
       mass: 50.2500
-      body: "0000018A362B5600"
+      body: "000001E37A749F00"
     - limb_index: 1
       name: "NPC L Thigh [LThg]"
       bone: "Ragdoll_NPC L Thigh [LThg]"
       bone_index: 1
       mass: 6.0300
-      body: "0000018A362B5300"
+      body: "000001E37A749C00"
     - limb_index: 2
       name: "NPC R Thigh [RThg]"
       bone: "Ragdoll_NPC R Thigh [RThg]"
       bone_index: 2
       mass: 6.0300
-      body: "0000018A362B4A00"
+      body: "000001E37A749300"
     - limb_index: 3
       name: "NPC Spine [Spn0]"
       bone: "Ragdoll_NPC Spine [Spn0]"
       bone_index: 3
       mass: 4.0200
-      body: "0000018A362B4100"
+      body: "000001E37A748A00"
     - limb_index: 4
       name: "NPC R Calf [RClf]"
       bone: "Ragdoll_NPC R Calf [RClf]"
       bone_index: 4
       mass: 6.0300
-      body: "0000018A362B4700"
+      body: "000001E37A749000"
     - limb_index: 5
       name: "NPC L Calf [LClf]"
       bone: "Ragdoll_NPC L Calf [LClf]"
       bone_index: 5
       mass: 6.0300
-      body: "0000018A362B5000"
+      body: "000001E37A749900"
     - limb_index: 6
       name: "NPC Spine1 [Spn1]"
       bone: "Ragdoll_NPC Spine1 [Spn1]"
       bone_index: 6
       mass: 4.0200
-      body: "0000018A3631BD00"
+      body: "000001E37A748700"
     - limb_index: 7
       name: "NPC L Foot [Lft ]"
       bone: "Ragdoll_NPC L Foot [Lft ]"
       bone_index: 7
       mass: 3.0150
-      body: "0000018A362B4D00"
+      body: "000001E37A749600"
     - limb_index: 8
       name: "NPC R Foot [Rft ]"
       bone: "Ragdoll_NPC R Foot [Rft ]"
       bone_index: 8
       mass: 3.0150
-      body: "0000018A362B4400"
+      body: "000001E37A748D00"
     - limb_index: 9
       name: "NPC Spine2 [Spn2]"
       bone: "Ragdoll_NPC Spine2 [Spn2]"
       bone_index: 9
       mass: 7.0350
-      body: "0000018A3631BA00"
+      body: "000001E37A748400"
     - limb_index: 10
       name: "NPC L UpperArm [LUar]"
       bone: "Ragdoll_NPC L UpperArm [LUar]"
       bone_index: 10
       mass: 2.0100
-      body: "0000018A3631A800"
+      body: "000001EAB5093100"
     - limb_index: 11
       name: "NPC Neck [Neck]"
       bone: "Ragdoll_NPC Neck [Neck]"
       bone_index: 11
       mass: 6.0300
-      body: "0000018A3631B700"
+      body: "000001E37A748100"
     - limb_index: 12
       name: "NPC R UpperArm [RUar]"
       bone: "Ragdoll_NPC R UpperArm [RUar]"
       bone_index: 12
       mass: 2.0100
-      body: "0000018A3631B100"
+      body: "000001EAB5093A00"
     - limb_index: 13
       name: "NPC Head [Head]"
       bone: "Ragdoll_NPC Head [Head]"
       bone_index: 13
       mass: 4.0200
-      body: "0000018A3631B400"
+      body: "000001EAB5093D00"
     - limb_index: 14
       name: "NPC L Forearm [LLar]"
       bone: "Ragdoll_NPC L Forearm [LLar]"
       bone_index: 14
       mass: 2.0100
-      body: "0000018A3631A500"
+      body: "000001EAB5092E00"
     - limb_index: 15
       name: "NPC R Forearm [RLar]"
       bone: "Ragdoll_NPC R Forearm [RLar]"
       bone_index: 15
       mass: 6.0300
-      body: "0000018A3631AE00"
+      body: "000001EAB5093700"
     - limb_index: 16
       name: "NPC L Hand [LHnd]"
       bone: "Ragdoll_NPC L Hand [LHnd]"
       bone_index: 16
       mass: 4.0200
-      body: "0000018A3631A200"
+      body: "000001EAB5092B00"
     - limb_index: 17
       name: "NPC R Hand [RHnd]"
       bone: "Ragdoll_NPC R Hand [RHnd]"
       bone_index: 17
       mass: 4.0200
-      body: "0000018A3631AB00"
+      body: "000001EAB5093400"
 
 armour:
   coverage:
@@ -143,8 +143,8 @@ environment:
   cell_name: "Winterberry Chateau"
 
 session:
-  duration_ms: 141501
-  impacts: 2332
+  duration_ms: 7153
+  impacts: 99
   dropped: 0
   complete: true
 
@@ -157,6 +157,6 @@ obs:
   # means what it says against the file sitting beside this one.
   output_path: "C:/games/skyrim/papyrus/reference/SpellWheelVR 1.5.5 Source/skse/Physical-Ragoll-Sounds/testbench/../Research/NewRecordings/Nazeem_devbench_1.mp4"
   sync_csv: "Nazeem_devbench_1_sync.csv"
-  offset_ms: 7571
+  offset_ms: 5292
   obs_version: "32.2.2"
   record_directory: "C:\\Users\\mika\\Videos"

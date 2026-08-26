@@ -34,7 +34,7 @@ BenchResult RunBench(rds::Recording& rec, const rds::AlgorithmConfig& cfg, rds::
                      const BenchOptions& opt) {
     BenchResult out;
 
-    rds::OfflineOptions run;
+    rds::OfflineOptions run = opt.replay;
     run.seed = opt.seed;
     run.trace = opt.trace;
 

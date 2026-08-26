@@ -115,6 +115,32 @@ int RunProcessCapture(const std::wstring& commandLine, std::string& output) {
     return code;
 }
 
+/// What ffmpeg actually said. The old message guessed "is it on PATH?" at every
+/// non-zero exit, which is the one cause that leaves no output at all - a broken
+/// input, an unfinalised recording, a full disk all say so on stderr, and saying
+/// it back is the difference between a fixable take and a mysterious one.
+std::string FfmpegError(int rc, const std::string& output) {
+    // ffmpeg's own wording, last line first: with -v error the tail is the
+    // complaint and anything above it is context for it.
+    std::string last;
+    std::istringstream lines(output);
+    std::string line;
+    while (std::getline(lines, line)) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+        if (!line.empty()) last = line;
+    }
+    if (rc == -1) {
+        return "ffmpeg would not start - is it on PATH?";
+    }
+    if (last.empty()) {
+        return std::format("ffmpeg failed (rc {}) and said nothing", rc);
+    }
+    if (last.size() > 160) {
+        last.resize(160);
+    }
+    return std::format("ffmpeg failed (rc {}): {}", rc, last);
+}
+
 // ── frame caches and clips ───────────────────────────────────────────────────
 
 fs::path FrameCacheDir(const fs::path& cacheRoot, const std::string& stem) {
@@ -140,9 +166,24 @@ bool BuildFrameCache(const fs::path& mp4, const fs::path& cacheRoot, const std::
     cmd << L"ffmpeg -y -v error -i \"" << mp4.wstring() << L"\" -vf \"fps=" << kCacheFps
         << L",scale=-2:" << kCacheHeight << L"\" -q:v 5 \"" << (dir / L"%05d.jpg").wstring()
         << L"\"";
-    const int rc = RunProcess(cmd.str());
+    std::string output;
+    const int rc = RunProcessCapture(cmd.str(), output);
     if (rc != 0) {
-        error = std::format("ffmpeg failed (rc {}) - is it on PATH?", rc);
+        error = FfmpegError(rc, output);
+        return false;
+    }
+    // A zero exit with nothing on disk is a cache that HasFrameCache would then
+    // swear by for good. Left unstamped, so the next open decodes again instead
+    // of scrubbing an empty directory for ever.
+    bool any = false;
+    for (const fs::directory_entry& e : fs::directory_iterator(dir, ec)) {
+        if (e.path().extension() == ".jpg") {
+            any = true;
+            break;
+        }
+    }
+    if (!any) {
+        error = "ffmpeg decoded no frames from this video";
         return false;
     }
     std::ofstream stamp(dir / "cache.txt");
@@ -195,9 +236,10 @@ bool CutVideo(const fs::path& in, const fs::path& out, double startMs, double en
         << L" -i \"" << in.wstring() << L"\" -t " << ((endMs - startMs) / 1000.0)
         << L" -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -an \"" << out.wstring()
         << L"\"";
-    const int rc = RunProcess(cmd.str());
+    std::string output;
+    const int rc = RunProcessCapture(cmd.str(), output);
     if (rc != 0) {
-        error = std::format("ffmpeg failed (rc {}) - is it on PATH?", rc);
+        error = FfmpegError(rc, output);
         return false;
     }
     return true;

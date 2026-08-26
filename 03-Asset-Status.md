@@ -33,9 +33,9 @@ lead-in, level match within a slot, headroom under runtime pitch shift, and loop
 |---|---|---|---|
 | `imp_transient` | 3/3 | slap, knuckle crack, dowel crack | centroid 3629 / 4546 / 5792 Hz, -20 dB in 8-18 ms |
 | `imp_body` | 3/3 | wet flour sack, wet sandbag, leather duffel | centroid 2166 / 2951 / 3425 Hz |
+| `imp_body_limb` | **0/3** | nothing recorded — falls back to `imp_body`, so every limb impact plays the torso's wav | wanted: drier, tighter, higher, shorter than `imp_body` |
 | `imp_sub` | 2/2 | **synthesised**, `tools/make_sub.py` | -20 dB in 48 ms, centroid 156 / 184 Hz |
 | `limb_tap` | 4/4 | boot scuff x3 + forearm tap, all **split** from multi-contact takes | centroid 904 -> 3459 Hz |
-| `foley_cloth` | 1/1 | woollen cloak rustle | seamless 3 s, 1.2 dB seam |
 | `scrape_loop` | 1/1 | limp body on rough stone slabs | 24 grains/s, tilt in band, **0.02 dB seam** |
 | `air_whoosh` | 1/1 | low air movement, generated as a loop | centroid 218 Hz, 0.6 dB seam |
 | `settle_rest` | 2/2 | slumping fabric + limb, body settling | -20 dB in 28 / 48 ms, soft attack |
@@ -196,6 +196,42 @@ Deploy with `deploy-pack.ps1`, which now mirrors `assets/sfx/library/` into
 `sounds/library/` alongside the pack. The ini is not copied: the testbench writes it straight into
 `deployment_files/`.
 
+### What an import fixes, and what it only tells you (2026-08-24)
+
+The delivery rules in §6 and `Slots.md` §5 split cleanly in two, and since 2026-08-24 the importer
+treats the halves differently. **The mechanical ones are repaired on the way in and nothing is
+said about them** — there is no judgement in normalising a peak, so a badge for it is a badge that
+only ever means "press the button that was going to be pressed anyway":
+
+| Repaired silently | What it does |
+|---|---|
+| peak | normalised to −1.5 dBFS, for the ±3 semitone headroom rule. Files already inside −2.1…−0.9 are left alone, which is what keeps `imp_sub`'s −1.0 intact when the pack is adopted |
+| DC | subtracted, measured *after* the trim rather than over the whole file |
+| head silence | trimmed to 1 ms in front of the attack — §3.4's pre-roll, "always fixable" |
+| trailing silence | trimmed to a 20 ms guard. Digital silence only; the room tail is a judgement and stays a warning |
+| hard ending | `make`'s own 6 ms cos² fade, when the last samples are still over 3% of the peak |
+| stereo | under 0.6 correlation the **left channel is kept** rather than the two summed — §3.1's fix, applied automatically |
+
+All of it is idempotent, which is what makes `Repair` safe to press on a whole library: run over
+the 29 shipped files plus `foley_cloth_01`, **all 30 come back byte-identical**. That is the
+regression test for this half — anything that changes a file `verify_pack.py` passes is a bug in
+the repair, not in the file.
+
+What is left is what a badge is for, in two severities. Advisory ones name their own fix
+(`sfx.py split`, `sfx.py make`, the `repair` button). The `dead` ones are the technical rule-outs
+§7 ruled four cuts out on, and they say so: nothing recovers them.
+
+| Badge | Means | Answer |
+|---|---|---|
+| `clipped` | the waveform is squared off — counted as flat tops at the file's own maximum, so it survives the normalise. **Not** a peak reading any more | re-source; gain does not put a wave back |
+| `noise floor` | hiss inside 30 dB of the hero contact, `sfx.py`'s own gate | re-source or regenerate |
+| `duplicate` | the same samples already in the library under another name, by content hash | delete one |
+| `uncorrelated` | under 0.45 — two recordings sharing a file | re-source |
+| `satellite` | a contact 20+ dB under the hero, §7's flam | `sfx.py split` |
+| `contacts` | several contacts ≥46 ms apart. Suppressed over 15 lo-mid transients, where they are grains and not contacts | `sfx.py split` |
+| `band-limited` | nothing above 16 kHz whatever the container claims — upsampled or lossy | re-source for a transient layer; fine for a body |
+| `tail`, `seam`, `very long`, `lead-in`… | as before | as before |
+
 ---
 
 ## 5. Getting the pack into the testbench
@@ -229,8 +265,8 @@ bank: foley_cloth: 1/1 files
 bank: surf_wood: 2/2 files
 ```
 
-Nothing should now report `procedural` except `grunt_impact` and `scream_big`. Anything unfilled
-falls through to the procedural stand-in rather than going silent, so a partial pack is a quieter
+Nothing should now report `nothing to play` except `grunt_impact` and `scream_big`. Anything
+unfilled is silent rather than synthesised, so a partial pack is a thinner
 testbench, not a broken one.
 
 ---

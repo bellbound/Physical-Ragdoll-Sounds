@@ -1,0 +1,117 @@
+# Lining the impacts CSV up with the video.
+#
+# t_ms            this take's own clock - the column the impacts CSV also stamps
+# obs_duration_ms OBS's output clock at that instant, in milliseconds
+# rtt_ms          how long the round trip took, and so how much the row is worth
+#
+# video_time_ms = t_ms + offset. Fit the offset through the low-rtt rows rather
+# than taking the first one: over a long take the two clocks drift apart, and a
+# piecewise fit follows that where a single number cannot.
+#
+# Written by the devbench, which drove the recording itself - so the mp4 beside
+# this file is OBS's whole output and the fitted offset needs no cut subtracted
+# out of it. t_ms comes off the game's session clock read across the link, so a
+# millisecond or two of the intercept is the socket rather than the picture; the
+# slope is unaffected, because that error is the same on every row.
+t_ms,obs_duration_ms,rtt_ms
+270,0,0
+1271,733,0
+2271,1733,0
+3272,2733,0
+4273,3733,0
+5274,4733,0
+6275,5733,0
+7276,6733,0
+8277,7733,0
+9277,8733,0
+10278,9733,0
+11279,10733,0
+12280,11733,0
+13281,12733,0
+14282,13733,0
+15283,14733,0
+16284,15749,0
+17285,16749,0
+18285,17733,0
+19286,18733,0
+20287,19749,0
+21288,20749,0
+22289,21749,0
+23289,22749,0
+24290,23749,0
+25291,24749,0
+26292,25749,0
+27293,26749,0
+28294,27749,0
+29295,28749,0
+30295,29749,0
+31296,30749,0
+32297,31749,0
+33298,32749,0
+34299,33749,0
+35300,34749,0
+36301,35749,0
+37301,36749,0
+38302,37766,0
+39303,38766,0
+40304,39766,0
+41305,40766,0
+42306,41766,0
+43307,42766,0
+44308,43766,0
+45308,44766,0
+46309,45766,0
+47310,46766,0
+48311,47766,0
+49312,48766,0
+50313,49766,0
+51314,50766,0
+52314,51783,0
+53315,52766,0
+54316,53766,0
+55317,54766,0
+56318,55766,0
+57319,56766,0
+58320,57766,0
+59320,58783,0
+60321,59783,0
+61322,60783,0
+62323,61783,0
+63324,62783,0
+64325,63783,0
+65326,64783,0
+66327,65783,0
+67327,66783,0
+68328,67783,0
+69329,68783,0
+70330,69783,0
+71331,70783,0
+72332,71783,0
+73333,72783,0
+74333,73783,0
+75334,74799,0
+76335,75783,0
+77336,76783,0
+78337,77799,0
+79338,78799,0
+80339,79799,0
+81339,80799,0
+82340,81799,0
+83341,82799,0
+84342,83799,0
+85343,84799,0
+86344,85799,0
+87345,86799,0
+88345,87799,0
+89346,88799,0
+90347,89799,0
+91348,90799,0
+92349,91799,0
+93350,92799,0
+94351,93799,0
+95351,94799,0
+96353,95799,0
+97353,96816,0
+98354,97816,0
+99355,98816,0
+99723,99183,0

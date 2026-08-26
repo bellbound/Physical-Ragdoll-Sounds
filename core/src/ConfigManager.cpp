@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <format>
 #include <string>
@@ -53,8 +54,43 @@ using ini::Trim;
             EqualsIgnoreCase(p.legacyKey, key)) {
             return &p;
         }
+        // The name before that one. A row that has moved twice has to answer to
+        // both, or the second move silently discards the tuning of everybody who
+        // never saved a file in between - which is most of them.
+        if (!p.legacyKey2.empty() && EqualsIgnoreCase(p.legacySection2, section) &&
+            EqualsIgnoreCase(p.legacyKey2, key)) {
+            return &p;
+        }
     }
     return nullptr;
+}
+
+/// Keys that no longer exist anywhere and should be taken out of a file rather
+/// than copied through it.
+///
+/// Different from a legacy name, which is a key that *moved*: the reader takes a
+/// legacy value and the writer drops the line because the value now lives under
+/// a new name. These six did not move to a new name - they became thirteen
+/// blocks in a second file, and `MigrateSurfaces` has already read them. Left
+/// alone they would sit in every upgraded install's ini looking editable and
+/// doing nothing, which is worse than a key that is merely gone.
+[[nodiscard]] bool IsRetiredKey(std::string_view section, std::string_view key) {
+    struct Retired {
+        std::string_view section;
+        std::string_view key;
+    };
+    static constexpr Retired kRetired[] = {
+        {"Surfaces", "fWoodTrimDb"}, {"Surfaces", "fStoneTrimDb"}, {"Surfaces", "fSoftTrimDb"},
+        {"Surfaces", "bWood"},       {"Surfaces", "bStone"},       {"Surfaces", "bSoft"},
+        {"SlotGain", "fSurfWood"},   {"SlotGain", "fSurfStone"},   {"SlotGain", "fSurfSoft"},
+        {"Layers", "bSurfWood"},     {"Layers", "bSurfStone"},     {"Layers", "bSurfSoft"},
+    };
+    for (const Retired& r : kRetired) {
+        if (EqualsIgnoreCase(r.section, section) && EqualsIgnoreCase(r.key, key)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /// One paragraph of a tooltip, word-wrapped into `; ` comment lines.
@@ -232,6 +268,37 @@ bool ConfigManager::SaveFrom(const std::filesystem::path& file, const void* root
 
     {
         std::string section;
+        // Every key the schema puts in `name` that the file has not carried yet,
+        // written at the end of that section's existing block.
+        //
+        // Without this the append pass at the bottom was the only thing that
+        // wrote a missing key, and it opens a `[Section]` header for each group
+        // it emits - so a key *added to a section the file already had* arrived
+        // under a second copy of that header at the end of the file. Three
+        // rounds of adding keys to `[Damage]` produced three `[Damage]` blocks,
+        // and the reader takes the last value it sees, so the file stopped
+        // saying what it was doing. Nothing detected it: every key was present,
+        // every value was right, and the round-trip check passed throughout.
+        //
+        // A section that is genuinely new to the file still falls through to the
+        // append pass and gets its header there, which is what that pass is for.
+        // `limit` bounds it to the params that come *before* a given schema
+        // index, which is what puts a re-added key back in its proper place
+        // rather than at the end of the block: schema order is the ini's key
+        // order by design (01 §7.3), and a file that has drifted out of it is a
+        // file whose diff against a fresh one is unreadable.
+        const auto emitMissingFor = [&](std::string_view name, std::size_t limit) {
+            if (name.empty()) {
+                return;
+            }
+            for (std::size_t i = 0; i < limit && i < params.size(); ++i) {
+                if (written[i] || params[i].section != name) {
+                    continue;
+                }
+                written[i] = true;
+                WriteParam(out, root, params[i]);
+            }
+        };
         // Comments and blank lines are held back rather than copied as they are
         // read. A key that has since moved to another section takes the tooltip
         // above it with it, and a paragraph left behind describing a key that is
@@ -244,12 +311,49 @@ bool ConfigManager::SaveFrom(const std::filesystem::path& file, const void* root
             }
             pending.clear();
         };
+        // A `[Surface.x]` block for a class `params` does not carry - i.e. one
+        // the user has closed - is dropped whole: header, keys and comments.
+        //
+        // Every other unrecognised line in this writer is copied through, which
+        // is right for a key we removed from a file where every key is always
+        // present. It is wrong for a list, because closing an entry is exactly
+        // "these keys are no longer recognised" and the entry would survive
+        // every save. Dropping the *header* too is what makes it safe: an empty
+        // `[Surface.wood]` left behind still reads as opened on the next load,
+        // and would come back holding defaults instead of what it inherits.
+        bool droppingSection = false;
+        const auto isClosedSurfaceSection = [&](std::string_view name) {
+            constexpr std::string_view kPrefix = "Surface.";
+            if (name.size() <= kPrefix.size() ||
+                !EqualsIgnoreCase(name.substr(0, kPrefix.size()), kPrefix)) {
+                return false;
+            }
+            for (const auto& p : params) {
+                if (EqualsIgnoreCase(p.section, name)) {
+                    return false;
+                }
+            }
+            return true;
+        };
         for (const auto& raw : existing) {
             if (const auto sectionName = SectionOf(raw); !sectionName.empty()) {
+                // Before the held-back comments, so a new key lands directly
+                // under the last key of the block it belongs to and the blank
+                // line that separated the sections stays next to the header it
+                // was separating.
+                emitMissingFor(section, params.size());
                 section.assign(sectionName);
+                droppingSection = isClosedSurfaceSection(section);
+                if (droppingSection) {
+                    pending.clear();
+                    continue;
+                }
                 flush();
                 out += raw;
                 out += "\n";
+                continue;
+            }
+            if (droppingSection) {
                 continue;
             }
             std::string_view key;
@@ -257,6 +361,11 @@ bool ConfigManager::SaveFrom(const std::filesystem::path& file, const void* root
             if (SplitAssignment(raw, key, value)) {
                 if (const ParamDesc* desc = Find(params, section, key); desc != nullptr) {
                     const auto index = static_cast<std::size_t>(desc - params.data());
+                    // Anything the schema puts earlier in this section that the
+                    // file has not carried yet goes in ahead of it, so a key
+                    // added in a later version lands where it belongs instead of
+                    // at the end of the block.
+                    emitMissingFor(section, index);
                     written[index] = true;
                     flush();
                     out += desc->type == ParamType::kString
@@ -274,6 +383,13 @@ bool ConfigManager::SaveFrom(const std::filesystem::path& file, const void* root
                     pending.clear();
                     continue;
                 }
+                if (IsRetiredKey(section, key)) {
+                    // Gone rather than moved, and already read by whatever
+                    // migration replaced it. Same treatment: the line and the
+                    // comment above it both go.
+                    pending.clear();
+                    continue;
+                }
             } else if (const std::string_view text = Trim(raw);
                        text.empty() || text.front() == ';' || text.front() == '#') {
                 // A comment or a blank. Held until the line it introduces says
@@ -285,6 +401,9 @@ bool ConfigManager::SaveFrom(const std::filesystem::path& file, const void* root
             out += raw;
             out += "\n";
         }
+        // The last section in the file has no header after it to trigger the
+        // emit, so it gets one here.
+        emitMissingFor(section, params.size());
         flush();
         if (!out.empty() && out.back() != '\n') {
             out += "\n";
@@ -309,10 +428,116 @@ bool ConfigManager::SaveFrom(const std::filesystem::path& file, const void* root
     return ini::WriteFile(file, out);
 }
 
+void ConfigManager::ReadOpenedSurfaces(const std::filesystem::path& file,
+                                       AlgorithmConfig& config) {
+    for (bool& open : config.surfaces.opened) {
+        open = false;
+    }
+    for (const auto& raw : ReadLines(file)) {
+        const auto header = SectionOf(raw);
+        constexpr std::string_view kPrefix = "Surface.";
+        if (header.size() <= kPrefix.size() ||
+            !EqualsIgnoreCase(header.substr(0, kPrefix.size()), kPrefix)) {
+            continue;
+        }
+        // Lowercased before the lookup because `ToString(SurfaceClass)` is all
+        // lower and a hand-typed `[Surface.Ice]` should still open ice.
+        std::string name{header.substr(kPrefix.size())};
+        for (char& c : name) {
+            c = (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
+        }
+        const SurfaceClass surface = SurfaceClassFrom(name);
+        if (surface == SurfaceClass::kCount) {
+            spdlog::debug("config: [{}] is not a surface class - ignored", header);
+            continue;
+        }
+        config.surfaces.opened[static_cast<std::size_t>(surface)] = true;
+    }
+}
+
+std::size_t ConfigManager::MigrateSurfaces(const std::filesystem::path& algorithmFile,
+                                           AlgorithmConfig& config) {
+    // The six keys the list replaced, with the names they had before the
+    // surface section gathered them and the names they had inside it. Read by
+    // hand rather than through the schema because the schema no longer has rows
+    // for them - that is what makes this a migration and not a rename.
+    struct Legacy {
+        SurfaceClass surface;
+        std::string_view section;
+        std::string_view key;
+        bool isTrim;
+    };
+    static constexpr Legacy kLegacy[] = {
+        {SurfaceClass::kWood, "Surfaces", "fWoodTrimDb", true},
+        {SurfaceClass::kStone, "Surfaces", "fStoneTrimDb", true},
+        {SurfaceClass::kSoft, "Surfaces", "fSoftTrimDb", true},
+        {SurfaceClass::kWood, "SlotGain", "fSurfWood", true},
+        {SurfaceClass::kStone, "SlotGain", "fSurfStone", true},
+        {SurfaceClass::kSoft, "SlotGain", "fSurfSoft", true},
+        {SurfaceClass::kWood, "Surfaces", "bWood", false},
+        {SurfaceClass::kStone, "Surfaces", "bStone", false},
+        {SurfaceClass::kSoft, "Surfaces", "bSoft", false},
+        {SurfaceClass::kWood, "Layers", "bSurfWood", false},
+        {SurfaceClass::kStone, "Layers", "bSurfStone", false},
+        {SurfaceClass::kSoft, "Layers", "bSurfSoft", false},
+    };
+
+    std::size_t opened = 0;
+    std::string section;
+    for (const auto& raw : ReadLines(algorithmFile)) {
+        if (const auto header = SectionOf(raw); !header.empty()) {
+            section.assign(header);
+            continue;
+        }
+        std::string_view key;
+        std::string_view value;
+        if (!SplitAssignment(raw, key, value)) {
+            continue;
+        }
+        for (const Legacy& l : kLegacy) {
+            if (!EqualsIgnoreCase(section, l.section) || !EqualsIgnoreCase(key, l.key)) {
+                continue;
+            }
+            const auto index = static_cast<std::size_t>(l.surface);
+            SurfaceSkinConfig& skin = config.surfaces.skins[index];
+            const std::string text{Trim(value)};
+            if (l.isTrim) {
+                float parsed = 0.0f;
+                const auto* first = text.data();
+                const auto* last = first + text.size();
+                if (std::from_chars(first, last, parsed).ec != std::errc{} ||
+                    parsed == SurfaceSkinConfig{}.trimDb) {
+                    break;  // absent, unparseable, or the default: nothing to carry
+                }
+                skin.trimDb = parsed;
+            } else {
+                // Anything that is not a plain 0 is on, which is how every other
+                // bool in these files is read.
+                const bool on = !(text == "0" || EqualsIgnoreCase(text, "false"));
+                if (on == SurfaceSkinConfig{}.enabled) {
+                    break;
+                }
+                skin.enabled = on;
+            }
+            // Only now, so a file that mentions the key at its default leaves the
+            // class closed. Opening on the mention rather than on the *value*
+            // would give everybody three blocks of zeroes on first launch and
+            // kill the inheritance before they ever saw it.
+            if (!config.surfaces.opened[index]) {
+                config.surfaces.opened[index] = true;
+                ++opened;
+            }
+            break;
+        }
+    }
+    return opened;
+}
+
 void ConfigManager::Initialize(const std::filesystem::path& directory) {
     m_directory = directory;
     m_generalPath = directory / "RagdollSounds.ini";
     m_algorithmPath = directory / "RagdollSounds_Algorithm.ini";
+    m_surfacePath = directory / "RagdollSounds_Algorithm_Surfaces.ini";
     m_sfxPath = directory / "RagdollSounds_SFX.ini";
 
     std::error_code ec;
@@ -329,10 +554,30 @@ void ConfigManager::Initialize(const std::filesystem::path& directory) {
     m_general = GeneralConfig{};
     m_algorithm = AlgorithmConfig{};
     LoadInto(m_generalPath, &m_general, GeneralParams());
-    LoadInto(m_algorithmPath, &m_algorithm, AlgorithmParams());
+    LoadInto(m_algorithmPath, &m_algorithm, AlgorithmFileParams());
+
+    // The surfaces list. If the file does not exist yet, this install predates
+    // it, so the three trims and three mutes that used to live in the algorithm
+    // file are folded into the list before anything is written back - and the
+    // very next line writes the algorithm file *without* them, which is what
+    // retires the old keys. There is no second migration to worry about: once
+    // the surfaces file exists it is the only thing consulted.
+    if (!std::filesystem::exists(m_surfacePath)) {
+        const std::size_t opened = MigrateSurfaces(m_algorithmPath, m_algorithm);
+        if (opened > 0) {
+            spdlog::info("config: migrated {} surface(s) into {}", opened,
+                         m_surfacePath.filename().string());
+        }
+    } else {
+        ReadOpenedSurfaces(m_surfacePath, m_algorithm);
+        LoadInto(m_surfacePath, &m_algorithm, SurfaceParams());
+    }
+    m_algorithm.surfaces.Resolve();
+
     SaveFrom(m_generalPath, &m_general, GeneralParams(), "RagdollSounds.ini - general settings");
-    SaveFrom(m_algorithmPath, &m_algorithm, AlgorithmParams(),
+    SaveFrom(m_algorithmPath, &m_algorithm, AlgorithmFileParams(),
              "RagdollSounds_Algorithm.ini - the sound engine");
+    SaveSurfaces();
 
     // The sfx table round-trips the same way, and for the same reason: an
     // install with no file gets one listing every slot with its brief, which is
@@ -345,7 +590,39 @@ void ConfigManager::Initialize(const std::filesystem::path& directory) {
     m_initialized = true;
     spdlog::info("config: {}", m_generalPath.string());
     spdlog::info("config: {}", m_algorithmPath.string());
+    spdlog::info("config: {}", m_surfacePath.string());
     spdlog::info("config: {}", m_sfxPath.string());
+}
+
+bool ConfigManager::SaveSurfaces() {
+    // A header even when nothing is opened, so the file exists and says how to
+    // use it. An empty surfaces file is the ordinary state and should not look
+    // like a failed write.
+    const auto rows = OpenedSurfaceParams(m_algorithm);
+    std::size_t count = 0;
+    for (bool open : m_algorithm.surfaces.opened) {
+        count += open ? 1 : 0;
+    }
+    const std::string header = std::format(
+        "RagdollSounds_Algorithm_Surfaces.ini - one block per floor you have opened\n"
+        ";\n"
+        "; {} of {} surfaces have a block here. A surface with no block inherits from its\n"
+        "; parent - metal, glass and ice from stone; dirt, gravel, snow, water and body from\n"
+        "; soft; a puddle from water and bone from body - and a root with no block takes the\n"
+        "; [Surfaces] section of RagdollSounds_Algorithm.ini.\n"
+        ";\n"
+        "; Delete a block to go back to inheriting. Add one by hand - the section name is\n"
+        "; Surface.<name>, all lower case - or press + in the testbench's surface panel,\n"
+        "; which opens it holding whatever it was already inheriting.",
+        count, SurfaceConfig::kClasses);
+    // Written from scratch rather than through SaveFrom, which is the one place
+    // this file differs from the other two. SaveFrom copies any line it does not
+    // recognise through verbatim - exactly right for a file where every key is
+    // always present, and exactly wrong here, because closing a surface makes
+    // its keys unrecognised and they would survive every save. A list has to be
+    // able to lose an entry.
+    return ini::WriteFile(m_surfacePath,
+                          ToIniText(&m_algorithm, std::span<const ParamDesc>{rows}, header));
 }
 
 void ConfigManager::Load() {
@@ -358,7 +635,17 @@ void ConfigManager::Load() {
     AlgorithmConfig algorithm{};
     SfxAssignments sfx{};
     const std::size_t generalKeys = LoadInto(m_generalPath, &general, GeneralParams());
-    const std::size_t algorithmKeys = LoadInto(m_algorithmPath, &algorithm, AlgorithmParams());
+    std::size_t algorithmKeys = LoadInto(m_algorithmPath, &algorithm, AlgorithmFileParams());
+    if (!std::filesystem::exists(m_surfacePath)) {
+        MigrateSurfaces(m_algorithmPath, algorithm);
+    } else {
+        ReadOpenedSurfaces(m_surfacePath, algorithm);
+        algorithmKeys += LoadInto(m_surfacePath, &algorithm, SurfaceParams());
+    }
+    // After both, and after the migration: it is what turns thirteen classes'
+    // worth of "no block" into thirteen classes' worth of usable numbers, and
+    // every read of `surfaces.skins` downstream assumes it has run.
+    algorithm.surfaces.Resolve();
     const std::size_t sfxSlots = sfx.Load(m_sfxPath);
 
     {
@@ -379,7 +666,16 @@ void ConfigManager::Load() {
     // The single most useful line in a user's log, because it says what they
     // changed. Nothing is a valid answer and worth printing too.
     const auto generalDeltas = Deltas(&m_general, GeneralParams());
-    const auto algorithmDeltas = Deltas(&m_algorithm, AlgorithmParams());
+    auto algorithmDeltas = Deltas(&m_algorithm, AlgorithmFileParams());
+    // Only the *opened* surfaces. A closed class is holding its parent's values,
+    // so reporting it would turn one edit to stone into four lines about ice and
+    // glass having changed - which is true of what they play and false about
+    // what the user set.
+    {
+        const auto opened = OpenedSurfaceParams(m_algorithm);
+        const auto surfaceDeltas = Deltas(&m_algorithm, std::span<const ParamDesc>{opened});
+        algorithmDeltas.insert(algorithmDeltas.end(), surfaceDeltas.begin(), surfaceDeltas.end());
+    }
     if (generalDeltas.empty() && algorithmDeltas.empty()) {
         spdlog::info("config: every value is at its default");
     }
@@ -398,8 +694,9 @@ void ConfigManager::Save() {
     }
     std::lock_guard lock{m_mutex};
     SaveFrom(m_generalPath, &m_general, GeneralParams(), "RagdollSounds.ini - general settings");
-    SaveFrom(m_algorithmPath, &m_algorithm, AlgorithmParams(),
+    SaveFrom(m_algorithmPath, &m_algorithm, AlgorithmFileParams(),
              "RagdollSounds_Algorithm.ini - the sound engine");
+    SaveSurfaces();
     m_sfx.Save(m_sfxPath);
     spdlog::info("config: saved");
 }
@@ -459,6 +756,11 @@ void ConfigManager::PushOverride(const AlgorithmConfig& config) {
     {
         std::lock_guard lock{m_mutex};
         m_override = config;
+        // Belt and braces: the testbench resolves as it edits, but a config
+        // arriving over the wire from `tune.py` has been through a schema walk
+        // that knows nothing about inheritance, so a closed class could be
+        // holding whatever the sender's copy had.
+        m_override.surfaces.Resolve();
         m_hasOverride = true;
         deltas = Deltas(&m_override, AlgorithmParams());
     }

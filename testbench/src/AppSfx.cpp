@@ -39,11 +39,39 @@ constexpr ImVec4 kBad{1.0f, 0.45f, 0.42f, 1.0f};
 /// on top of an impact, then the things that close or bed it. Reading down this
 /// list is reading through one hit.
 constexpr rds::SlotId kImpactOrder[] = {
-    rds::SlotId::kImpTransient, rds::SlotId::kSurfSoft,   rds::SlotId::kSurfWood,
-    rds::SlotId::kSurfStone,    rds::SlotId::kImpBody,    rds::SlotId::kImpSub,
-    rds::SlotId::kLimbTap,      rds::SlotId::kCrunchGran, rds::SlotId::kHeadImpact,
-    rds::SlotId::kGoreWet,      rds::SlotId::kSettleRest, rds::SlotId::kScrapeLoop,
-    rds::SlotId::kFoleyCloth,   rds::SlotId::kAirWhoosh,  rds::SlotId::kGruntImpact,
+    rds::SlotId::kImpTransient,
+    // The three surfaces with files, then the ten that inherit from them, in
+    // the order of the parent they fall back to: soft's children, then stone's,
+    // then the two that hang off water and body. Dropping `surf_ice_01.wav` on
+    // the ice row is the whole of adding a surface, so the rows want to sit
+    // next to the one they currently sound like.
+    rds::SlotId::kSurfSoft,        rds::SlotId::kSurfDirt,        rds::SlotId::kSurfGravel,
+    rds::SlotId::kSurfSnow,        rds::SlotId::kSurfWater,       rds::SlotId::kSurfWaterPuddle,
+    rds::SlotId::kSurfBody,        rds::SlotId::kSurfBone,
+    rds::SlotId::kSurfWood,
+    rds::SlotId::kSurfStone,       rds::SlotId::kSurfMetal,       rds::SlotId::kSurfIce,
+    rds::SlotId::kSurfGlass,
+    rds::SlotId::kArmorBare,       rds::SlotId::kArmorCloth,
+    rds::SlotId::kArmorLight,     rds::SlotId::kArmorHeavy,
+    // Beside the layer it is a variant of, which is what this list is for: it
+    // reads in the order an impact arrives, not in SlotId order, so the pressure
+    // that keeps `imp_body_limb` at the end of the enum does not apply here.
+    rds::SlotId::kImpBody,        rds::SlotId::kImpBodyLimb,     rds::SlotId::kImpSub,
+    rds::SlotId::kLimbTap,        rds::SlotId::kCrunchGran,      rds::SlotId::kSpineCrunch,
+    rds::SlotId::kLimbCrunch,     rds::SlotId::kHeadImpact,
+    rds::SlotId::kGoreWet,        rds::SlotId::kSettleRest,      rds::SlotId::kScrapeLoop,
+    rds::SlotId::kScrapeBodyWood, rds::SlotId::kScrapeBodyStone, rds::SlotId::kScrapeLimb,
+    rds::SlotId::kScrapeLimbWood, rds::SlotId::kScrapeLimbStone, rds::SlotId::kScrapeGrain,
+    // With the other continuous beds rather than at the end where the enum puts
+    // it, for the same reason `imp_body_limb` sits beside `imp_body`: this list
+    // reads in the order an impact arrives and then through the things that bed
+    // it, and the garment is the last of those.
+    // The bed sits with the grinds it is under rather than at the end where the
+    // enum puts it: this list reads in the order an impact arrives and then
+    // through the things that bed it, and the mass under a slide belongs beside
+    // the grit that rides on it.
+    rds::SlotId::kScrapeLoopRumble,
+    rds::SlotId::kAirWhoosh,      rds::SlotId::kClothRustle,     rds::SlotId::kGruntImpact,
     rds::SlotId::kScreamBig,
 };
 
@@ -51,6 +79,13 @@ static_assert(std::size(kImpactOrder) == static_cast<std::size_t>(rds::SlotId::k
               "every slot needs a place in the list, or the panel silently hides one");
 
 void Tip(std::string_view text) {
+    // Never while a row is in the hand. The drag carries its own preview under
+    // the cursor, and it passes over every slot in the list on the way to the
+    // one you want - so a second tooltip fighting it for that space is one per
+    // slot crossed, on top of the thing you are trying to aim.
+    if (ImGui::GetDragDropPayload() != nullptr) {
+        return;
+    }
     if (!text.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
         ImGui::BeginTooltip();
         ImGui::PushTextWrapPos(440.0f);
@@ -65,6 +100,196 @@ void Tip(std::string_view text) {
     std::ranges::transform(out, out.begin(),
                            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return out;
+}
+
+
+// ── dragging a placement ────────────────────────────────────────────────────
+//
+// Putting a sound on a different slot used to be four gestures - read the name,
+// `x`, `+ add` over there, then find it again in a library of a hundred files
+// while looking straight at it. Dragging the row is the same edit said once.
+//
+// The payload is the row's *address* and not its filename, because a filename
+// is not an identity here: a slot may place one wav twice, plain and tagged,
+// and only the position says which of the two is in the hand.
+
+constexpr const char* kRowPayload = "rds.sfx.row";
+
+struct RowDrag {
+    int slot{-1};
+    int index{-1};
+};
+
+/// Make the item just submitted the handle for dragging placement `index` of
+/// `slot`.
+///
+/// The preview says which of the two gestures is live and re-reads Ctrl every
+/// frame, so the modifier is discoverable from the thing it changes rather than
+/// from a tooltip somebody has to already suspect exists.
+void RowDragSource(rds::SlotId slot, int index, std::string_view label) {
+    if (!ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+        return;
+    }
+    const RowDrag drag{static_cast<int>(slot), index};
+    ImGui::SetDragDropPayload(kRowPayload, &drag, sizeof(drag));
+    ImGui::TextUnformatted(label.data(), label.data() + label.size());
+    if (ImGui::GetIO().KeyCtrl) {
+        ImGui::TextColored(kSuggest, "copy onto the slot you drop it on");
+    } else {
+        ImGui::TextDisabled("move onto the slot you drop it on - hold Ctrl to copy");
+    }
+    ImGui::EndDragDropSource();
+}
+
+/// True on the frame a row was dropped on the item just submitted, with `out`
+/// set to where it came from.
+///
+/// Targets nest - a row sits inside its slot - and that is deliberate rather
+/// than tolerated: ImGui hands the drop to the smallest rectangle under the
+/// cursor, so pointing at a row means that row's condition and pointing at the
+/// space around them means the slot itself.
+[[nodiscard]] bool AcceptRowDrop(RowDrag& out) {
+    bool dropped = false;
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kRowPayload);
+            payload != nullptr && payload->DataSize == static_cast<int>(sizeof(RowDrag))) {
+            std::memcpy(&out, payload->Data, sizeof(RowDrag));
+            dropped = true;
+        }
+        ImGui::EndDragDropTarget();
+    }
+    return dropped;
+}
+
+
+// ── conditions ──────────────────────────────────────────────────────────────
+//
+// A file on a slot can ask something of the contact before it is a candidate,
+// and where it applies it beats the plain files rather than merely joining
+// them. That is one recording that only plays on stone, or only in plate, and
+// it is the difference between a slot that has five sounds and a slot that
+// knows which of them belongs where.
+//
+// The engine has done this since the armour build; until now the only way to
+// set one was to type it into RagdollSounds_SFX.ini by hand, which meant the
+// feature existed and nobody could reach it.
+
+/// The two axes, in the order the popover lays them out. `any` first on both,
+/// because the top-left cell is "no opinion" and reading right or down is
+/// asking for more.
+constexpr rds::SurfaceMatch kCondSurfaces[] = {
+    rds::SurfaceMatch::kAny,   rds::SurfaceMatch::kSoft,  rds::SurfaceMatch::kWood,
+    rds::SurfaceMatch::kStone, rds::SurfaceMatch::kMetal, rds::SurfaceMatch::kWater,
+    rds::SurfaceMatch::kBody,
+};
+constexpr rds::CoverageMatch kCondArmour[] = {
+    rds::CoverageMatch::kAny,   rds::CoverageMatch::kBare,  rds::CoverageMatch::kCloth,
+    rds::CoverageMatch::kLight, rds::CoverageMatch::kHeavy,
+};
+
+[[nodiscard]] bool SameCondition(rds::VariantCondition a, rds::VariantCondition b) {
+    return a.surface == b.surface && a.coverage == b.coverage;
+}
+
+/// `stone / heavy` - the tag exactly as the ini spells it.
+///
+/// Deliberately the ini's own words rather than something friendlier: the panel
+/// is the second way to set these and the file is the first, and somebody who
+/// learns the grid should be able to read the file afterwards.
+[[nodiscard]] std::string ConditionTag(rds::VariantCondition cond) {
+    return std::format("{} / {}", rds::ToString(cond.surface), rds::ToString(cond.coverage));
+}
+
+[[nodiscard]] std::string_view SurfaceWords(rds::SurfaceMatch m) {
+    switch (m) {
+        case rds::SurfaceMatch::kSoft:  return "soft ground";
+        case rds::SurfaceMatch::kWood:  return "wood";
+        case rds::SurfaceMatch::kStone: return "stone";
+        case rds::SurfaceMatch::kMetal: return "metal";
+        case rds::SurfaceMatch::kWater: return "water";
+        case rds::SurfaceMatch::kBody:  return "another body";
+        default:                        return "any surface";
+    }
+}
+
+[[nodiscard]] std::string_view ArmourWords(rds::CoverageMatch m) {
+    switch (m) {
+        case rds::CoverageMatch::kBare:  return "bare skin";
+        case rds::CoverageMatch::kCloth: return "clothing";
+        case rds::CoverageMatch::kLight: return "light armour";
+        case rds::CoverageMatch::kHeavy: return "heavy armour";
+        default:                         return "any armour";
+    }
+}
+
+/// What the tag means, in words: `only on stone, in heavy armour`.
+[[nodiscard]] std::string ConditionWords(rds::VariantCondition cond) {
+    const bool surface = cond.surface != rds::SurfaceMatch::kAny;
+    const bool armour = cond.coverage != rds::CoverageMatch::kAny;
+    if (!surface && !armour) {
+        return "no condition - in play everywhere";
+    }
+    if (surface && !armour) {
+        return std::format("only on {}", SurfaceWords(cond.surface));
+    }
+    if (!surface && armour) {
+        return std::format("only in {}", ArmourWords(cond.coverage));
+    }
+    return std::format("only on {}, in {}", SurfaceWords(cond.surface),
+                       ArmourWords(cond.coverage));
+}
+
+/// The popover's grid: every combination of surface and armour, one click each.
+///
+/// A table rather than two dropdowns because the question is "which corner of
+/// the space is this recording for", and a corner is a thing you point at - two
+/// combos would make choosing `stone / heavy` two decisions when it is one.
+/// Returns true on the frame a cell was clicked, with `out` set to it.
+///
+/// `allowPlain` is the top-left cell, which asks nothing of anything. Off while
+/// adding, where it would mean the same as `+ add`; on while re-tagging, where
+/// it is how a tag comes back off.
+[[nodiscard]] bool DrawConditionGrid(rds::VariantCondition& out, bool allowPlain) {
+    bool picked = false;
+    if (ImGui::BeginTable("cond", 1 + static_cast<int>(std::size(kCondSurfaces)),
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::TableSetupColumn("");
+        for (const rds::SurfaceMatch surface : kCondSurfaces) {
+            ImGui::TableSetupColumn(std::string(rds::ToString(surface)).c_str());
+        }
+        ImGui::TableHeadersRow();
+        for (const rds::CoverageMatch armour : kCondArmour) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("%s", std::string(rds::ToString(armour)).c_str());
+            for (const rds::SurfaceMatch surface : kCondSurfaces) {
+                ImGui::TableNextColumn();
+                const rds::VariantCondition cell{surface, armour};
+                const bool plain = cell.Unconditional();
+                const bool off = plain && !allowPlain;
+                ImGui::BeginDisabled(off);
+                if (ImGui::Selectable(std::format(" + ##{}_{}", static_cast<int>(surface),
+                                                  static_cast<int>(armour))
+                                          .c_str())) {
+                    out = cell;
+                    picked = true;
+                }
+                ImGui::EndDisabled();
+                if (!off) {
+                    Tip(plain ? std::string("No condition at all: a plain variant, in play "
+                                            "everywhere. This is how a tag comes back off.")
+                              : std::format("{}.\n\nWritten `{}` in RagdollSounds_SFX.ini. A "
+                                            "tagged file beats the plain ones where it matches "
+                                            "and is invisible where it does not - and if nothing "
+                                            "on the slot can match, the slot plays its full set "
+                                            "rather than going quiet.",
+                                            ConditionWords(cell), ConditionTag(cell)));
+                }
+            }
+        }
+        ImGui::EndTable();
+    }
+    return picked;
 }
 
 }  // namespace
@@ -284,6 +509,71 @@ void App::ClearSfxMutes() {
     PushSfxEdit(before, "unmute all");
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// moving a placement
+// ═════════════════════════════════════════════════════════════════════════════
+
+void App::DropSfxPlacement(rds::SlotId from, int index, rds::SlotId to,
+                           rds::VariantCondition condition, bool copy) {
+    if (static_cast<std::size_t>(from) >= static_cast<std::size_t>(rds::SlotId::kCount)) {
+        return;
+    }
+    rds::SlotAssignment& source = m_sfx.For(from);
+    if (index < 0 || index >= static_cast<int>(source.files.size())) {
+        return;
+    }
+    // Both by value: the vectors under them are about to move.
+    const std::string file = source.files[static_cast<std::size_t>(index)];
+    const rds::VariantCondition was = source.ConditionAt(static_cast<std::size_t>(index));
+
+    // Dropped back where it already is. Not an edit and never an undo step -
+    // even for a copy, where it would mean a second identical placement, which
+    // is a way to weight a file and not a thing a slip of the mouse should do.
+    if (from == to && SameCondition(was, condition)) {
+        return;
+    }
+
+    const rds::SfxAssignments before = m_sfx;
+    if (from == to) {
+        // Onto another condition on its own slot. A move here is a re-tag and
+        // must go through SetConditionAt rather than through remove-and-add:
+        // the index is the variant a recorded cue carries, and sending the row
+        // to the end of the list would renumber every take in the corpus.
+        if (copy) {
+            m_sfx.For(to).Add(file, condition);
+        } else {
+            m_sfx.For(to).SetConditionAt(static_cast<std::size_t>(index), condition);
+        }
+    } else {
+        m_sfx.For(to).Add(file, condition);
+        if (!copy) {
+            // RemoveAt takes the row's condition with it, and the mute when
+            // that was the file's last placement here.
+            m_sfx.For(from).RemoveAt(static_cast<std::size_t>(index));
+        }
+    }
+    // Nothing carries the mute across. It says "not this sound, *here*", and
+    // here was the slot it left: dragging a file you silenced onto another slot
+    // is asking whether it works there. A destination that already mutes the
+    // name is the one exception, and that is the name-keyed mute saying what it
+    // has always said.
+
+    std::string label;
+    if (from == to) {
+        const std::string what =
+            condition.Unconditional() ? std::string("anything") : ConditionTag(condition);
+        label = std::format("{} / {}{} for {}", rds::Slot(to).name, copy ? "copy " : "", file,
+                            what);
+    } else {
+        const std::string where =
+            condition.Unconditional()
+                ? std::string(rds::Slot(to).name)
+                : std::format("{} ({})", rds::Slot(to).name, ConditionTag(condition));
+        label = std::format("{} / {} to {}", rds::Slot(from).name, copy ? "copy" : "move", where);
+    }
+    PushSfxEdit(before, label);
+}
+
 bool App::SlotInTimeline(rds::SlotId slot) const {
     // The remembered answer, not the live one. Recomputing it from the cue
     // list every frame meant that muting a slot - or any config change that
@@ -296,20 +586,26 @@ bool App::SlotInTimeline(rds::SlotId slot) const {
 CueSound App::SoundOf(const rds::Cue& cue) const {
     CueSound out;
     out.variant = cue.variant;
-    out.variantCount = static_cast<int>(m_bank.FileCount(cue.slot));
-    out.forced = m_bank.ForcedVariant(cue.slot) != rds::SoundBank::kNoVariant;
+
+    // Where the files are, which is not always the slot the cue names. The
+    // engine writes the resolved slot into every cue it emits, so this is
+    // usually `cue.slot` itself - but a stop carries the ask rather than the
+    // resolution, and an unrecorded `scrape_limb_wood` would then report a
+    // stand-in for a voice that spent its whole life playing `scrape_limb`.
+    out.plays = m_bank.PlaysAs(cue.slot);
+    out.fellBack = out.plays != cue.slot;
+
+    out.variantCount = static_cast<int>(m_bank.FileCount(out.plays));
+    out.forced = m_bank.ForcedVariant(out.plays) != rds::SoundBank::kNoVariant;
 
     rds::ResolvedSound resolved{};
-    if (!m_bank.Get(cue.slot, cue.variant, resolved)) {
-        // A declared-and-unfilled voice slot. The engine skips these, so it is
-        // not a cue anybody should be looking at - but say so rather than
-        // leaving the cell blank, which reads as a bug in this column.
-        out.label = "(unfilled)";
-        return out;
-    }
-    if (resolved.procedural || resolved.path.empty()) {
-        out.procedural = true;
-        out.label = "(procedural)";
+    if (!m_bank.Get(out.plays, cue.variant, resolved) || resolved.path.empty()) {
+        // Nothing recorded for it and nothing to fall back on, so this cue makes
+        // no sound. The engine skips it, and saying so beats leaving the cell
+        // blank - which reads as a bug in this column rather than a gap in the
+        // pack.
+        out.silent = true;
+        out.label = "(no recording)";
         return out;
     }
 
@@ -400,6 +696,23 @@ void App::DrawSfxPanel(float height) {
                         "picking between its variants.",
                         forced));
     }
+    // Same argument as the two buttons around it: a slot hidden from the
+    // timeline is invisible from anywhere but the row it is on, and the take it
+    // was hidden for is long since gone. An empty stretch of lane looks exactly
+    // like a take with nothing in it, so the count has to be somewhere it cannot
+    // be missed.
+    if (const auto hidden = static_cast<int>(std::ranges::count(m_slotHidden, true)); hidden > 0) {
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, kDirty);
+        if (ImGui::Button(std::format("Show all ({})###showallintimeline", hidden).c_str())) {
+            m_slotHidden.fill(false);
+        }
+        ImGui::PopStyleColor();
+        Tip(std::format("{} slot(s) are hidden from the timeline. This puts all of them back on "
+                        "it. Drawing only - nothing was silenced, so nothing changes but the "
+                        "lane.",
+                        hidden));
+    }
     if (const int muted = SfxMuteCount(); muted > 0) {
         ImGui::SameLine();
         ImGui::PushStyleColor(ImGuiCol_Text, kDirty);
@@ -426,7 +739,9 @@ void App::DrawSfxPanel(float height) {
     for (const rds::SlotId slot : order) {
         const rds::SlotDesc& desc = rds::Slot(slot);
         if (!needle.empty()) {
-            std::string hay = Lower(desc.name) + " " + Lower(desc.role) + " " + Lower(desc.character);
+            std::string hay =
+                Lower(desc.name) + " " + Lower(rds::ToString(desc.family)) + " " +
+                Lower(desc.character);
             for (const std::string& file : m_sfx.For(slot).files) {
                 if (const rds::SfxEntry* entry = m_library.Find(file); entry != nullptr) {
                     hay += " " + Lower(entry->name);
@@ -446,6 +761,31 @@ void App::DrawSfxPanel(float height) {
             }
         }
         DrawSlotWidget(slot);
+    }
+
+    // Dragging a row to the edge of the view scrolls it.
+    //
+    // The list is twenty-nine slots long and a drag is one button held down, so
+    // without this the only reachable slots are the ones already on screen -
+    // and the slot you want is below the fold about as often as not. The filter
+    // box is the other way to shorten the trip, and it is above the child, so
+    // it cannot be typed into mid-drag.
+    if (const ImGuiPayload* payload = ImGui::GetDragDropPayload();
+        payload != nullptr && payload->IsDataType(kRowPayload)) {
+        const ImVec2 min = ImGui::GetWindowPos();
+        const ImVec2 size = ImGui::GetWindowSize();
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        constexpr float kEdge = 32.0f;
+        const bool inside = mouse.x >= min.x && mouse.x <= min.x + size.x &&
+                            mouse.y >= min.y - kEdge && mouse.y <= min.y + size.y + kEdge;
+        if (inside) {
+            const float step = 900.0f * ImGui::GetIO().DeltaTime;
+            if (mouse.y < min.y + kEdge) {
+                ImGui::SetScrollY(ImGui::GetScrollY() - step);
+            } else if (mouse.y > min.y + size.y - kEdge) {
+                ImGui::SetScrollY(ImGui::GetScrollY() + step);
+            }
+        }
     }
     ImGui::EndChild();
 
@@ -492,6 +832,16 @@ void App::DrawSlotWidget(rds::SlotId slot) {
             ConfigSide& s = m_side[m_focusSide];
             const rds::AlgorithmConfig before = s.cfg;
             *rds::LayerMute(s.cfg, slot) = !audible;
+            // A surface skin's mute lives in that class's block, and writing to
+            // a *closed* block is writing somewhere the next Resolve overwrites.
+            // Silencing one floor is a setting of its own, so say so: open it.
+            // Without this the button would appear to work and then quietly
+            // undo itself the next time anything else was touched.
+            if (const rds::SurfaceClass surface = rds::SurfaceOfSlot(rds::MuteOwner(slot));
+                surface != rds::SurfaceClass::kCount) {
+                s.cfg.surfaces.opened[static_cast<std::size_t>(surface)] = true;
+                s.cfg.surfaces.Resolve();
+            }
             s.dirty = true;
             PushEdit(m_focusSide, before,
                      std::string(desc.name) + (audible ? " / muted" : " / unmuted"));
@@ -505,6 +855,32 @@ void App::DrawSlotWidget(rds::SlotId slot) {
             "muting one side gives you with-and-without on alternate loops, which is the "
             "fastest way to ask whether a layer is earning its place.",
             static_cast<char>('A' + m_focusSide)));
+    }
+
+    // Whether this slot's cues are drawn on the timeline.
+    //
+    // Beside the mute on purpose, because the two questions are asked in the
+    // same breath and answered in opposite places: "does the mix need this
+    // layer" is a mute and reaches the render, "can I see past this layer" is
+    // this and reaches nothing. A slide hidden here is still audible, still in
+    // the table, still in the export - the lane just stops drawing over the
+    // impacts underneath it.
+    if (const auto index = static_cast<std::size_t>(slot); index < m_slotHidden.size()) {
+        ImGui::SameLine();
+        bool shown = !m_slotHidden[index];
+        if (!shown) ImGui::PushStyleColor(ImGuiCol_Text, kDirty);
+        if (ImGui::Checkbox("timeline", &shown)) {
+            m_slotHidden[index] = !shown;
+        }
+        if (!shown) ImGui::PopStyleColor();
+        Tip(std::format(
+            "Draw {}'s cues on the timeline. Off hides its bars and, for a loop slot, "
+            "its envelope - which is the point of it: a long slide's scrape envelopes "
+            "cover most of the lane and the impacts you are tuning are underneath "
+            "them.\n\nDrawing only. Nothing here changes the cue list, the table, the "
+            "export or what you hear - unlike `mute`, which silences the layer for "
+            "real. Remembered between launches.",
+            desc.name));
     }
 
     ImGui::SameLine();
@@ -526,26 +902,148 @@ void App::DrawSlotWidget(rds::SlotId slot) {
 
     ImGui::SameLine();
     if (ImGui::SmallButton("+ add")) {
+        // Whatever the popover last put there is not what this button means.
+        m_pendingConditionSlot = -1;
         m_browser.OpenForSlot(slot, -1, {}, assignment.looping);
     }
     Tip("Assign another file to this slot. The engine picks between a slot's files with a shuffle "
         "bag, so three files means no immediate repeats - which is what imp_body_01/02/03 was "
         "doing before this panel existed.");
 
+    // The same gesture with the condition chosen first.
+    //
+    // First the grid, then the library, in that order on purpose: what a
+    // recording is *for* is the thing you know before you go looking for it,
+    // and asking afterwards would mean picking a sound and then being
+    // interrogated about it. The picker that opens is the ordinary one, so the
+    // A/B against what the slot plays now still works - it is the landing that
+    // differs, not the choosing.
+    ImGui::SameLine();
+    if (ImGui::SmallButton("+ variant")) {
+        ImGui::OpenPopup("addvariant");
+    }
+    Tip("Assign a file that only plays on some contacts - one recording for stone, or for plate, "
+        "or for plate on stone. It beats the plain files where it matches and is invisible where "
+        "it does not.\n\nA condition is a preference and never a mute: if nothing on the slot "
+        "matches the contact, the slot plays its whole set rather than going quiet.\n\n"
+        "It may be a file the slot already plays. That puts it on the slot twice - once plain, "
+        "once tagged - so it stays one option among the rest everywhere and becomes the only one "
+        "where the tag matches. The two rows are separate: re-tag or remove one and the other "
+        "stays as it was.");
+    if (ImGui::BeginPopup("addvariant")) {
+        ImGui::TextDisabled("what is the new one for?");
+        ImGui::Spacing();
+        rds::VariantCondition chosen{};
+        if (DrawConditionGrid(chosen, false)) {
+            m_pendingConditionSlot = static_cast<int>(slot);
+            m_pendingCondition = chosen;
+            m_browser.OpenForSlot(slot, -1, {}, assignment.looping);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
     if (assignment.files.empty()) {
         ImGui::Indent(14.0f);
-        ImGui::TextDisabled("nothing assigned - falls back to sounds\\%s_NN.wav",
-                            std::string(desc.name).c_str());
-        Tip("An empty slot is not a silent one. The bank scans the built pack for files named "
-            "after the slot, which is what the mod did before this file existed.");
+        const rds::SlotId plays = m_bank.PlaysAs(slot);
+        if (plays != slot) {
+            // What the game is doing right now, which is neither silence nor a
+            // stand-in. Said in the panel where the slot is filled, because this
+            // is where somebody decides whether it still needs a recording.
+            ImGui::TextDisabled("nothing assigned - plays %s until one is",
+                                std::string(rds::Slot(plays).name).c_str());
+            Tip(std::format(
+                "An unrecorded surface variant is not a silent slot and not a synthesised one: it "
+                "resolves to {}, which is what makes colouring a floor a file drop and nothing "
+                "else.\n\nBefore that it scans the built pack for sounds\\{}_NN.wav, so a file "
+                "named after the slot still wins.",
+                rds::Slot(plays).name, desc.name));
+        } else {
+            ImGui::TextDisabled("nothing assigned - falls back to sounds\\%s_NN.wav",
+                                std::string(desc.name).c_str());
+            Tip("An empty slot is not a silent one. The bank scans the built pack for files named "
+                "after the slot, which is what the mod did before this file existed.");
+        }
         ImGui::Unindent(14.0f);
     }
 
-    int removeAt = -1;
+    // Drawn in groups - the plain files first, then one block per condition -
+    // while every row keeps the index it has in `files`. Grouping is a way of
+    // reading the list and must not be a way of re-ordering it: that index is
+    // the variant a recorded cue carries, and moving one would change which
+    // sound every take in the corpus plays.
+    std::vector<int> order;
+    order.reserve(assignment.files.size());
+    std::vector<rds::VariantCondition> groups;
     for (int i = 0; i < static_cast<int>(assignment.files.size()); ++i) {
+        const rds::VariantCondition cond = assignment.ConditionAt(static_cast<std::size_t>(i));
+        if (cond.Unconditional()) {
+            order.push_back(i);
+        } else if (std::ranges::none_of(groups, [&](const rds::VariantCondition& seen) {
+                       return SameCondition(seen, cond);
+                   })) {
+            groups.push_back(cond);
+        }
+    }
+    for (const rds::VariantCondition& group : groups) {
+        for (int i = 0; i < static_cast<int>(assignment.files.size()); ++i) {
+            if (SameCondition(assignment.ConditionAt(static_cast<std::size_t>(i)), group)) {
+                order.push_back(i);
+            }
+        }
+    }
+
+    const rds::SlotResolutionConfig& resolution = m_side[m_focusSide].cfg.slots;
+    int removeAt = -1;
+    // Where a dropped row came from, and what this slot is about to ask of it.
+    // Collected rather than acted on, for the same reason `removeAt` is: the
+    // edit renumbers the list the loop is walking.
+    RowDrag dropFrom{};
+    rds::VariantCondition dropCond{};
+    rds::VariantCondition heading{};
+    for (const int i : order) {
         const std::string& file = assignment.files[static_cast<std::size_t>(i)];
+        const rds::VariantCondition cond = assignment.ConditionAt(static_cast<std::size_t>(i));
+        if (!cond.Unconditional() && !SameCondition(cond, heading)) {
+            // Whether this group is being honoured *right now*, on the side in
+            // focus. A grid full of overrides and a switch off in [Slots] looks
+            // exactly like a grid full of overrides that work, and the panel is
+            // the only place the two can be told apart.
+            const bool honoured =
+                resolution.conditionalVariants &&
+                (cond.surface == rds::SurfaceMatch::kAny || resolution.surfaceConditions) &&
+                (cond.coverage == rds::CoverageMatch::kAny || resolution.armorConditions);
+            ImGui::Indent(14.0f);
+            if (honoured) {
+                ImGui::TextDisabled("- %s -", ConditionWords(cond).c_str());
+            } else {
+                ImGui::TextColored(kDirty, "- %s - ignored, see [Slots] -",
+                                   ConditionWords(cond).c_str());
+            }
+            // The heading is a target of its own, so a group with no rows you
+            // want to point at is still somewhere you can drop onto.
+            if (RowDrag from; AcceptRowDrop(from)) {
+                dropFrom = from;
+                dropCond = cond;
+            }
+            Tip(honoured
+                    ? std::format("`{}` in the ini. These beat the plain files above where the "
+                                  "contact matches, and drop out where it does not.\n\nTwo files "
+                                  "tagged the same take turns with each other, exactly as the "
+                                  "plain ones do.",
+                                  ConditionTag(cond))
+                    : std::format("`{}` in the ini, and side {} is not honouring it: one of "
+                                  "bConditionalVariants, bSurfaceConditions or bArmorConditions is "
+                                  "off in [Slots]. These files are still on the slot and still "
+                                  "picked - just as though they were plain.",
+                                  ConditionTag(cond), static_cast<char>('A' + m_focusSide)));
+            ImGui::Unindent(14.0f);
+        }
+        heading = cond;
         ImGui::PushID(i);
         ImGui::Indent(14.0f);
+        // The row as one item, so it can be dropped onto as one thing.
+        ImGui::BeginGroup();
 
         sfxui::PreviewButton("play", m_library, file, m_player, 48000);
         ImGui::SameLine();
@@ -553,6 +1051,7 @@ void App::DrawSlotWidget(rds::SlotId slot) {
         const rds::SfxEntry* entry = m_library.Find(file);
         if (entry == nullptr) {
             ImGui::TextColored(kBad, "%s", file.c_str());
+            RowDragSource(slot, i, file);
             Tip("Named by the ini but not in the library - deleted, renamed on disk, or the "
                 "library folder moved. The slot plays one fewer variant than it says.");
         } else {
@@ -562,8 +1061,13 @@ void App::DrawSlotWidget(rds::SlotId slot) {
             if (quiet) ImGui::PushStyleColor(ImGuiCol_Text, kQuiet);
             ImGui::TextUnformatted(entry->name.c_str());
             if (quiet) ImGui::PopStyleColor();
+            RowDragSource(slot, i, entry->name);
             Tip(std::format("{}\n\nvariant {} of {}{}. The order is the variant index a recorded "
-                            "cue carries, so re-ordering changes which file a given cue plays.",
+                            "cue carries, so re-ordering changes which file a given cue plays."
+                            "\n\nDrag this name onto another slot to move it there, or onto one "
+                            "of a slot's `- only on ... -` headings to move it there as that "
+                            "variant. Hold Ctrl while dropping to copy instead, which is how one "
+                            "recording becomes both a plain option and the tagged one.",
                             entry->file, i, assignment.files.size(), quiet ? ", muted" : ""));
             ImGui::SameLine();
             sfxui::Badges(*entry, false);
@@ -613,8 +1117,42 @@ void App::DrawSlotWidget(rds::SlotId slot) {
                     "undoes with Ctrl+Z, goes over the link to a running game, and is still there "
                     "next launch. The library's own disable is the everywhere-at-once version.");
 
+        // What this file is for, and the way to change it. On every row rather
+        // than only on the tagged ones, because "this one is really the stone
+        // take" is a thing you find out by listening - long after the file was
+        // assigned - and there would otherwise be no way to say so.
+        ImGui::SameLine();
+        const bool tagged = !cond.Unconditional();
+        if (tagged) ImGui::PushStyleColor(ImGuiCol_Text, kSuggest);
+        if (ImGui::SmallButton(tagged ? ConditionTag(cond).c_str() : "for...")) {
+            ImGui::OpenPopup("retag");
+        }
+        if (tagged) ImGui::PopStyleColor();
+        Tip(tagged ? std::format("{}. Click to change it, or clear it with the top-left cell.",
+                                 ConditionWords(cond))
+                   : std::string("Plain: this one is a candidate on every contact. Click to make "
+                                 "it a variant for one kind of contact instead."));
+        if (ImGui::BeginPopup("retag")) {
+            ImGui::TextDisabled("what is this one for?");
+            ImGui::Spacing();
+            rds::VariantCondition chosen{};
+            if (DrawConditionGrid(chosen, true)) {
+                const rds::SfxAssignments before = m_sfx;
+                // This row, not this filename: the slot may play the same file
+                // twice, plain in the set and tagged for one kind of contact,
+                // and re-tagging one of them must leave the other alone.
+                m_sfx.For(slot).SetConditionAt(static_cast<std::size_t>(i), chosen);
+                PushSfxEdit(before, std::format("{} / {} for {}", desc.name, file,
+                                                chosen.Unconditional() ? std::string("anything")
+                                                                       : ConditionTag(chosen)));
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
         ImGui::SameLine();
         if (ImGui::SmallButton("change")) {
+            m_pendingConditionSlot = -1;
             m_browser.OpenForSlot(slot, i, file, assignment.looping);
         }
         ImGui::SameLine();
@@ -623,15 +1161,24 @@ void App::DrawSlotWidget(rds::SlotId slot) {
         }
         Tip("Take this file off the slot.");
 
+        ImGui::EndGroup();
+        // Dropping on a row means "here": the file lands under the same heading
+        // this row sits under, which is the one you were pointing at.
+        if (RowDrag from; AcceptRowDrop(from)) {
+            dropFrom = from;
+            dropCond = cond;
+        }
+
         ImGui::Unindent(14.0f);
         ImGui::PopID();
     }
 
     if (removeAt >= 0) {
         const rds::SfxAssignments before = m_sfx;
-        rds::SlotAssignment& target = m_sfx.For(slot);
-        target.Unmute(target.files[static_cast<std::size_t>(removeAt)]);
-        target.files.erase(target.files.begin() + removeAt);
+        // Takes the row's condition with it, and the mute only when that was
+        // the last placement of the file - the two rules live in RemoveAt so
+        // every caller gets them.
+        m_sfx.For(slot).RemoveAt(static_cast<std::size_t>(removeAt));
         PushSfxEdit(before, std::string(desc.name) + " / remove");
     }
 
@@ -640,8 +1187,28 @@ void App::DrawSlotWidget(rds::SlotId slot) {
     // Hovering the widget lights up this slot's bars in the timeline, which is
     // the whole point of having both on screen: "what does this slot actually
     // do in this take" is otherwise a question you answer by squinting.
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem)) {
+    const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+
+    // The whole widget, so the name, the buttons and the space beside the rows
+    // are all somewhere a drop lands - and landing there the file is plain,
+    // whatever the rows underneath happen to ask for. A row or a heading is a
+    // smaller rectangle inside this one and wins where the cursor is over it.
+    if (RowDrag from; AcceptRowDrop(from)) {
+        dropFrom = from;
+        dropCond = {};
+    }
+
+    if (hovered) {
         m_hoverSlotPending = static_cast<int>(slot);
+    }
+
+    // After the loop and after both targets, because it renumbers the list the
+    // loop walked. Ctrl is read at the drop rather than at the pick-up: the
+    // preview tooltip has been saying which of the two this is the whole way
+    // across, so the answer is whatever it said last.
+    if (dropFrom.index >= 0) {
+        DropSfxPlacement(static_cast<rds::SlotId>(dropFrom.slot), dropFrom.index, slot, dropCond,
+                         ImGui::GetIO().KeyCtrl);
     }
 
     ImGui::Separator();

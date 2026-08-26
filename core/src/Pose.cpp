@@ -79,6 +79,13 @@ bool Write(const std::filesystem::path& file, const std::vector<FeedEvent>& even
             record.vel[1] = event.velocity.y;
             record.vel[2] = event.velocity.z;
             Append(body, record);
+
+            // v2. Written for every limb of every frame, so `limbStride` alone
+            // describes the file and no frame is a different shape from another.
+            LimbRecordExt ext{};
+            ext.angularSpeed = event.angularSpeed;
+            ext.radius = event.limbRadius;
+            Append(body, ext);
         }
 
         ++frames;
@@ -152,19 +159,32 @@ bool Read(const std::filesystem::path& file, std::vector<FeedEvent>& out, std::s
         error = std::format("{} is not a pose file", file.string());
         return false;
     }
-    if (header.version != kVersion) {
-        error = std::format("{} is pose version {}, this build reads {}", file.string(),
-                            header.version, kVersion);
+    // A range rather than an equality. Every take recorded before the garment
+    // layer existed is a v1 file and there is no reason it should stop loading:
+    // v2 only appends, so a v1 record is a v2 record with the extension absent,
+    // and absent reads as zero - which is the honest answer for a rotation
+    // nobody measured rather than a guess at one.
+    if (header.version < kVersionMin || header.version > kVersion) {
+        error = std::format("{} is pose version {}, this build reads {} to {}", file.string(),
+                            header.version, kVersionMin, kVersion);
         return false;
     }
-    if (header.limbStride < sizeof(LimbRecord)) {
+    if (header.limbStride < kLimbStrideV1) {
         error = std::format("{} has a {} byte limb record, smaller than the {} this build reads",
-                            file.string(), header.limbStride, sizeof(LimbRecord));
+                            file.string(), header.limbStride, kLimbStrideV1);
         return false;
     }
-    // A stride *larger* than ours is a later version's extra fields, which are
-    // read past rather than refused - that is what the field is for.
-    const std::size_t skipPerLimb = header.limbStride - sizeof(LimbRecord);
+    // Whether this file carries the v2 extension is decided by the *stride* and
+    // never by the version number, because the stride is the thing that has to
+    // be right for the cursor to land in the correct place. A file claiming v2
+    // with a v1 stride would otherwise read eight bytes of the next limb as an
+    // angular speed and desynchronise the whole frame.
+    const bool haveExt = header.limbStride >= kLimbStrideV1 + sizeof(LimbRecordExt);
+    // A stride larger than everything we understand is a later version's extra
+    // fields, which are read past rather than refused - that is what the field
+    // is for.
+    const std::size_t known = kLimbStrideV1 + (haveExt ? sizeof(LimbRecordExt) : 0u);
+    const std::size_t skipPerLimb = header.limbStride - known;
 
     for (std::uint32_t frame = 0; frame < header.frameCount; ++frame) {
         FrameHeader frameHeader{};
@@ -176,6 +196,11 @@ bool Read(const std::filesystem::path& file, std::vector<FeedEvent>& out, std::s
         for (std::uint16_t limb = 0; limb < frameHeader.limbCount; ++limb) {
             LimbRecord record{};
             if (!Take(cursor, end, record)) {
+                error = std::format("{} ends inside frame {}", file.string(), frame);
+                return false;
+            }
+            LimbRecordExt ext{};
+            if (haveExt && !Take(cursor, end, ext)) {
                 error = std::format("{} ends inside frame {}", file.string(), frame);
                 return false;
             }
@@ -196,6 +221,11 @@ bool Read(const std::filesystem::path& file, std::vector<FeedEvent>& out, std::s
             // Derived rather than stored, because it is exactly |velocity| and a
             // stored copy is one more thing that can disagree with it.
             event.bodySpeed = Length(event.velocity);
+            // Zero on a v1 file, which is what "nobody recorded this" looks like
+            // and is exactly how the rotation term should read on a take that
+            // predates it.
+            event.angularSpeed = ext.angularSpeed;
+            event.limbRadius = ext.radius;
             out.push_back(event);
         }
         ++framesOut;
@@ -216,7 +246,10 @@ bool Probe(const std::filesystem::path& file, std::size_t& framesOut) {
     if (in.gcount() != static_cast<std::streamsize>(sizeof(header))) {
         return false;
     }
-    if (std::memcmp(header.magic, kMagic, sizeof(kMagic)) != 0 || header.version != kVersion) {
+    // The same range Decode accepts. A probe stricter than the reader would
+    // report a perfectly loadable v1 take as having no pose at all.
+    if (std::memcmp(header.magic, kMagic, sizeof(kMagic)) != 0 ||
+        header.version < kVersionMin || header.version > kVersion) {
         return false;
     }
     framesOut = header.frameCount;

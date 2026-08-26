@@ -14,6 +14,27 @@
 // because that conversion is exactly what `sfx.py make` would have done and the
 // game is fussier than the testbench about being handed something else.
 //
+// The same argument goes further than the container, and since 2026-08-24 it
+// does. §5's delivery rules are mechanical - a peak of -1.5 dBFS, no DC, no head
+// silence, no click at the end - and a rule that is mechanical is a rule nobody
+// should be reading a badge about. So the import *repairs* them, silently, and
+// says nothing:
+//
+//   - the peak is normalised to -1.5 dBFS, which is the headroom the runtime
+//     +/-3 semitone scatter needs. Files already inside the band that holds both
+//     pack targets are left exactly as they are, so adopting the built pack does
+//     not pull `imp_sub` off its own -1.0
+//   - DC is subtracted, head silence and trailing digital silence are trimmed,
+//     and a one-shot that stops dead gets `sfx.py make`'s own 6 ms cosine fade
+//   - a stereo source whose channels do not correlate has its left channel taken
+//     rather than the two folded, which is 03-Asset-Status.md §3.1's fix
+//
+// None of it is a judgement, all of it is what `sfx.py make` does on the way to
+// the pack, and every one of them is idempotent - a repaired file repairs to
+// itself. What is left over is what a badge is *for*: the faults that need a
+// decision (a second contact, a baked tail, a seam) and the ones nothing can
+// mend (a squared-off wave, hiss inside 30 dB of the hero).
+//
 // ffmpeg does the container work and miniaudio does the decode. Testbench-only:
 // the game has a library of finished files and never imports anything.
 
@@ -41,6 +62,15 @@ struct ImportOutcome {
     std::string error;  ///< non-empty when nothing was written
     bool converted{};   ///< true when ffmpeg had to change the format
     bool renamed{};     ///< true when the FMTS fix changed the name
+
+    /// What the repair pass did, comma-separated, for the log.
+    ///
+    /// Only for the log. The point of repairing something is that nobody has to
+    /// think about it, and a note in the window saying "normalised, trimmed 40
+    /// ms" is exactly the thinking it was meant to save - but a silent edit that
+    /// leaves no trace anywhere is not something to build either, so it goes
+    /// where an edit that turns out to have been wrong can be found afterwards.
+    std::string repairs;
 };
 
 struct ImportOptions {
@@ -66,6 +96,30 @@ struct ImportOptions {
 /// and moving it under an assignment that names it would break that assignment.
 [[nodiscard]] bool MeasureExisting(rds::SfxLibrary& library, const std::string& file,
                                    std::string& error);
+
+/// Convert, repair and re-measure a file already in the library, in place.
+///
+/// The import pass, run on a file that did not come through the importer -
+/// dropped into the folder by hand, written by `sfx.py make` at another rate, or
+/// imported on a machine that had no ffmpeg at the time. Everything MeasureExisting
+/// does, plus the container conversion and the sample repairs, which is why it
+/// is a button of its own rather than part of a re-measure: a re-measure reads,
+/// and this writes.
+///
+/// Idempotent on a file that is already right, and that is not incidental - it
+/// is what makes the button safe to press on the whole library. A pack file at
+/// -1.0 dBFS is inside the leave-alone band, has no head silence to trim and no
+/// DC to subtract, so it comes back byte-identical.
+///
+/// The name, the mute and the import date survive, as they do a re-measure.
+/// False with `error` set when the file could not be read or written.
+[[nodiscard]] bool RepairExisting(rds::SfxLibrary& library, const std::string& file,
+                                  std::string& error, std::string* repairs = nullptr);
+
+/// True when `entry` carries a warning the repair pass would clear. What the
+/// browser shows the `repair` button for: offering it on a file whose only
+/// fault is a baked reverb tail is offering something that does nothing.
+[[nodiscard]] bool NeedsRepair(const rds::SfxEntry& entry);
 
 /// The multi-select open dialog. Empty when the user cancelled.
 [[nodiscard]] std::vector<std::filesystem::path> PickAudioFiles();

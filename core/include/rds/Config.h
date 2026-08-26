@@ -2312,37 +2312,76 @@ struct ScrapeLoopConfig {
     /// two behaviours would have been.
     float limbDuckDb{-9.0f};
 
-    // -- the grain layer -----------------------------------------------------
+    // -- the entry catch -----------------------------------------------------
     //
-    // The single biggest thing between "a slide" and "a noise file". A real body
-    // sliding on stone measured sixty-five grit peaks a second riding on top of
-    // the rumble, and our loop has the rumble and none of the grit. This is the
-    // other half: the individual moments a limb *catches* on something.
+    // One `scrape_grain` at the moment a grind *starts*: the scuff of the limb
+    // arriving on the surface, under the head of the loop it introduces.
     //
-    // Fired on a real grazing contact and never on an inference. That distinction
-    // is load-bearing - the settle system and the synthesised slide impact were
-    // both deleted for inventing a sound where the solver reported none - and it
-    // is also why this fits: during a slide these contacts are already arriving
-    // and the mod was throwing every one of them away.
+    // **This is what the catch layer became, and the change is worth stating
+    // because the slot brief still describes the old one.** It used to fire
+    // through a whole slide - any graze harder than the slide's recent average
+    // was a catch, rate-limited and rolled for - on the theory that a slide's
+    // character is its irregularity and the loop had none. It is: the reference
+    // recordings put sixty-five grit peaks a second on the rumble. But sixty-five
+    // a second is *texture*, and texture belongs in the file at 65 Hz, not in the
+    // cue list at 12 Hz where it arrives as a rattle of separate little impacts
+    // over a grind - random bumps during a slide, which is not what a slide does.
+    //
+    // The moment that genuinely is an event is the *entry*: a slide is not
+    // declared until 150 ms or 45 units into a grind, so the loop always opens
+    // into a body that has been scraping for a moment already, and it opens with
+    // nothing marking the arrival. That is the "somebody turned a noise on" the
+    // slide rework is about, and one grain on the front of it is the fix - the
+    // same shape as `imp_transient` in front of `imp_sub`.
+    //
+    // So the gates that only made sense for a stream are gone rather than
+    // defaulted off: `fGrainCatchRatio` (harder than the slide's own average),
+    // `fGrainMinGapMs` (a floor under the rate) and `fGrainProbability` (the roll
+    // per contact) have no meaning for a once-per-grind event, and a slider that
+    // cannot change anything is worse than no slider. Their keys are dropped
+    // rather than `Renamed`, so an old ini's tuning of a different feature does
+    // not carry into this one.
+    //
+    // Still never an inference. The grain rides the loop's own entry, and a loop
+    // only enters on a chain that has really been grazing inside
+    // `fContactHoldMs` - so there is a collision behind every one of these, which
+    // is the rule the deleted settle system and the deleted synthesised slide
+    // impact both broke.
 
     bool grainEnabled{true};
-    float grainGainDb{-14.0f};
 
-    /// How much harder than the slide's recent grinding a contact has to be
-    /// before it counts as a catch, as a multiple. At 1.0 every graze is one,
-    /// which is a rattle rather than a texture.
-    float grainCatchRatio{1.5f};
+    /// How loud the entry scuff is against the grind it introduces.
+    ///
+    /// Against the *loop's* level and not against a contact's onset, which is
+    /// the other half of repurposing this: a mid-slide catch was an accessory to
+    /// the collision that caused it, and an entry is the front of the sound it
+    /// opens. It scales with the grind, so a limb barely dragging scuffs quietly
+    /// and a body arriving at speed scuffs hard, with nothing to tune twice.
+    float grainGainDb{-6.0f};
 
-    /// The floor under how often one can fire, and the chance one does when it
-    /// is allowed to. Both, because a gate that is only a rate limiter turns a
-    /// dense stream into a metronome.
-    float grainMinGapMs{80.0f};
-    float grainProbability{0.6f};
-
-    /// How much the pitch of a catch is scattered, either way. Catches that are
-    /// all the same pitch read as one sample repeating, which is the thing this
-    /// layer exists to stop.
+    /// How much the pitch of an entry scuff is scattered, either way.
+    ///
+    /// Kept, and it still earns its place with one grain per grind: a body that
+    /// grinds, launches and lands three times in a fall enters three times, and
+    /// three entries at one pitch read as one sample repeating.
     float grainPitchScatter{0.18f};
+
+    /// Whether the **body** grind gets an entry scuff as well as the limb grinds.
+    ///
+    /// Off by default, and that is a statement about the picture rather than
+    /// caution. A limb arriving on a surface is a scuff - a foot catching, a hand
+    /// slapping down and dragging - and that is a real moment with a real edge to
+    /// it. A torso arriving flat is not a scuff, it is a *fall*, and the impact
+    /// composite is already voicing it: a knockdown that ends in a skid has just
+    /// put a full stack with a sub on it into the same 100 ms. A scuff on top of
+    /// that is a fifth layer nobody asked for, on the one moment in the mod that
+    /// is already loudest.
+    ///
+    /// On is for the entry the composite does *not* cover: a body that was
+    /// already down, already still, and is then dragged. There is no collision
+    /// there for the impact path to have voiced, so the grind opens out of
+    /// silence - which is exactly the case the entry catch exists for.
+    bool grainOnBody{false};
 
     // -- the level's own movement --------------------------------------------
 
@@ -2375,6 +2414,139 @@ struct ScrapeLoopConfig {
     /// with no recording behind it falls back to the default one anyway, so this
     /// costs nothing until the files exist.
     bool surfaceVariants{true};
+
+    // -- the rumble bed ------------------------------------------------------
+    //
+    // The mass under the grind, as its own voice: `scrape_loop_rumble` held open
+    // for the life of a slide, at the body grind's anchor, with its own level and
+    // a pitch that deliberately does not move.
+    //
+    // **Why a layer and not a better grind file.** Measured against GTA 4's
+    // slide events our grinds are 35-45 dB out on the bass-to-hiss balance and
+    // in the opposite direction - theirs bass-led with the sub band loudest and
+    // a hard rolloff over 8 kHz, ours broadband and flat to 20 kHz with the sub
+    // 40 dB down. Grain rates match, so density was never the problem. And no EQ
+    // rescues it: there is nothing under the shelf to boost, which is the same
+    // lesson `crunch_gran` taught.
+    //
+    // **Why its own voice and not baked into the six grind files.** Baking it
+    // costs the two things that matter. `MixLoop` takes one gain and one pitch
+    // per voice and applies pitch as a resample of the whole source, so a
+    // composite file forces the bed to pitch with the speed - and pitching bass
+    // down at a crawl is flubby, blooms on a sub and vanishes on a laptop
+    // speaker. It would also be six files to re-render every time the bed
+    // changed, and during the body/limb crossfade two incoherent bass beds at
+    // partial gain, which beats audibly down there. One voice at pitch 1.0 under
+    // all of them is one asset, one mix, and mass that stays solid while the
+    // grit crossfades over it.
+    //
+    // Two unsynchronised loop lengths is the free half: the bed runs longer than
+    // the grinds, so the pair does not repeat on a common period and the looping
+    // is harder to hear than either file alone.
+
+    /// Off, the slide is the grinds alone - which is what the mod was before this
+    /// existed, and the fastest A/B for whether the bed is what fixed it.
+    bool rumbleEnabled{true};
+
+    /// The bed's level at full weight and full speed.
+    ///
+    /// Over the body grind's own `fGainDb` rather than under it, which looks
+    /// wrong and is the whole point: in the references the sub band is the
+    /// *loudest* band of a slide and the grit rides on top of it. The same
+    /// inversion `imp_sub` has against `imp_transient`, for the same reason -
+    /// the layer that carries the mass is not the layer that carries the
+    /// character.
+    ///
+    /// **-13 against the grind's -16 is measured, and it is measured against the
+    /// files the bank actually plays.** The measurement below was taken with both
+    /// layers at the top of their ramps, so it is a statement about the files and
+    /// the balance rather than about the speed response, and it survives the ramp
+    /// underneath it changing. Summed with the assigned `scrape_loop`
+    /// and its own peak normalised out, the pair comes to tilt +14.1 with the sub
+    /// band loudest and a centroid of 5444 Hz - inside GTA 4's +10 to +21 and
+    /// inside its 4355-5714 Hz, on both axes, from a grind that measures -36.3
+    /// tilt and 9102 Hz on its own. The assigned `scrape_limb` does the same
+    /// thing: -44.8 alone, +19.6 and 5282 Hz with the bed under it.
+    ///
+    /// Which settles an argument that was open before this layer existed. Those
+    /// two files measure as hiss and the library holds grinds that measure +17.6
+    /// tilt, and the obvious move was to swap them. It is the wrong move: a grind
+    /// that already carries its own low shelf and this bed on top of it comes to
+    /// **+27** tilt and a 2431 Hz centroid - past the window on both axes, in the
+    /// same direction, because the mass is now in the mix twice. To use a bass-led
+    /// grind the bed has to come down to -24 or below, and there it contributes
+    /// almost nothing and the centroid still lands short at 3544 Hz.
+    ///
+    /// So the grit files were never the problem. They are grit, they measure like
+    /// grit, and they were only ever wrong because nothing was underneath them.
+    /// **A bass-led grind wants a much lower bed, and the two decisions are one
+    /// decision** - move this without listening to what the grinds are and the
+    /// slide goes muddy rather than heavy.
+    float rumbleGainDb{-13.0f};
+
+    // The bed has no speed ramp of its own. It rides the limb grinds':
+    // `fLimbSpeedForMinGain`, `fLimbSpeedForMaxGain` and `fLimbSpeedRangeDb`,
+    // measured on `slideTangent`, which is `loop.tangent` at actor scope.
+    //
+    // `fRumbleSpeedRangeDb` and `fRumbleSpeedCurve` stood here and are gone. The
+    // argument for them was physics and it is a good argument - friction noise
+    // rises with transit rate, energy into the floor rises with the square of
+    // speed, so a body at a crawl should have grit and no mass. In the mix it
+    // produced a layer that was inaudible or fully on with nothing in between:
+    // 30 dB of depth with a squared track under it, fed by the *body's* speed,
+    // which is smooth by definition. A switch, not a ramp.
+    //
+    // Sharing the limb ramp is also why there is nothing to keep in sync. Two
+    // knobs over one quantity is two things that drift apart by hand, and the
+    // slide has been bitten by exactly that: the strategy used to carry its own
+    // duration, distance and speed gates beside the motion axis' and the two
+    // disagreed, so a knockdown could sit in `Slide` with no loop under it.
+    //
+    // The cost is real and worth saying: tuning the limb grinds' depth now moves
+    // the bed's with it. If those two ever want to be different numbers, this is
+    // the decision to reopen.
+
+    /// A fixed pitch for the bed, and **the one ramp in this section that is
+    /// deliberately not a ramp.**
+    ///
+    /// Floor and body resonance do not move with how fast the body is going -
+    /// GTA 4's slide events hold a static spectrum and swell in level, which is
+    /// the opposite of what a pitched bed does. Leave this at 1 unless a
+    /// recording needs transposing to sit right, in which case it is a tuning of
+    /// the *file* and not a response to anything.
+    float rumblePitch{1.0f};
+
+    /// ...and the ramp it is not, available anyway so the claim above can be
+    /// tested by ear rather than believed.
+    ///
+    /// 0 is the design's answer. Wind it up and the bed slides with the grind;
+    /// the flubbiness at the bottom of the speed range is the thing to listen
+    /// for, and it arrives well before the movement reads as speed.
+    float rumblePitchPerThousandUnits{0.0f};
+
+    /// Whether a limb-only slide gets a bed at all, and how much less of one.
+    ///
+    /// A single dragging foot is a small contact patch, and a small contact patch
+    /// still loads the floor - the difference between a foot and a torso is how
+    /// hard, not whether. So the bed runs for both and the difference is a trim,
+    /// which is also the cheapest possible answer: one file, one voice, one
+    /// number between the two cases.
+    ///
+    /// Interpolated on the same contact fraction the body grind's own weight
+    /// uses, so it arrives with the body rather than switching: the whole of
+    /// `fRumbleLimbGainDb` at `fBodyFracStart` and none of it at `fBodyFracFull`.
+    ///
+    /// **With no body grind running at all the trim is applied whole**, whatever
+    /// the contact fraction says, and that is the fix for a real bug rather than
+    /// a nicety. There are three ways to have no body grind - `bBodyEnabled` off,
+    /// the fraction under `fBodyFracStart`, the body slower than
+    /// `fSpeedForMinGain` - and in the first of them a body lying flat and
+    /// skidding still measured a fraction near 1. That cancelled this trim
+    /// entirely and played the bed at full body level under nothing but limb
+    /// grinds: mass with none of the grit, which is the one thing the bed must
+    /// never be on its own.
+    bool rumbleOnLimbs{true};
+    float rumbleLimbGainDb{-9.0f};
 };
 
 /// The airborne anticipation rise, and nothing else any more.
@@ -3378,6 +3550,10 @@ struct LayerMuteConfig {
     // of the loop they are a variant of.
     bool scrapeLoop{true};
     bool scrapeLimb{true};
+    /// The bed under both grinds. Its own mute rather than the grind's, because
+    /// silencing the mass and silencing the grit are the A/B this layer exists
+    /// to make possible.
+    bool scrapeLoopRumble{true};
     bool airWhoosh{true};
 
     // accents
@@ -3425,6 +3601,7 @@ struct SlotGainConfig {
 
     float scrapeLoop{0.0f};
     float scrapeLimb{0.0f};
+    float scrapeLoopRumble{0.0f};
     float airWhoosh{0.0f};
 
     float headImpact{0.0f};

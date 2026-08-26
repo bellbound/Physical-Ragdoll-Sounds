@@ -1,0 +1,410 @@
+TAKE
+  stem            Eldawyn_devbench_1
+  note            devbench live take
+  actor           Eldawyn
+  cell            Dragonsreach
+  duration        85104 ms
+  impacts         1989 (dropped 0, complete yes)
+  playhead        76435 ms
+  seed            1
+  config          config_22_08_90 - EDITED, not what that file holds (side 0)
+
+WINDOW - this export covers the loop region only
+  region          70653 - 72728 ms  (2075 ms of 85104)
+  phase at start  unknown (knock_get_up, set at 64176 ms)
+  NOTE  TIMELINE, CUES and DECISIONS below are cut to this window. SOUND BANK
+        and FUNNEL are the whole take - the funnel counters are accumulated
+        over the run and cannot be re-cut after the fact.
+
+VIDEO
+  file            Eldawyn_devbench_1.mp4
+  clip length     84500 ms at 30.00 fps, decoded
+  offset in use   -463 ms   (video position = take time + offset)
+  window in video 70190 - 72265 ms  (70.19 - 72.27 s)
+  window frames   2106 - 2168 at 30.00 fps
+  sync fit        slope 0.999822, intercept -463 ms, drift -0.18 ms/s, min rtt 0 ms
+  NOTE  the intercept is against the UNCUT OBS recording, and a clipped take
+        is cut out of it at a point recorded nowhere - so `offset in use`
+        above is a guess until it is measured into video-offsets.ini.
+
+CONFIG - values differing from default
+  GlancingImpact:bEnabled=1 (default 0)
+  GlancingImpact:fNoTransferFrac=0 (default 0.55)
+  GlancingImpact:fMaxIntensityScale=0 (default 0.35)
+  GlancingImpact:fMaxGainCutDb=-13.5 (default 0)
+  GlancingImpact:fMaxTrimCutDb=-7.5 (default 0)
+  Motion:fFreeFallMinMs=140 (default 40)
+  Hero:fFloorFrac=0.52 (default 0.3)
+  Hero:fBurstGapFrac=0.15 (default 1)
+  Hero:fBurstWindowMs=270 (default 0)
+  Arbitration:fRateCapMs=43 (default 46)
+  Arbitration:fRateCapOverrideDb=16 (default 6)
+  Arbitration:fBurstWindowMs=110 (default 300)
+  Arbitration:bSpatialCollapseOnHero=0 (default 1)
+  Arbitration:fTorsoWeightDb=4.5 (default 0)
+  Arbitration:fHeadWeightDb=2.5 (default 0)
+  Intensity:fSpeedRefHigh=510 (default 960)
+  Intensity:fCurveExponent=1.2 (default 0.75)
+  Intensity:fSoftClipKnee=0.25 (default 0.85)
+  Intensity:fMassWeight=0.9 (default 0.35)
+  Intensity:fRadiusWeight=2 (default 0.2)
+  Intensity:fObliterateFrac=5.9 (default 1.46)
+  PostIntensity:fExtraRangeDb=-27.5 (default 0)
+  PostIntensity:fCurveExponent=2.4 (default 1)
+  SlotGain:fImpTransient=2 (default 0)
+  SlotGain:fLimbTap=-3 (default 0)
+  Limbs:bMassDeterminesLoudness=1 (default 0)
+  Limbs:fBodyMass=3.5 (default 5)
+  Limbs:fRotationRefRatio=1.1 (default 1)
+  ImpactComposite:fTransientGainAtMaxDb=-14.5 (default -18)
+  ImpactComposite:fSubGainAtMinDb=-25 (default -30)
+  ImpactComposite:fPitchIntensityBiasSemis=-4 (default -3)
+  Surfaces:fTapGainAtMinDb=-18.5 (default -12)
+  Surfaces:fTapGainAtMaxDb=-12.5 (default -8)
+  Surfaces:bWood=0 (default 1)
+  HeadImpact:fGateFrac=0.24 (default 0.31)
+  HeadImpact:fGainDb=-12.5 (default -2)
+  HeadImpact:fHeadDownBonus=0 (default 0.25)
+  HeadImpact:bCompanyEnabled=1 (default 0)
+  AirTime:fHeadClearMs=560 (default 250)
+  AirTime:fHeadHandGraceMs=220 (default 200)
+  AirTime:fHeadGateBonus=0.55 (default 0.45)
+  AirTime:fHeadGainDb=9.5 (default 9)
+  AirTime:fHeadCrunchGateFrac=1.38 (default 0.55)
+  AirTime:bBodyEnabled=1 (default 0)
+  AirTime:fBodyClearMs=240 (default 250)
+  AirTime:fBodyIntensity=0.93 (default 0)
+  Damage:bViolenceEnabled=1 (default 0)
+  Damage:fViolenceHoldMs=210 (default 450)
+  Damage:fViolenceChanceBonus=0.65 (default 0.25)
+  Damage:iViolenceBudgetBonus=16 (default 3)
+  Damage:fViolenceLevelBonusDb=12 (default 2.5)
+  Damage:fHeadCrunchAtFrac=0.54 (default 0.45)
+  Damage:fHeadCrunchQuietDb=-28.5 (default -18)
+  Damage:fHeadCrunchLoudDb=-16.5 (default -4)
+  Damage:fHeadCrunchDelayMs=21 (default 25)
+  Damage:fHeadGoreAtFrac=1.21 (default 0.65)
+  Damage:fHeadGoreQuietDb=-23 (default -20)
+  Damage:fHeadGoreLoudDb=-20 (default -6)
+  Damage:fSpineCrunchQuietDb=-33 (default -20)
+  Slide:fSlideMinTangentSpeed=50 (default 120)
+  Slide:fSlideMinDurationMs=180 (default 150)
+  Slide:fSlideMinDistance=10 (default 45)
+  Slide:fSlideHoldSpeed=310 (default 0)
+  Slide:fSlideHoldMaxMs=5950 (default 2000)
+  Slide:bSlidesDontClaim=1 (default 0)
+  Slide:fClaimBelowIntensity=0 (default 0.15)
+  Slide:fSlideTrimDb=0 (default -6)
+  Slide:fStartFadeMs=65 (default 60)
+  Slide:fStopFadeMs=70 (default 110)
+  Slide:fGainDb=-22 (default -20)
+  Slide:fSpeedForMinGain=30 (default 120)
+  Slide:fSpeedForMaxGain=590 (default 600)
+  Slide:fSpeedRangeDb=-24 (default -12)
+  Slide:fPitchPerThousandUnits=0.18 (default 0.15)
+  Slide:bFractionEnabled=0 (default 1)
+  Slide:fBodyFracStart=0.3 (default 0.2)
+  Slide:fContactHoldMs=400 (default 140)
+  Slide:fLimbGainDb=-22 (default -30)
+  Slide:fLimbSpeedForMinGain=10 (default 80)
+  Slide:fLimbSpeedForMaxGain=400 (default 500)
+  Slide:fLimbSpeedRangeDb=-16 (default -12)
+  Slide:fLimbPitchPerThousandUnits=0.13 (default 0.22)
+  Slide:bBodyDucksLimbs=0 (default 1)
+  Slide:bGrainEnabled=0 (default 1)
+  Rustle:bEnabled=1 (default 0)
+  Rustle:fThrashFull=3940 (default 4000)
+  Rustle:fAttackMs=1 (default 30)
+  Rustle:fPitchAtFloor=0.88 (default 0.94)
+  Rustle:fPitchAtFull=0.99 (default 1.07)
+  Rustle:fWanderHz=1.26 (default 0.23)
+  Rustle:fLevelDeadbandDb=0.5 (default 0.25)
+  Rustle:fStopFadeMs=185 (default 240)
+  Rustle:fGainDb=-20 (default -26)
+  Rustle:fDriveRangeDb=-18 (default -20)
+  Rustle:fBareTrimDb=-40 (default -9)
+  Rustle:fClothTrimDb=1 (default 0)
+  Rustle:fLightTrimDb=-1 (default 1)
+  Rustle:fHeavyTrimDb=-1 (default 2)
+  Rustle:fSlideDuckDb=0 (default -14)
+  Mix:fMasterGainDb=2 (default 0)
+  Mix:fSubTrimDb=0.5 (default 0)
+  Mix:fVoiceFloorDb=-55 (default -48)
+  Balance:fSpineBodyTrimDb=1.5 (default 0)
+  Balance:fSpineSubTrimDb=2 (default 0)
+  Compress:bEnabled=1 (default 0)
+  Compress:fRatio=17 (default 4)
+  Compress:fTransientDb=-5 (default 0)
+  Compress:fBodyDb=-5 (default 0)
+  Compress:fBassDb=-5 (default 0)
+  Compress:fBodyLimbDb=-5 (default 0)
+  Compress:fImpactDb=-5 (default 0)
+  Compress:fTapDb=-43 (default 0)
+  Compress:fHeadDb=-5 (default 0)
+  Compress:fCrunchDb=-5 (default 0)
+  Compress:fGoreDb=-5 (default 0)
+  Player:fSubTrimDb=0 (default -9)
+  Slots:iRngSeed=1 (default 0)
+  Layers:bGoreWet=0 (default 1)
+  Layers:bScrapeLoop=0 (default 1)
+  Layers:bScrapeLimb=0 (default 1)
+  Layers:bAirWhoosh=0 (default 1)
+
+SOUND BANK
+  imp_transient  4/3 files, wav, 120 ms
+  imp_body       4/3 files, wav, 240 ms
+  imp_sub        2/2 files, wav, 300 ms
+  surf_wood      3/2 files, wav, 190 ms
+  surf_stone     5/2 files, wav, 124 ms
+  surf_soft      2/2 files, wav, 250 ms
+  armor_bare     0/0 files, nothing to play
+  armor_cloth    0/0 files, nothing to play
+  armor_light    0/0 files, nothing to play
+  armor_heavy    0/0 files, nothing to play
+  limb_tap       6/4 files, wav, 74 ms
+  crunch_gran    3/2 files, wav, 320 ms
+  spine_crunch   0/2 files, plays crunch_gran
+  limb_crunch    0/2 files, plays crunch_gran
+  gore_wet       4/2 files, wav, 162 ms
+  scrape_grain   0/3 files, nothing to play
+  scrape_loop    1/1 files, wav, 2008 ms
+  scrape_body_wood 0/1 files, plays scrape_loop
+  scrape_body_stone 0/1 files, plays scrape_loop
+  scrape_limb    1/1 files, wav, 1951 ms
+  scrape_limb_wood 0/1 files, plays scrape_limb
+  scrape_limb_stone 0/1 files, plays scrape_limb
+  air_whoosh     1/1 files, wav, 2000 ms
+  head_impact    3/2 files, wav, 670 ms
+  settle_rest    2/2 files, wav, 400 ms
+  grunt_impact   0/0 files, nothing to play
+  scream_big     0/0 files, nothing to play
+  imp_body_limb  4/3 files, wav, 200 ms
+  cloth_rustle   1/0 files, wav, 1951 ms
+
+FUNNEL - contacts in, cues out (WHOLE TAKE, not the window)
+  events read           194328
+  contacts              1065
+    rejected below floor 380
+    rejected blow-up     56
+    mirrored self-hit    326
+    manifold collapsed   162
+    self-contacts dropped 302
+  proposed cues         2185
+    dropped rate cap     192
+    dropped chain merge  34
+    dropped masking      178
+    dropped burst cap    222
+    muted by layer       1435
+    compressed by class  106
+  hero moments          21 (+5 re-anchored)
+    on head relief       0
+    driven flights       12
+  slides                36
+  emitted               372 in 64 bursts
+  first cue             7898 ms
+  last cue              79573 ms
+  peak contact          1031.0 u/s
+
+AUDIO
+  82687 ms at 48000 Hz, 3968972 frames
+  peak 0.837 heard, 1.089 before the limiter (limiter on)
+  NOTE  over 1.0 before the limiter. The game has no limiter, so this config would clip in Skyrim.
+
+CUES BY SLOT IN THE WINDOW - 18 cues
+  limb_tap       3
+  imp_transient  4
+  surf_soft      3
+  imp_body_limb  3
+  imp_sub        4
+  imp_body       1
+
+TIMELINE - state, contacts and cues in one column
+  (a cue's `seq` is the contact row that produced it)
+
+  70989.1 ms  STATE     ragdoll_start          phase=unknown
+  70993.1 ms    contact  NPC R Foot [Rft ]        165.5 u/s  tan  267.7  body  190.7  ang   28.6  Static  seq 1763
+  70993.1 ms      CUE    limb_tap       play   -22.6 dB  pitch 1.19  tap              Tumble       int 0.09  seq 1763
+  70993.6 ms    contact  NPC R Thigh [RThg]        14.6 u/s  tan  200.6  body  206.7  ang    3.4  Static  seq 1764
+  70993.6 ms    contact  NPC L Calf [LClf]         14.6 u/s  tan  200.6  body  453.6  ang    1.5  Static  seq 1765
+  70993.6 ms    contact  NPC R Forearm [RLar]      30.1 u/s  tan  188.7  body  384.9  ang    4.5  Static  seq 1766
+  70993.6 ms    contact  NPC Spine [Spn0]          30.1 u/s  tan  188.7  body  175.5  ang    6.8  Static  seq 1767
+  70993.6 ms    contact  NPC R Forearm [RLar]       9.6 u/s  tan  189.5  body  384.9  ang    4.5  Static  seq 1768
+  70993.6 ms    contact  NPC Spine1 [Spn1]          9.6 u/s  tan  189.5  body  193.9  ang    3.6  Static  seq 1769
+  71020.4 ms    contact  NPC R Calf [RClf]        292.7 u/s  tan  352.9  body  101.3  ang    9.3  Static  seq 1770
+  71020.4 ms      CUE    imp_transient  play   -10.5 dB  pitch 0.84  composite        Slide        int 1.00  seq 1770
+  71020.4 ms    contact  NPC L Foot [Lft ]        292.7 u/s  tan  352.9  body  348.7  ang   10.1  Static  seq 1771
+  71027.9 ms      CUE    surf_soft      play    -4.0 dB  pitch 0.84  surface          Slide        int 1.00  seq 1770
+  71036.5 ms      CUE    imp_body_limb  play    -2.8 dB  pitch 0.84  composite        Slide        int 1.00  seq 1770
+  71064.9 ms    contact  NPC R Foot [Rft ]         40.0 u/s  tan  467.8  body  155.9  ang   35.5  Static  seq 1772
+  71086.4 ms      CUE    imp_sub        play    -2.2 dB  pitch 0.84  composite        Slide        int 1.00  seq 1770
+  71138.0 ms    contact  NPC R Calf [RClf]         39.9 u/s  tan  144.1  body   56.5  ang   12.1  Static  seq 1773
+  71138.0 ms    contact  NPC R Calf [RClf]         39.9 u/s  tan  144.1  body   56.5  ang   12.1  Static  seq 1774
+  71161.7 ms    contact  NPC L Calf [LClf]        173.2 u/s  tan  109.4  body  184.9  ang    5.1  Static  seq 1775
+  71161.7 ms    contact  NPC L Calf [LClf]        173.2 u/s  tan  109.4  body  184.9  ang    5.1  Static  seq 1776
+  71161.7 ms    contact  NPC L Calf [LClf]        104.9 u/s  tan  153.9  body  184.9  ang    5.1  Static  seq 1777
+  71185.4 ms    contact  NPC L Thigh [LThg]        34.6 u/s  tan   43.8  body  121.2  ang    9.1  Static  seq 1778
+  71185.4 ms    contact  NPC R Calf [RClf]         89.9 u/s  tan  123.3  body   53.9  ang    9.8  Static  seq 1779
+  71186.1 ms    contact  NPC L Calf [LClf]         26.3 u/s  tan   11.4  body  104.4  ang    8.6  Static  seq 1780
+  71288.4 ms    contact  NPC R Thigh [RThg]        28.3 u/s  tan   19.7  body  149.1  ang    8.3  Static  seq 1781
+  71288.4 ms    contact  NPC R Thigh [RThg]        28.3 u/s  tan   19.7  body  149.1  ang    8.3  Static  seq 1782
+  71308.6 ms    contact  NPC R Hand [RHnd]        136.2 u/s  tan  220.1  body  293.2  ang    9.0  Static  seq 1783
+  71371.3 ms    contact  NPC R Forearm [RLar]      78.4 u/s  tan  290.3  body  304.0  ang   10.2  Static  seq 1784
+  71371.3 ms    contact  NPC R Hand [RHnd]         10.8 u/s  tan  301.5  body  250.2  ang    9.4  Static  seq 1785
+  71392.2 ms    contact  NPC R Forearm [RLar]     241.5 u/s  tan  344.8  body  327.8  ang   13.6  Static  seq 1786
+  71392.2 ms      CUE    imp_transient  play   -10.5 dB  pitch 1.09  composite        Slide        int 0.24  seq 1786
+  71404.0 ms      CUE    surf_soft      play   -15.8 dB  pitch 1.09  surface          Slide        int 0.24  seq 1786
+  71409.2 ms      CUE    imp_body_limb  play   -11.8 dB  pitch 1.09  composite        Slide        int 0.24  seq 1786
+  71438.0 ms    contact  NPC R Forearm [RLar]     186.3 u/s  tan  345.3  body  336.6  ang    9.6  Static  seq 1787
+  71438.1 ms    contact  NPC R UpperArm [RUar]    172.9 u/s  tan  336.9  body  344.0  ang    5.1  Static  seq 1788
+  71438.9 ms    contact  NPC L Thigh [LThg]       116.8 u/s  tan  236.4  body  282.4  ang    3.5  Static  seq 1789
+  71438.9 ms    contact  NPC L Thigh [LThg]       116.8 u/s  tan  236.4  body  282.4  ang    3.5  Static  seq 1790
+  71438.9 ms    contact  NPC R Thigh [RThg]        81.0 u/s  tan  296.6  body  319.3  ang    1.9  Static  seq 1791
+  71438.9 ms    contact  NPC R Thigh [RThg]       106.2 u/s  tan  287.3  body  319.3  ang    1.9  Static  seq 1792
+  71438.9 ms    contact  NPC R Thigh [RThg]       289.1 u/s  tan   82.5  body  319.3  ang    1.9  Static  seq 1793
+  71438.9 ms      CUE    imp_transient  play   -10.5 dB  pitch 0.84  composite        Slide        int 1.00  seq 1793
+  71457.2 ms      CUE    imp_sub        play   -23.7 dB  pitch 1.09  composite        Slide        int 0.24  seq 1786
+  71459.3 ms      CUE    imp_body_limb  play    -2.8 dB  pitch 0.84  composite        Slide        int 1.00  seq 1793
+  71461.6 ms    contact  NPC Spine [Spn0]          62.3 u/s  tan  235.6  body  267.0  ang    2.4  Static  seq 1794
+  71461.6 ms    contact  NPC R Forearm [RLar]      18.4 u/s  tan  280.7  body  259.0  ang    9.6  Static  seq 1795
+  71461.6 ms    contact  NPC R Forearm [RLar]      20.4 u/s  tan  209.9  body  259.0  ang    9.6  Static  seq 1796
+  71461.6 ms    contact  NPC R UpperArm [RUar]     88.9 u/s  tan  182.9  body  266.6  ang    7.7  Static  seq 1797
+  71462.4 ms    contact  NPC R Forearm [RLar]      27.6 u/s  tan  321.1  body  268.9  ang    9.3  Static  seq 1798
+  71485.1 ms    contact  NPC L Thigh [LThg]       194.5 u/s  tan   51.1  body  236.1  ang    5.3  Static  seq 1799
+  71485.1 ms    contact  NPC Spine1 [Spn1]         77.5 u/s  tan  149.8  body  231.7  ang    6.1  Static  seq 1800
+  71485.1 ms    contact  NPC R UpperArm [RUar]     53.8 u/s  tan  301.7  body  245.6  ang    8.4  Static  seq 1801
+  71485.1 ms    contact  NPC R UpperArm [RUar]     49.4 u/s  tan  301.4  body  245.6  ang    8.4  Static  seq 1802
+  71485.1 ms    contact  NPC R Hand [RHnd]         52.9 u/s  tan  426.5  body  383.6  ang   12.1  Static  seq 1803
+  71486.2 ms    contact  NPC Spine [Spn0]         107.9 u/s  tan  171.7  body  197.4  ang    5.3  Static  seq 1804
+  71486.2 ms    contact  NPC R UpperArm [RUar]     32.0 u/s  tan  340.4  body  222.4  ang   11.3  Static  seq 1805
+  71505.0 ms      CUE    imp_sub        play    -2.2 dB  pitch 0.84  composite        Slide        int 1.00  seq 1793
+  71507.1 ms    contact  NPC R Forearm [RLar]      36.5 u/s  tan  410.2  body  345.0  ang   10.9  Static  seq 1806
+  71507.1 ms    contact  NPC R Forearm [RLar]      33.7 u/s  tan  410.5  body  345.0  ang   10.9  Static  seq 1807
+  71507.1 ms    contact  NPC R UpperArm [RUar]     46.6 u/s  tan  361.9  body  244.7  ang   12.9  Static  seq 1808
+  71507.9 ms    contact  NPC L Hand [LHnd]        314.1 u/s  tan  159.9  body  313.8  ang   11.7  Static  seq 1809
+  71507.9 ms    contact  NPC COM [COM ]           314.1 u/s  tan  159.9  body  212.4  ang   12.6  Static  seq 1810
+  71507.9 ms    contact  NPC L Hand [LHnd]        199.7 u/s  tan  220.3  body  313.8  ang   11.7  Static  seq 1811
+  71507.9 ms    contact  NPC L Thigh [LThg]       199.7 u/s  tan  220.3  body  168.0  ang    2.4  Static  seq 1812
+  71507.9 ms    contact  NPC L Hand [LHnd]        225.8 u/s  tan  106.1  body  313.8  ang   11.7  Static  seq 1813
+  71507.9 ms    contact  NPC Spine [Spn0]         225.8 u/s  tan  106.1  body  125.0  ang    8.3  Static  seq 1814
+  71651.1 ms    contact  NPC L Thigh [LThg]        47.2 u/s  tan  306.4  body  306.3  ang    4.1  Static  seq 1815
+  71652.0 ms    contact  NPC Spine [Spn0]           9.8 u/s  tan  301.1  body  308.7  ang    3.3  Static  seq 1816
+  71675.9 ms    contact  NPC L Thigh [LThg]        20.4 u/s  tan  273.5  body  292.0  ang    3.4  Static  seq 1817
+  71699.9 ms    contact  NPC L Thigh [LThg]        32.4 u/s  tan  271.9  body  285.3  ang    2.7  Static  seq 1818
+  71724.8 ms    contact  NPC Spine [Spn0]          45.4 u/s  tan  290.0  body  306.8  ang    3.1  Static  seq 1819
+  71724.8 ms    contact  NPC L Hand [LHnd]        214.3 u/s  tan  509.0  body  485.6  ang   12.1  Static  seq 1820
+  71749.4 ms    contact  NPC L Thigh [LThg]        28.0 u/s  tan  279.0  body  285.0  ang    1.1  Static  seq 1821
+  71749.4 ms    contact  NPC COM [COM ]            30.9 u/s  tan  281.2  body  296.9  ang    1.6  Static  seq 1822
+  71771.8 ms    contact  NPC L Forearm [LLar]      36.0 u/s  tan  333.7  body  377.2  ang    9.6  Static  seq 1823
+  71792.9 ms    contact  NPC Spine1 [Spn1]         22.0 u/s  tan  220.4  body  275.7  ang    3.5  Static  seq 1824
+  71792.9 ms    contact  NPC Spine2 [Spn2]         62.8 u/s  tan  242.5  body  297.3  ang    3.0  Static  seq 1825
+  71793.6 ms    contact  NPC R Forearm [RLar]       5.5 u/s  tan  263.7  body  263.5  ang    6.1  Static  seq 1826
+  71814.6 ms    contact  NPC Spine2 [Spn2]         54.9 u/s  tan  226.5  body  260.4  ang    2.4  Static  seq 1827
+  71835.0 ms    contact  NPC L Hand [LHnd]         55.6 u/s  tan  335.5  body  299.6  ang    7.2  Static  seq 1828
+  71835.0 ms    contact  NPC Head [Head]          102.6 u/s  tan  186.8  body  265.8  ang    5.6  Static  seq 1829
+  71835.0 ms      CUE    imp_transient  play   -10.2 dB  pitch 1.10  composite        Slide        int 0.19  seq 1829
+  71840.9 ms      CUE    surf_soft      play   -16.2 dB  pitch 1.10  surface          Slide        int 0.19  seq 1829
+  71858.3 ms      CUE    imp_body       play   -12.2 dB  pitch 1.10  composite        Slide        int 0.19  seq 1829
+  71874.1 ms    contact  NPC L Thigh [LThg]        43.9 u/s  tan  271.4  body  259.1  ang    2.0  Static  seq 1830
+  71874.1 ms    contact  NPC L Thigh [LThg]        43.9 u/s  tan  274.5  body  259.1  ang    2.0  Static  seq 1831
+  71874.1 ms    contact  NPC L Thigh [LThg]        43.4 u/s  tan  274.5  body  259.1  ang    2.0  Static  seq 1832
+  71874.1 ms    contact  NPC L Foot [Lft ]         99.9 u/s  tan  307.8  body  280.9  ang    4.1  Static  seq 1833
+  71874.1 ms    contact  NPC Head [Head]           43.2 u/s  tan  271.4  body  278.3  ang    0.4  Static  seq 1834
+  71874.7 ms    contact  NPC R UpperArm [RUar]     52.4 u/s  tan  263.3  body  278.9  ang    1.1  Static  seq 1835
+  71893.3 ms    contact  NPC Head [Head]           54.7 u/s  tan   47.4  body  219.6  ang   13.4  Static  seq 1836
+  71899.3 ms      CUE    imp_sub        play   -25.1 dB  pitch 1.10  composite        Slide        int 0.19  seq 1829
+  71933.6 ms    contact  NPC L Calf [LClf]          5.3 u/s  tan  254.4  body  231.9  ang    2.5  Static  seq 1837
+  71933.6 ms    contact  NPC L Foot [Lft ]         79.3 u/s  tan  282.2  body  249.3  ang    4.9  Static  seq 1838
+  71933.6 ms      CUE    limb_tap       play   -18.8 dB  pitch 1.08  tap              Slide        int 0.04  seq 1838
+  71974.3 ms    contact  NPC R Thigh [RThg]        34.4 u/s  tan  234.2  body  239.1  ang    1.5  Static  seq 1839
+  71998.1 ms    contact  NPC L Thigh [LThg]        13.3 u/s  tan  217.2  body  215.7  ang    2.5  Static  seq 1840
+  72020.2 ms    contact  NPC R UpperArm [RUar]     78.4 u/s  tan  209.8  body  216.4  ang    1.0  Static  seq 1841
+  72205.2 ms    contact  NPC R Thigh [RThg]        17.2 u/s  tan  190.1  body  190.8  ang    2.2  Static  seq 1842
+  72250.8 ms    contact  NPC R Thigh [RThg]        20.2 u/s  tan  185.6  body  183.5  ang    2.6  Static  seq 1843
+  72250.8 ms      CUE    limb_tap       play   -19.3 dB  pitch 1.13  tap              Tumble       int 0.00  seq 1843
+  72365.2 ms    contact  NPC R Calf [RClf]        105.9 u/s  tan  194.1  body  179.6  ang    3.8  Static  seq 1844
+  72458.2 ms    contact  NPC R Thigh [RThg]        39.6 u/s  tan  102.7  body  109.1  ang    2.2  Static  seq 1845
+  72458.2 ms    contact  NPC R Thigh [RThg]        39.6 u/s  tan  101.9  body  109.1  ang    2.2  Static  seq 1846
+  72703.4 ms  STATE     knock_get_up           phase=unknown
+
+CUES
+  (`sfx` is the file this cue resolved to; `held` is how many dB its class's compressor took off it)
+
+     time  slot           sfx                    op       gain  held  pitch  reason           phase          int   limb     site  seq
+  70993.1  limb_tap       limb_tap_04            play    -22.6  -5.3   1.19  tap              Tumble        0.09      8     foot 1763
+  71020.4  imp_transient  imp_transient_02       play    -10.5         0.84  composite        Slide         1.00      4     calf 1770
+  71027.9  surf_soft      surf_soft_02           play     -4.0         0.84  surface          Slide         1.00      4     calf 1770
+  71036.5  imp_body_limb  limb_tap_A_quick_light_forearm_tap_on_a_hard_floor_dry_an_variation1-s01 play     -2.8  -2.8   0.84  composite        Slide         1.00      4     calf 1770
+  71086.4  imp_sub        imp_sub_02             play     -2.2  -4.7   0.84  composite        Slide         1.00      4     calf 1770
+  71392.2  imp_transient  imp_transient_01       play    -10.5         1.09  composite        Slide         0.24     15  forearm 1786
+  71404.0  surf_soft      surf_soft_01           play    -15.8         1.09  surface          Slide         0.24     15  forearm 1786
+  71409.2  imp_body_limb  imp_transient_side_of_raw_meat_dropped_flat_onto_a_bare_wooden_f_variation3-s01 play    -11.8         1.09  composite        Slide         0.24     15  forearm 1786
+  71438.9  imp_transient  imp_transient_02       play    -10.5         0.84  composite        Slide         1.00      2    thigh 1793
+  71457.2  imp_sub        imp_sub_01             play    -23.7         1.09  composite        Slide         0.24     15  forearm 1786
+  71459.3  imp_body_limb  limb_tap_A_quick_light_forearm_tap_on_a_hard_floor_dry_an_variation1-s01 play     -2.8  -2.8   0.84  composite        Slide         1.00      2    thigh 1793
+  71505.0  imp_sub        imp_sub_02             play     -2.2  -4.7   0.84  composite        Slide         1.00      2    thigh 1793
+  71835.0  imp_transient  imp_transient_sandbag_full_of_wet_sand_slammed_onto_packed_earth_variation2-s01 play    -10.2         1.10  composite        Slide         0.19     13     head 1829
+  71840.9  surf_soft      surf_soft_02           play    -16.2         1.10  surface          Slide         0.19     13     head 1829
+  71858.3  imp_body       imp_body_01            play    -12.2         1.10  composite        Slide         0.19     13     head 1829
+  71899.3  imp_sub        imp_sub_01             play    -25.1         1.10  composite        Slide         0.19     13     head 1829
+  71933.6  limb_tap       limb_tap_01            play    -18.8  -2.3   1.08  tap              Slide         0.04      7     foot 1838
+  72250.8  limb_tap       limb_tap_light_quick_tap_of_a_forearm_against_a_hard_floor_variation1-s03 play    -19.3  -2.8   1.13  tap              Tumble        0.00      2    thigh 1843
+
+DECISIONS - every contact that reached arbitration, and what became of it
+  71064.9 ms  seq  1772  limb  8     40.0 u/s  int 0.01  Slide        chain merge
+  71138.0 ms  seq  1773  limb  4     39.9 u/s  int 0.05  Slide        masked
+  71161.7 ms  seq  1775  limb  5    173.2 u/s  int 0.54  Airborne     masked
+  71185.4 ms  seq  1779  limb  4     89.9 u/s  int 0.30  Tumble       body air 0.10 int +0.09
+  71185.4 ms  seq  1778  limb  1     34.6 u/s  int 0.10  Tumble       body air 0.10 int +0.09
+  71186.1 ms  seq  1780  limb  5     26.3 u/s  int 0.10  Tumble       body air 0.10 int +0.09
+  71185.4 ms  seq  1779  limb  4     89.9 u/s  int 0.30  Tumble       masked
+  71185.4 ms  seq  1778  limb  1     34.6 u/s  int 0.10  Tumble       masked
+  71186.1 ms  seq  1780  limb  5     26.3 u/s  int 0.10  Tumble       masked
+  71288.4 ms  seq  1781  limb  2     28.3 u/s  int 0.09  Tumble       body air 0.10 int +0.09
+  71288.4 ms  seq  1781  limb  2     28.3 u/s  int 0.09  Tumble       masked
+  71308.6 ms  seq  1783  limb 17    136.2 u/s  int 0.16  Tumble       body air 0.10 int +0.09
+  71308.6 ms  seq  1783  limb 17    136.2 u/s  int 0.16  Tumble       masked
+  71371.3 ms  seq  1784  limb 15     78.4 u/s  int 0.05  Slide        masked
+  71438.1 ms  seq  1788  limb 12    172.9 u/s  int 0.31  Slide        rate cap 1<46
+  71438.0 ms  seq  1787  limb 15    186.3 u/s  int 0.19  Slide        rate cap 1<46
+  71438.9 ms  seq  1789  limb  1    116.8 u/s  int 0.15  Slide        rate cap 0<46
+  71461.6 ms  seq  1794  limb  3     62.3 u/s  int 0.12  Slide        rate cap 23<47
+  71461.6 ms  seq  1797  limb 12     88.9 u/s  int 0.11  Slide        rate cap 23<47
+  71462.4 ms  seq  1798  limb 15     27.6 u/s  int 0.00  Slide        rate cap 24<47
+  71461.6 ms  seq  1796  limb 15     20.4 u/s  int 0.00  Slide        rate cap 23<47
+  71485.1 ms  seq  1799  limb  1    194.5 u/s  int 0.58  Slide        rate cap 46<47
+  71486.2 ms  seq  1804  limb  3    107.9 u/s  int 0.28  Slide        rate cap 47<47
+  71485.1 ms  seq  1800  limb  6     77.5 u/s  int 0.17  Slide        rate cap 46<47
+  71485.1 ms  seq  1801  limb 12     53.8 u/s  int 0.04  Slide        rate cap 46<47
+  71485.1 ms  seq  1802  limb 12     49.4 u/s  int 0.04  Slide        rate cap 46<47
+  71485.1 ms  seq  1803  limb 17     52.9 u/s  int 0.02  Slide        rate cap 46<47
+  71486.2 ms  seq  1805  limb 12     32.0 u/s  int 0.01  Slide        rate cap 47<47
+  71507.9 ms  seq  1809  limb 16    314.1 u/s  int 0.21  Slide        masked
+  71507.1 ms  seq  1808  limb 12     46.6 u/s  int 0.03  Slide        masked
+  71507.1 ms  seq  1806  limb 15     36.5 u/s  int 0.01  Slide        masked
+  71507.1 ms  seq  1807  limb 15     33.7 u/s  int 0.01  Slide        masked
+  71651.1 ms  seq  1815  limb  1     47.2 u/s  int 0.07  Slide        masked
+  71675.9 ms  seq  1817  limb  1     20.4 u/s  int 0.00  Slide        masked
+  71699.9 ms  seq  1818  limb  1     32.4 u/s  int 0.03  Slide        masked
+  71724.8 ms  seq  1819  limb  3     45.4 u/s  int 0.06  Slide        masked
+  71724.8 ms  seq  1820  limb 16    214.3 u/s  int 0.13  Slide        masked
+  71749.4 ms  seq  1822  limb  0     30.9 u/s  int 0.02  Slide        masked
+  71749.4 ms  seq  1821  limb  1     28.0 u/s  int 0.02  Slide        masked
+  71771.8 ms  seq  1823  limb 14     36.0 u/s  int 0.01  Slide        masked
+  71792.9 ms  seq  1825  limb  9     62.8 u/s  int 0.12  Slide        masked
+  71792.9 ms  seq  1824  limb  6     22.0 u/s  int 0.00  Slide        masked
+  71814.6 ms  seq  1827  limb  9     54.9 u/s  int 0.09  Slide        masked
+  71835.0 ms  seq  1829  limb 13    102.6 u/s  int 0.19  Slide        head air 0ms 0.00 +0.0dB gate 122
+  71835.0 ms  seq  1828  limb 16     55.6 u/s  int 0.02  Slide        rate cap 0<43
+  71874.1 ms  seq  1834  limb 13     43.2 u/s  int 0.04  Slide        head air 0ms 0.00 +0.0dB gate 147 CROWD
+  71874.1 ms  seq  1834  limb 13     43.2 u/s  int 0.04  Slide        rate cap 39<43
+  71874.1 ms  seq  1830  limb  1     43.9 u/s  int 0.06  Slide        rate cap 39<43
+  71874.1 ms  seq  1831  limb  1     43.9 u/s  int 0.06  Slide        rate cap 39<43
+  71874.7 ms  seq  1835  limb 12     52.4 u/s  int 0.05  Slide        rate cap 40<43
+  71874.1 ms  seq  1833  limb  7     99.9 u/s  int 0.05  Slide        rate cap 39<43
+  71893.3 ms  seq  1836  limb 13     54.7 u/s  int 0.08  Slide        head air 0ms 0.00 +0.0dB gate 122
+  71893.3 ms  seq  1836  limb 13     54.7 u/s  int 0.08  Slide        chain merge
+  71974.3 ms  seq  1839  limb  2     34.4 u/s  int 0.03  Slide        rate cap 41<43
+  72020.2 ms  seq  1841  limb 12     78.4 u/s  int 0.10  Slide        burst gap
+  72365.2 ms  seq  1844  limb  4    105.9 u/s  int 0.18  Tumble       burst gap
+  72458.2 ms  seq  1845  limb  2     39.6 u/s  int 0.03  Slide        burst gap
+  72458.2 ms  seq  1846  limb  2     39.6 u/s  int 0.03  Slide        burst gap

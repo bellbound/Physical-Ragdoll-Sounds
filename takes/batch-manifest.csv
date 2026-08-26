@@ -1,184 +1,43 @@
 cut,source,kind,in_ms,out_ms,len_ms,inferred_slot,corr,note
-A_dull_heavy_thump_as_a_wet_sandbag_slams_onto_pa_variation1-s01.wav,"Firefly_audio_A_dull,_heavy_thump_as_a_wet_sandbag_slams_onto_pa_variation1.wav",single,19,190,171,imp_body,1.0,satellite @268ms -32dB; satellite @370ms -29dB; satellite @504ms -28dB
-A_dull_heavy_thump_as_a_wet_sandbag_slams_onto_pa_variation2-s01.wav,"Firefly_audio_A_dull,_heavy_thump_as_a_wet_sandbag_slams_onto_pa_variation2.wav",single,8,194,186,imp_body,0.99,
-A_dull_heavy_thump_as_a_wet_sandbag_slams_onto_pa_variation3-s01.wav,"Firefly_audio_A_dull,_heavy_thump_as_a_wet_sandbag_slams_onto_pa_variation3.wav",short,19,104,85,imp_body,0.99,satellite @162ms -33dB
-A_dull_heavy_thump_as_a_wet_sandbag_slams_onto_pa_variation3-s02.wav,"Firefly_audio_A_dull,_heavy_thump_as_a_wet_sandbag_slams_onto_pa_variation3.wav",short,87,168,81,imp_body,0.99,satellite @162ms -33dB
-A_heavy_object_glides_slowly_over_rough_stone_low_variation1-loop.wav,"Firefly_audio_A_heavy_object_glides_slowly_over_rough_stone,_low_variation1.wav",loop,5160,7168,2008,scrape_loop,1.0,scrape_loop; window swept for seam
-A_heavy_object_glides_slowly_over_rough_stone_low_variation1-long.wav,"Firefly_audio_A_heavy_object_glides_slowly_over_rough_stone,_low_variation1.wav",long,20,9930,9910,scrape_loop,1.0,"scrape_loop; full take, not seam-matched"
-A_heavy_object_glides_slowly_over_rough_stone_low_variation2_1-loop.wav,"Firefly_audio_A_heavy_object_glides_slowly_over_rough_stone,_low_variation2(1).wav",loop,140,2148,2008,scrape_loop,0.99,scrape_loop; window swept for seam
-A_heavy_object_glides_slowly_over_rough_stone_low_variation2_1-long.wav,"Firefly_audio_A_heavy_object_glides_slowly_over_rough_stone,_low_variation2(1).wav",long,0,2980,2980,scrape_loop,0.99,"scrape_loop; full take, not seam-matched"
-A_heavy_object_glides_slowly_over_rough_stone_low_variation2-loop.wav,"Firefly_audio_A_heavy_object_glides_slowly_over_rough_stone,_low_variation2.wav",loop,400,2408,2008,scrape_loop,1.0,scrape_loop; window swept for seam
-A_heavy_object_glides_slowly_over_rough_stone_low_variation2-long.wav,"Firefly_audio_A_heavy_object_glides_slowly_over_rough_stone,_low_variation2.wav",long,30,2986,2956,scrape_loop,1.0,"scrape_loop; full take, not seam-matched"
-A_heavy_object_glides_slowly_over_rough_stone_low_variation3-loop.wav,"Firefly_audio_A_heavy_object_glides_slowly_over_rough_stone,_low_variation3.wav",loop,480,2488,2008,scrape_loop,1.0,scrape_loop; window swept for seam
-A_heavy_object_glides_slowly_over_rough_stone_low_variation3-long.wav,"Firefly_audio_A_heavy_object_glides_slowly_over_rough_stone,_low_variation3.wav",long,30,2990,2960,scrape_loop,1.0,"scrape_loop; full take, not seam-matched"
-A_heavy_object_glides_slowly_over_rough_stone_low_variation4_1-loop.wav,"Firefly_audio_A_heavy_object_glides_slowly_over_rough_stone,_low_variation4(1).wav",loop,4640,6648,2008,scrape_loop,1.0,scrape_loop; window swept for seam
-A_heavy_object_glides_slowly_over_rough_stone_low_variation4_1-long.wav,"Firefly_audio_A_heavy_object_glides_slowly_over_rough_stone,_low_variation4(1).wav",long,18,9964,9946,scrape_loop,1.0,"scrape_loop; full take, not seam-matched"
-A_heavy_object_glides_slowly_over_rough_stone_low_variation4-loop.wav,"Firefly_audio_A_heavy_object_glides_slowly_over_rough_stone,_low_variation4.wav",loop,840,2848,2008,scrape_loop,1.0,scrape_loop; window swept for seam
-A_heavy_object_glides_slowly_over_rough_stone_low_variation4-long.wav,"Firefly_audio_A_heavy_object_glides_slowly_over_rough_stone,_low_variation4.wav",long,22,2962,2940,scrape_loop,1.0,"scrape_loop; full take, not seam-matched"
-A_heavy_wet_slap_of_soaked_cloth_and_raw_meat_wit_variation2-s01.wav,"Firefly_audio_A_heavy_wet_slap_of_soaked_cloth_and_raw_meat,_wit_variation2.wav",short,194,418,224,gore_wet,0.96,
-A_heavy_wet_slap_of_soaked_cloth_and_raw_meat_wit_variation2-s02.wav,"Firefly_audio_A_heavy_wet_slap_of_soaked_cloth_and_raw_meat,_wit_variation2.wav",short,408,804,396,gore_wet,0.96,
-A_heavy_wet_slap_of_soaked_cloth_and_raw_meat_wit_variation2-long.wav,"Firefly_audio_A_heavy_wet_slap_of_soaked_cloth_and_raw_meat,_wit_variation2.wav",long,194,804,610,gore_wet,0.96,
-A_heavy_wet_slap_of_soaked_cloth_and_raw_meat_wit_variation3-s01.wav,"Firefly_audio_A_heavy_wet_slap_of_soaked_cloth_and_raw_meat,_wit_variation3.wav",single,192,650,458,gore_wet,0.98,
-A_quick_light_forearm_tap_on_a_hard_floor_dry_an_variation1-s01.wav,"Firefly_audio_A_quick,_light_forearm_tap_on_a_hard_floor,_dry_an_variation1.wav",single,165,298,133,limb_tap,0.98,satellite @120ms -33dB; satellite @292ms -27dB
-A_quick_light_forearm_tap_on_a_hard_floor_dry_an_variation2-s01.wav,"Firefly_audio_A_quick,_light_forearm_tap_on_a_hard_floor,_dry_an_variation2.wav",single,437,598,161,limb_tap,0.97,satellite @286ms -31dB; satellite @592ms -31dB
-A_soft_short_boot_heel_tap_on_stone_gritty_tick_variation2-s01.wav,"Firefly_audio_A_soft,_short_boot_heel_tap_on_stone,_gritty_tick,_variation2.wav",short,22,192,170,limb_tap,1.0,
-A_soft_short_boot_heel_tap_on_stone_gritty_tick_variation2-s02.wav,"Firefly_audio_A_soft,_short_boot_heel_tap_on_stone,_gritty_tick,_variation2.wav",short,786,982,196,limb_tap,1.0,
-A_soft_short_boot_heel_tap_on_stone_gritty_tick_variation3-s01.wav,"Firefly_audio_A_soft,_short_boot_heel_tap_on_stone,_gritty_tick,_variation3.wav",single,20,226,206,limb_tap,1.0,
-A_soft_short_boot_heel_tap_on_stone_gritty_tick_variation4-s01.wav,"Firefly_audio_A_soft,_short_boot_heel_tap_on_stone,_gritty_tick,_variation4.wav",short,20,224,204,limb_tap,1.0,
-A_soft_short_boot_heel_tap_on_stone_gritty_tick_variation4-s02.wav,"Firefly_audio_A_soft,_short_boot_heel_tap_on_stone,_gritty_tick,_variation4.wav",short,695,818,123,limb_tap,1.0,
-A_steady_soft_rustle_of_heavy_woolen_cloak_fabric_variation1-loop.wav,"Firefly_audio_A_steady_soft_rustle_of_heavy_woolen_cloak_fabric,_variation1.wav",loop,300,2808,2508,foley_cloth,0.88,foley_cloth; window swept for seam
-A_steady_soft_rustle_of_heavy_woolen_cloak_fabric_variation1-long.wav,"Firefly_audio_A_steady_soft_rustle_of_heavy_woolen_cloak_fabric,_variation1.wav",long,96,2878,2782,foley_cloth,0.88,"foley_cloth; full take, not seam-matched"
-A_steady_soft_rustle_of_heavy_woolen_cloak_fabric_variation3-loop.wav,"Firefly_audio_A_steady_soft_rustle_of_heavy_woolen_cloak_fabric,_variation3.wav",loop,140,2648,2508,foley_cloth,0.92,foley_cloth; window swept for seam
-A_steady_soft_rustle_of_heavy_woolen_cloak_fabric_variation3-long.wav,"Firefly_audio_A_steady_soft_rustle_of_heavy_woolen_cloak_fabric,_variation3.wav",long,14,3000,2986,foley_cloth,0.92,"foley_cloth; full take, not seam-matched"
-A_steady_soft_rustle_of_heavy_woolen_cloak_fabric_variation4-loop.wav,"Firefly_audio_A_steady_soft_rustle_of_heavy_woolen_cloak_fabric,_variation4.wav",loop,120,2628,2508,foley_cloth,0.89,foley_cloth; window swept for seam
-A_steady_soft_rustle_of_heavy_woolen_cloak_fabric_variation4-long.wav,"Firefly_audio_A_steady_soft_rustle_of_heavy_woolen_cloak_fabric,_variation4.wav",long,24,2982,2958,foley_cloth,0.89,"foley_cloth; full take, not seam-matched"
-A_wet_thick_squelch_of_raw_meat_and_offal_single_variation1_1-s01.wav,"Firefly_audio_A_wet,_thick_squelch_of_raw_meat_and_offal,_single_variation1(1).wav",short,88,300,212,gore_wet,0.98,satellite @560ms -24dB; satellite @784ms -30dB
-A_wet_thick_squelch_of_raw_meat_and_offal_single_variation1_1-s02.wav,"Firefly_audio_A_wet,_thick_squelch_of_raw_meat_and_offal,_single_variation1(1).wav",short,289,566,277,gore_wet,0.98,satellite @560ms -24dB; satellite @784ms -30dB
-A_wet_thick_squelch_of_raw_meat_and_offal_single_variation1_1-long.wav,"Firefly_audio_A_wet,_thick_squelch_of_raw_meat_and_offal,_single_variation1(1).wav",long,88,566,478,gore_wet,0.98,satellite @560ms -24dB; satellite @784ms -30dB
-A_wet_thick_squelch_of_raw_meat_and_offal_single_variation1-s01.wav,"Firefly_audio_A_wet,_thick_squelch_of_raw_meat_and_offal,_single_variation1.wav",single,154,602,448,gore_wet,0.96,satellite @596ms -21dB; satellite @768ms -26dB
-A_wet_thick_squelch_of_raw_meat_and_offal_single_variation2-s01.wav,"Firefly_audio_A_wet,_thick_squelch_of_raw_meat_and_offal,_single_variation2.wav",short,54,554,500,gore_wet,0.96,satellite @666ms -33dB; satellite @714ms -24dB
-A_wet_thick_squelch_of_raw_meat_and_offal_single_variation2-s02.wav,"Firefly_audio_A_wet,_thick_squelch_of_raw_meat_and_offal,_single_variation2.wav",short,544,672,128,gore_wet,0.96,satellite @666ms -33dB; satellite @714ms -24dB
-A_wet_thick_squelch_of_raw_meat_and_offal_single_variation2-long.wav,"Firefly_audio_A_wet,_thick_squelch_of_raw_meat_and_offal,_single_variation2.wav",long,54,672,618,gore_wet,0.96,satellite @666ms -33dB; satellite @714ms -24dB
-A_wet_thick_squelch_of_raw_meat_and_offal_single_variation3-s01.wav,"Firefly_audio_A_wet,_thick_squelch_of_raw_meat_and_offal,_single_variation3.wav",single,17,654,637,gore_wet,0.99,satellite @654ms -31dB; satellite @810ms -33dB; satellite @894ms -31dB
-A_wet_thick_squelch_of_raw_meat_and_offal_single_variation4_1-s01.wav,"Firefly_audio_A_wet,_thick_squelch_of_raw_meat_and_offal,_single_variation4(1).wav",single,36,488,452,gore_wet,0.92,satellite @510ms -31dB
-A_wet_thick_squelch_of_raw_meat_and_offal_single_variation4-s01.wav,"Firefly_audio_A_wet,_thick_squelch_of_raw_meat_and_offal,_single_variation4.wav",short,60,364,304,gore_wet,0.97,satellite @708ms -27dB; satellite @864ms -31dB
-A_wet_thick_squelch_of_raw_meat_and_offal_single_variation4-s02.wav,"Firefly_audio_A_wet,_thick_squelch_of_raw_meat_and_offal,_single_variation4.wav",short,354,476,122,gore_wet,0.97,satellite @708ms -27dB; satellite @864ms -31dB
-A_wet_thick_squelch_of_raw_meat_and_offal_single_variation4-s03.wav,"Firefly_audio_A_wet,_thick_squelch_of_raw_meat_and_offal,_single_variation4.wav",short,466,714,248,gore_wet,0.97,satellite @708ms -27dB; satellite @864ms -31dB
-A_wet_thick_squelch_of_raw_meat_and_offal_single_variation4-long.wav,"Firefly_audio_A_wet,_thick_squelch_of_raw_meat_and_offal,_single_variation4.wav",long,60,714,654,gore_wet,0.97,satellite @708ms -27dB; satellite @864ms -31dB
-a_dry_meaty_damp_cut_of_meat_dropped_onto_a_butche_variation1-s01.wav,Firefly_audio_a_dry_meaty_damp_cut_of_meat_dropped_onto_a_butche_variation1.wav,short,135,298,163,imp_body,0.75,satellite @394ms -31dB
-a_dry_meaty_damp_cut_of_meat_dropped_onto_a_butche_variation1-s02.wav,Firefly_audio_a_dry_meaty_damp_cut_of_meat_dropped_onto_a_butche_variation1.wav,short,285,400,115,imp_body,0.75,satellite @394ms -31dB
-continuous_soft_rustle_of_heavy_woollen_cloak_fabr_variation1-loop.wav,Firefly_audio_continuous_soft_rustle_of_heavy_woollen_cloak_fabr_variation1.wav,loop,2980,5488,2508,foley_cloth,0.91,foley_cloth; window swept for seam
-continuous_soft_rustle_of_heavy_woollen_cloak_fabr_variation1-long.wav,Firefly_audio_continuous_soft_rustle_of_heavy_woollen_cloak_fabr_variation1.wav,long,34,9862,9828,foley_cloth,0.91,"foley_cloth; full take, not seam-matched"
-dull_muffled_thump_into_damp_soil_soft_dead_impac_variation1_1-s01.wav,"Firefly_audio_dull_muffled_thump_into_damp_soil,_soft_dead_impac_variation1(1).wav",single,15,566,551,surf_soft,1.0,satellite @580ms -33dB
-dull_muffled_thump_into_damp_soil_soft_dead_impac_variation1-s01.wav,"Firefly_audio_dull_muffled_thump_into_damp_soil,_soft_dead_impac_variation1.wav",single,64,276,212,surf_soft,1.0,
-dull_muffled_thump_into_damp_soil_soft_dead_impac_variation2-s01.wav,"Firefly_audio_dull_muffled_thump_into_damp_soil,_soft_dead_impac_variation2.wav",single,35,268,233,surf_soft,1.0,satellite @262ms -29dB
-dull_muffled_thump_into_damp_soil_soft_dead_impac_variation4-s01.wav,"Firefly_audio_dull_muffled_thump_into_damp_soil,_soft_dead_impac_variation4.wav",single,13,464,451,surf_soft,1.0,
-fish_slap_variation1-s01.wav,Firefly_audio_fish_slap_variation1.wav,short,274,392,118,imp_transient,0.98,satellite @94ms -31dB; satellite @158ms -31dB; satellite @604ms -26dB
-fish_slap_variation1-s02.wav,Firefly_audio_fish_slap_variation1.wav,short,382,610,228,imp_transient,0.98,satellite @94ms -31dB; satellite @158ms -31dB; satellite @604ms -26dB
-fish_slap_variation3_1-s01.wav,Firefly_audio_fish_slap_variation3(1).wav,single,328,1000,672,imp_transient,0.99,
-fish_slap_variation3-s01.wav,Firefly_audio_fish_slap_variation3.wav,single,34,172,138,imp_transient,0.83,
-fish_slap_variation4-s01.wav,Firefly_audio_fish_slap_variation4.wav,single,194,306,112,imp_transient,0.98,satellite @300ms -28dB; satellite @394ms -23dB; satellite @498ms -21dB; satellite @588ms -29dB; satellite @736ms -25dB
-hard_flat_impact_against_cold_stone_flagstone_tig_variation1-s01.wav,"Firefly_audio_hard_flat_impact_against_cold_stone_flagstone,_tig_variation1.wav",single,22,448,426,surf_stone,0.89,
-hard_flat_impact_of_human_body_against_cold_stone_variation1-s01.wav,Firefly_audio_hard_flat_impact_of_human_body_against_cold_stone__variation1.wav,single,20,544,524,surf_stone,0.96,
-hard_flat_impact_of_human_body_against_cold_stone_variation3-s01.wav,Firefly_audio_hard_flat_impact_of_human_body_against_cold_stone__variation3.wav,single,34,818,784,surf_stone,0.99,
-hard_flat_impact_of_human_body_against_cold_stone_variation4-s01.wav,Firefly_audio_hard_flat_impact_of_human_body_against_cold_stone__variation4.wav,short,19,96,77,surf_stone,0.68,satellite @90ms -22dB; satellite @426ms -32dB; satellite @592ms -28dB
-hard_flat_impact_of_human_body_against_cold_stone_variation4-s02.wav,Firefly_audio_hard_flat_impact_of_human_body_against_cold_stone__variation4.wav,short,216,432,216,surf_stone,0.68,satellite @90ms -22dB; satellite @426ms -32dB; satellite @592ms -28dB
-hard_knuckle_crack_against_a_wooden_board_one_sho_variation1-s01.wav,"Firefly_audio_hard_knuckle_crack_against_a_wooden_board,_one_sho_variation1.wav",short,15,106,91,imp_transient,0.99,
-hard_knuckle_crack_against_a_wooden_board_one_sho_variation1-s02.wav,"Firefly_audio_hard_knuckle_crack_against_a_wooden_board,_one_sho_variation1.wav",short,897,964,67,imp_transient,0.99,
-hard_knuckle_crack_against_a_wooden_board_one_sho_variation2-s01.wav,"Firefly_audio_hard_knuckle_crack_against_a_wooden_board,_one_sho_variation2.wav",short,343,410,67,imp_transient,0.96,
-hard_knuckle_crack_against_a_wooden_board_one_sho_variation2-s02.wav,"Firefly_audio_hard_knuckle_crack_against_a_wooden_board,_one_sho_variation2.wav",short,801,868,67,imp_transient,0.96,
-hard_knuckle_crack_against_a_wooden_board_one_sho_variation2-s03.wav,"Firefly_audio_hard_knuckle_crack_against_a_wooden_board,_one_sho_variation2.wav",short,926,986,60,imp_transient,0.96,
-heavy_body_dragged_slowly_across_rough_stone_low_variation1-loop.wav,"Firefly_audio_heavy_body_dragged_slowly_across_rough_stone,_low__variation1.wav",loop,11960,13968,2008,scrape_loop,1.0,scrape_loop; window swept for seam
-heavy_body_dragged_slowly_across_rough_stone_low_variation1-long.wav,"Firefly_audio_heavy_body_dragged_slowly_across_rough_stone,_low__variation1.wav",long,40,14978,14938,scrape_loop,1.0,"scrape_loop; full take, not seam-matched"
-heavy_body_dragged_slowly_across_rough_stone_low_variation2-loop.wav,"Firefly_audio_heavy_body_dragged_slowly_across_rough_stone,_low__variation2.wav",loop,380,2388,2008,scrape_loop,0.98,scrape_loop; window swept for seam
-heavy_body_dragged_slowly_across_rough_stone_low_variation2-long.wav,"Firefly_audio_heavy_body_dragged_slowly_across_rough_stone,_low__variation2.wav",long,4,2938,2934,scrape_loop,0.98,"scrape_loop; full take, not seam-matched"
-heavy_body_dragged_slowly_across_rough_stone_low_variation3_1-loop.wav,"Firefly_audio_heavy_body_dragged_slowly_across_rough_stone,_low__variation3(1).wav",loop,800,2808,2008,scrape_loop,0.99,scrape_loop; window swept for seam
-heavy_body_dragged_slowly_across_rough_stone_low_variation3_1-long.wav,"Firefly_audio_heavy_body_dragged_slowly_across_rough_stone,_low__variation3(1).wav",long,40,2942,2902,scrape_loop,0.99,"scrape_loop; full take, not seam-matched"
-heavy_body_dragged_slowly_across_rough_stone_low_variation4-loop.wav,"Firefly_audio_heavy_body_dragged_slowly_across_rough_stone,_low__variation4.wav",loop,4260,6268,2008,scrape_loop,1.0,scrape_loop; window swept for seam
-heavy_body_dragged_slowly_across_rough_stone_low_variation4-long.wav,"Firefly_audio_heavy_body_dragged_slowly_across_rough_stone,_low__variation4.wav",long,22,14976,14954,scrape_loop,1.0,"scrape_loop; full take, not seam-matched"
-heavy_body_violently_sliding_and_scraping_along_gr_variation1-loop.wav,Firefly_audio_heavy_body_violently_sliding_and_scraping_along_gr_variation1.wav,loop,6760,8768,2008,scrape_loop,0.99,scrape_loop; window swept for seam
-heavy_body_violently_sliding_and_scraping_along_gr_variation1-long.wav,Firefly_audio_heavy_body_violently_sliding_and_scraping_along_gr_variation1.wav,long,12,9928,9916,scrape_loop,0.99,"scrape_loop; full take, not seam-matched"
-heavy_body_violently_sliding_and_scraping_along_gr_variation2-loop.wav,Firefly_audio_heavy_body_violently_sliding_and_scraping_along_gr_variation2.wav,loop,3480,5488,2008,scrape_loop,0.99,scrape_loop; window swept for seam
-heavy_body_violently_sliding_and_scraping_along_gr_variation2-long.wav,Firefly_audio_heavy_body_violently_sliding_and_scraping_along_gr_variation2.wav,long,20,9918,9898,scrape_loop,0.99,"scrape_loop; full take, not seam-matched"
-heavy_forearm_dropped_onto_packed_earth_single_qu_variation3-s01.wav,"Firefly_audio_heavy_forearm_dropped_onto_packed_earth,_single_qu_variation3.wav",single,57,512,455,limb_tap,1.0,satellite @506ms -31dB
-heavy_limp_body_settling_onto_the_ground_soft_fin_variation4-s01.wav,"Firefly_audio_heavy_limp_body_settling_onto_the_ground,_soft_fin_variation4.wav",single,129,546,417,settle_rest,1.0,satellite @682ms -30dB
-heavy_side_of_raw_meat_dropped_flat_onto_a_wooden_variation1-s01.wav,Firefly_audio_heavy_side_of_raw_meat_dropped_flat_onto_a_wooden__variation1.wav,single,174,844,670,imp_body,1.0,
-heavy_side_of_raw_meat_dropped_flat_onto_a_wooden_variation3-s01.wav,Firefly_audio_heavy_side_of_raw_meat_dropped_flat_onto_a_wooden__variation3.wav,single,124,908,784,imp_body,0.95,
-heavy_side_of_raw_meat_dropped_flat_onto_a_wooden_variation4_1-s01.wav,Firefly_audio_heavy_side_of_raw_meat_dropped_flat_onto_a_wooden__variation4(1).wav,short,236,538,302,imp_body,1.0,satellite @174ms -30dB
-heavy_side_of_raw_meat_dropped_flat_onto_a_wooden_variation4_1-s02.wav,Firefly_audio_heavy_side_of_raw_meat_dropped_flat_onto_a_wooden__variation4(1).wav,short,589,816,227,imp_body,1.0,satellite @174ms -30dB
-heavy_side_of_raw_meat_dropped_flat_onto_a_wooden_variation4-s01.wav,Firefly_audio_heavy_side_of_raw_meat_dropped_flat_onto_a_wooden__variation4.wav,single,17,498,481,imp_body,1.0,
-heavy_thud_on_old_creaking_wooden_boards_hollow_b_variation3-s01.wav,"Firefly_audio_heavy_thud_on_old_creaking_wooden_boards,_hollow_b_variation3.wav",short,22,112,90,surf_wood,0.82,satellite @176ms -22dB
-heavy_thud_on_old_creaking_wooden_boards_hollow_b_variation3-s02.wav,"Firefly_audio_heavy_thud_on_old_creaking_wooden_boards,_hollow_b_variation3.wav",short,99,182,83,surf_wood,0.82,satellite @176ms -22dB
-heavy_thud_on_old_creaking_wooden_boards_hollow_b_variation4-s01.wav,"Firefly_audio_heavy_thud_on_old_creaking_wooden_boards,_hollow_b_variation4.wav",short,23,116,93,surf_wood,1.0,satellite @522ms -31dB
-heavy_thud_on_old_creaking_wooden_boards_hollow_b_variation4-s02.wav,"Firefly_audio_heavy_thud_on_old_creaking_wooden_boards,_hollow_b_variation4.wav",short,106,528,422,surf_wood,1.0,satellite @522ms -31dB
-heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation1-s01.wav,Firefly_audio_heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation1.wav,short,58,196,138,gore_wet,0.95,
-heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation1-s02.wav,Firefly_audio_heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation1.wav,short,186,484,298,gore_wet,0.95,
-heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation1-long.wav,Firefly_audio_heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation1.wav,long,58,484,426,gore_wet,0.95,
-heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation2-s01.wav,Firefly_audio_heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation2.wav,short,238,400,162,gore_wet,0.83,
-heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation2-s02.wav,Firefly_audio_heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation2.wav,short,390,560,170,gore_wet,0.83,
-heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation2-long.wav,Firefly_audio_heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation2.wav,long,238,560,322,gore_wet,0.83,
-heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation3-s01.wav,Firefly_audio_heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation3.wav,short,30,162,132,gore_wet,0.96,satellite @358ms -33dB; satellite @614ms -22dB; satellite @676ms -28dB
-heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation3-s02.wav,Firefly_audio_heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation3.wav,short,152,294,142,gore_wet,0.96,satellite @358ms -33dB; satellite @614ms -22dB; satellite @676ms -28dB
-heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation3-long.wav,Firefly_audio_heavy_wet_slap_of_soaked_cloth_and_raw_meat_torn_a_variation3.wav,long,30,294,264,gore_wet,0.96,satellite @358ms -33dB; satellite @614ms -22dB; satellite @676ms -28dB
-hitmarker_sound_single_short_crack_tap_critical_variation1-s01.wav,"Firefly_audio_hitmarker_sound,_single_short_crack_tap,_critical__variation1.wav",single,20,480,460,imp_transient,0.99,
-hitmarker_sound_single_short_crack_tap_critical_variation2-s01.wav,"Firefly_audio_hitmarker_sound,_single_short_crack_tap,_critical__variation2.wav",single,99,226,127,imp_transient,0.61,
-leg_of_raw_meat_dropped_flat_onto_a_bare_wooden_fl_variation2-s01.wav,Firefly_audio_leg_of_raw_meat_dropped_flat_onto_a_bare_wooden_fl_variation2.wav,short,44,320,276,imp_body,0.95,
-leg_of_raw_meat_dropped_flat_onto_a_bare_wooden_fl_variation2-s02.wav,Firefly_audio_leg_of_raw_meat_dropped_flat_onto_a_bare_wooden_fl_variation2.wav,short,650,972,322,imp_body,0.95,
-light_quick_tap_of_a_forearm_against_a_hard_floor_variation1-s01.wav,"Firefly_audio_light_quick_tap_of_a_forearm_against_a_hard_floor,_variation1.wav",short,26,160,134,limb_tap,0.89,
-light_quick_tap_of_a_forearm_against_a_hard_floor_variation1-s02.wav,"Firefly_audio_light_quick_tap_of_a_forearm_against_a_hard_floor,_variation1.wav",short,192,580,388,limb_tap,0.89,
-light_quick_tap_of_a_forearm_against_a_hard_floor_variation1-s03.wav,"Firefly_audio_light_quick_tap_of_a_forearm_against_a_hard_floor,_variation1.wav",short,842,946,104,limb_tap,0.89,
-light_quick_tap_of_a_forearm_against_a_hard_floor_variation2-s01.wav,"Firefly_audio_light_quick_tap_of_a_forearm_against_a_hard_floor,_variation2.wav",short,8,196,188,limb_tap,0.91,satellite @190ms -27dB; satellite @432ms -28dB; satellite @676ms -32dB
-light_quick_tap_of_a_forearm_against_a_hard_floor_variation2-s02.wav,"Firefly_audio_light_quick_tap_of_a_forearm_against_a_hard_floor,_variation2.wav",short,266,438,172,limb_tap,0.91,satellite @190ms -27dB; satellite @432ms -28dB; satellite @676ms -32dB
-light_quick_tap_of_a_forearm_against_a_hard_floor_variation2-s03.wav,"Firefly_audio_light_quick_tap_of_a_forearm_against_a_hard_floor,_variation2.wav",short,506,682,176,limb_tap,0.91,satellite @190ms -27dB; satellite @432ms -28dB; satellite @676ms -32dB
-light_quick_tap_of_a_forearm_against_a_hard_floor_variation2-s04.wav,"Firefly_audio_light_quick_tap_of_a_forearm_against_a_hard_floor,_variation2.wav",short,739,928,189,limb_tap,0.91,satellite @190ms -27dB; satellite @432ms -28dB; satellite @676ms -32dB
-light_quick_tap_of_a_forearm_against_a_hard_floor_variation3-s01.wav,"Firefly_audio_light_quick_tap_of_a_forearm_against_a_hard_floor,_variation3.wav",short,33,602,569,limb_tap,0.96,satellite @716ms -27dB
-light_quick_tap_of_a_forearm_against_a_hard_floor_variation3-s02.wav,"Firefly_audio_light_quick_tap_of_a_forearm_against_a_hard_floor,_variation3.wav",short,590,722,132,limb_tap,0.96,satellite @716ms -27dB
-loose_fabric_and_a_heavy_limb_slumping_to_rest_on_variation3-s01.wav,Firefly_audio_loose_fabric_and_a_heavy_limb_slumping_to_rest_on__variation3.wav,short,62,312,250,settle_rest,0.99,
-loose_fabric_and_a_heavy_limb_slumping_to_rest_on_variation3-s02.wav,Firefly_audio_loose_fabric_and_a_heavy_limb_slumping_to_rest_on__variation3.wav,short,301,678,377,settle_rest,0.99,
-naked_body_sliding_along_gorund_close_mic_dry_st_variation3-loop.wav,"Firefly_audio_naked_body_sliding_along_gorund,_close_mic,_dry_st_variation3.wav",loop,0,1000,1000,scrape_loop,0.9,scrape_loop; window swept for seam
-naked_body_sliding_along_gorund_close_mic_dry_st_variation3-long.wav,"Firefly_audio_naked_body_sliding_along_gorund,_close_mic,_dry_st_variation3.wav",long,28,936,908,scrape_loop,0.9,"scrape_loop; full take, not seam-matched"
-naked_body_sliding_along_ground_dense_continuous_variation3-loop.wav,"Firefly_audio_naked_body_sliding_along_ground,_dense_continuous__variation3.wav",loop,2280,4288,2008,scrape_loop,0.91,scrape_loop; window swept for seam
-naked_body_sliding_along_ground_dense_continuous_variation3-long.wav,"Firefly_audio_naked_body_sliding_along_ground,_dense_continuous__variation3.wav",long,0,9978,9978,scrape_loop,0.91,"scrape_loop; full take, not seam-matched"
-naked_body_sliding_and_scraping_along_ground_dens_variation1-loop.wav,"Firefly_audio_naked_body_sliding_and_scraping_along_ground,_dens_variation1.wav",loop,3320,5328,2008,scrape_loop,0.91,scrape_loop; window swept for seam
-naked_body_sliding_and_scraping_along_ground_dens_variation1-long.wav,"Firefly_audio_naked_body_sliding_and_scraping_along_ground,_dens_variation1.wav",long,0,9982,9982,scrape_loop,0.91,"scrape_loop; full take, not seam-matched"
-quick_impact_crushing_of_a_bundle_of_dry_celery_a_variation1-s01.wav,"Firefly_audio_quick_impact,_crushing_of_a_bundle_of_dry_celery_a_variation1.wav",short,90,280,190,crunch_gran,0.95,satellite @710ms -26dB
-quick_impact_crushing_of_a_bundle_of_dry_celery_a_variation1-s02.wav,"Firefly_audio_quick_impact,_crushing_of_a_bundle_of_dry_celery_a_variation1.wav",short,270,706,436,crunch_gran,0.95,satellite @710ms -26dB
-quick_impact_crushing_of_a_bundle_of_dry_celery_a_variation1-long.wav,"Firefly_audio_quick_impact,_crushing_of_a_bundle_of_dry_celery_a_variation1.wav",long,90,706,616,crunch_gran,0.95,satellite @710ms -26dB
-quick_light_tap_of_a_hand_on_packed_earth_one_sof_variation3-s01.wav,"Firefly_audio_quick_light_tap_of_a_hand_on_packed_earth,_one_sof_variation3.wav",short,4,116,112,limb_tap,1.0,
-quick_light_tap_of_a_hand_on_packed_earth_one_sof_variation3-s02.wav,"Firefly_audio_quick_light_tap_of_a_hand_on_packed_earth,_one_sof_variation3.wav",short,543,652,109,limb_tap,1.0,
-quick_light_tap_of_a_hand_on_packed_earth_one_sof_variation3-s03.wav,"Firefly_audio_quick_light_tap_of_a_hand_on_packed_earth,_one_sof_variation3.wav",short,886,980,94,limb_tap,1.0,
-sandbag_full_of_wet_sand_slammed_onto_packed_earth_variation1-s01.wav,Firefly_audio_sandbag_full_of_wet_sand_slammed_onto_packed_earth_variation1.wav,short,14,244,230,imp_body,0.96,
-sandbag_full_of_wet_sand_slammed_onto_packed_earth_variation1-s02.wav,Firefly_audio_sandbag_full_of_wet_sand_slammed_onto_packed_earth_variation1.wav,short,231,652,421,imp_body,0.96,
-sandbag_full_of_wet_sand_slammed_onto_packed_earth_variation2-s01.wav,Firefly_audio_sandbag_full_of_wet_sand_slammed_onto_packed_earth_variation2.wav,short,27,144,117,imp_body,0.84,satellite @434ms -34dB
-sandbag_full_of_wet_sand_slammed_onto_packed_earth_variation2-s02.wav,Firefly_audio_sandbag_full_of_wet_sand_slammed_onto_packed_earth_variation2.wav,short,133,440,307,imp_body,0.84,satellite @434ms -34dB
-series_of_light_limb_taps_on_a_hard_floor_five_to_variation1_1-s01.wav,"Firefly_audio_series_of_light_limb_taps_on_a_hard_floor,_five_to_variation1(1).wav",short,20,268,248,limb_tap,1.0,
-series_of_light_limb_taps_on_a_hard_floor_five_to_variation1_1-s02.wav,"Firefly_audio_series_of_light_limb_taps_on_a_hard_floor,_five_to_variation1(1).wav",short,239,406,167,limb_tap,1.0,
-series_of_light_limb_taps_on_a_hard_floor_five_to_variation1_1-s03.wav,"Firefly_audio_series_of_light_limb_taps_on_a_hard_floor,_five_to_variation1(1).wav",short,394,608,214,limb_tap,1.0,
-series_of_light_limb_taps_on_a_hard_floor_five_to_variation1_1-s04.wav,"Firefly_audio_series_of_light_limb_taps_on_a_hard_floor,_five_to_variation1(1).wav",short,606,800,194,limb_tap,1.0,
-series_of_light_limb_taps_on_a_hard_floor_five_to_variation1_1-s05.wav,"Firefly_audio_series_of_light_limb_taps_on_a_hard_floor,_five_to_variation1(1).wav",short,856,998,142,limb_tap,1.0,
-series_of_light_limb_taps_on_a_hard_floor_five_to_variation1-s01.wav,"Firefly_audio_series_of_light_limb_taps_on_a_hard_floor,_five_to_variation1.wav",short,20,92,72,limb_tap,0.97,
-series_of_light_limb_taps_on_a_hard_floor_five_to_variation1-s02.wav,"Firefly_audio_series_of_light_limb_taps_on_a_hard_floor,_five_to_variation1.wav",short,74,192,118,limb_tap,0.97,
-series_of_light_limb_taps_on_a_hard_floor_five_to_variation1-s03.wav,"Firefly_audio_series_of_light_limb_taps_on_a_hard_floor,_five_to_variation1.wav",short,379,568,189,limb_tap,0.97,
-series_of_light_limb_taps_on_a_hard_floor_five_to_variation1-s04.wav,"Firefly_audio_series_of_light_limb_taps_on_a_hard_floor,_five_to_variation1.wav",short,828,984,156,limb_tap,0.97,
-sharp_dry_slap_of_a_heavy_leather_glove_onto_packe_variation1-s01.wav,Firefly_audio_sharp_dry_slap_of_a_heavy_leather_glove_onto_packe_variation1.wav,single,36,242,206,imp_transient,0.99,satellite @264ms -34dB
-sharp_dry_slap_of_a_heavy_leather_glove_onto_packe_variation3-s01.wav,Firefly_audio_sharp_dry_slap_of_a_heavy_leather_glove_onto_packe_variation3.wav,single,75,504,429,imp_transient,0.99,satellite @498ms -33dB
-sharp_dry_slap_of_a_heavy_leather_glove_onto_packe_variation4-s01.wav,Firefly_audio_sharp_dry_slap_of_a_heavy_leather_glove_onto_packe_variation4.wav,single,10,374,364,imp_transient,0.99,
-side_of_raw_meat_dropped_flat_onto_a_bare_wooden_f_variation2-s01.wav,Firefly_audio_side_of_raw_meat_dropped_flat_onto_a_bare_wooden_f_variation2.wav,single,133,398,265,imp_body,1.0,
-side_of_raw_meat_dropped_flat_onto_a_bare_wooden_f_variation3-s01.wav,Firefly_audio_side_of_raw_meat_dropped_flat_onto_a_bare_wooden_f_variation3.wav,single,222,422,200,imp_body,0.99,
-single_hard_knuckle_crack_against_a_wooden_board_variation1-s01.wav,"Firefly_audio_single_hard_knuckle_crack_against_a_wooden_board,__variation1.wav",short,32,162,130,imp_transient,0.99,
-single_hard_knuckle_crack_against_a_wooden_board_variation1-s02.wav,"Firefly_audio_single_hard_knuckle_crack_against_a_wooden_board,__variation1.wav",short,878,984,106,imp_transient,0.99,
-single_hollow_knock_on_a_thick_wooden_plank_floor_variation1-s01.wav,"Firefly_audio_single_hollow_knock_on_a_thick_wooden_plank_floor,_variation1.wav",single,9,344,335,surf_wood,1.0,
-single_hollow_knock_on_a_thick_wooden_plank_floor_variation3-s01.wav,"Firefly_audio_single_hollow_knock_on_a_thick_wooden_plank_floor,_variation3.wav",short,20,360,340,surf_wood,1.0,
-single_hollow_knock_on_a_thick_wooden_plank_floor_variation3-s02.wav,"Firefly_audio_single_hollow_knock_on_a_thick_wooden_plank_floor,_variation3.wav",short,321,680,359,surf_wood,1.0,
-single_hollow_knock_on_a_thick_wooden_plank_floor_variation3-s03.wav,"Firefly_audio_single_hollow_knock_on_a_thick_wooden_plank_floor,_variation3.wav",short,675,942,267,surf_wood,1.0,
-single_hollow_knock_on_a_thick_wooden_plank_floor_variation4-s01.wav,"Firefly_audio_single_hollow_knock_on_a_thick_wooden_plank_floor,_variation4.wav",short,15,220,205,surf_wood,0.81,
-single_hollow_knock_on_a_thick_wooden_plank_floor_variation4-s02.wav,"Firefly_audio_single_hollow_knock_on_a_thick_wooden_plank_floor,_variation4.wav",short,650,936,286,surf_wood,0.81,
-small_dull_knock_of_a_knee_hitting_packed_dirt_qu_variation3_1-s01.wav,"Firefly_audio_small_dull_knock_of_a_knee_hitting_packed_dirt,_qu_variation3(1).wav",single,519,780,261,limb_tap,1.0,
-small_dull_knock_of_a_knee_hitting_packed_dirt_qu_variation3-s01.wav,"Firefly_audio_small_dull_knock_of_a_knee_hitting_packed_dirt,_qu_variation3.wav",short,22,286,264,limb_tap,1.0,
-small_dull_knock_of_a_knee_hitting_packed_dirt_qu_variation3-s02.wav,"Firefly_audio_small_dull_knock_of_a_knee_hitting_packed_dirt,_qu_variation3.wav",short,481,744,263,limb_tap,1.0,
-small_sandbag_of_damp_sand_dropped_onto_packed_ear_variation1-s01.wav,Firefly_audio_small_sandbag_of_damp_sand_dropped_onto_packed_ear_variation1.wav,single,29,208,179,imp_body,0.98,satellite @202ms -31dB
-small_sandbag_of_damp_sand_dropped_onto_packed_ear_variation2-s01.wav,Firefly_audio_small_sandbag_of_damp_sand_dropped_onto_packed_ear_variation2.wav,single,6,190,184,imp_body,0.98,
-small_sandbag_of_dropped_onto_packed_earth_quiet_variation2-s01.wav,"Firefly_audio_small_sandbag_of_dropped_onto_packed_earth,_quiet__variation2.wav",single,50,264,214,imp_body,1.0,satellite @258ms -32dB
-soft_scuff_tap_of_a_boot_heel_clipping_stone_shor_variation1-s01.wav,"Firefly_audio_soft_scuff_tap_of_a_boot_heel_clipping_stone,_shor_variation1.wav",single,572,660,88,limb_tap,1.0,
-soft_scuff_tap_of_a_boot_heel_clipping_stone_shor_variation4-s01.wav,"Firefly_audio_soft_scuff_tap_of_a_boot_heel_clipping_stone,_shor_variation4.wav",single,514,594,80,limb_tap,1.0,satellite @166ms -26dB; satellite @588ms -28dB
-twisting_a_handful_of_raw_chicken_bones_and_gristl_variation1-s01.wav,Firefly_audio_twisting_a_handful_of_raw_chicken_bones_and_gristl_variation1.wav,short,330,398,68,crunch_gran,0.95,satellite @234ms -30dB
-twisting_a_handful_of_raw_chicken_bones_and_gristl_variation1-s02.wav,Firefly_audio_twisting_a_handful_of_raw_chicken_bones_and_gristl_variation1.wav,short,388,858,470,crunch_gran,0.95,satellite @234ms -30dB
-twisting_a_handful_of_raw_chicken_bones_and_gristl_variation1-long.wav,Firefly_audio_twisting_a_handful_of_raw_chicken_bones_and_gristl_variation1.wav,long,330,858,528,crunch_gran,0.95,satellite @234ms -30dB
-twisting_a_handful_of_raw_chicken_bones_and_gristl_variation2-s01.wav,Firefly_audio_twisting_a_handful_of_raw_chicken_bones_and_gristl_variation2.wav,single,308,624,316,crunch_gran,0.94,satellite @192ms -30dB; satellite @882ms -31dB
-twisting_a_handful_of_raw_chicken_bones_and_gristl_variation4-s01.wav,Firefly_audio_twisting_a_handful_of_raw_chicken_bones_and_gristl_variation4.wav,single,48,584,536,crunch_gran,0.95,satellite @600ms -25dB; satellite @686ms -24dB; satellite @780ms -30dB; satellite @856ms -28dB
-weighted_leather_duffel_bag_dropped_hard_onto_a_st_variation2-s01.wav,Firefly_audio_weighted_leather_duffel_bag_dropped_hard_onto_a_st_variation2.wav,single,34,360,326,imp_body,0.95,satellite @368ms -31dB
-weighted_leather_duffel_bag_dropped_hard_onto_a_st_variation4-s01.wav,Firefly_audio_weighted_leather_duffel_bag_dropped_hard_onto_a_st_variation4.wav,single,122,376,254,imp_body,0.99,satellite @370ms -28dB
-wet_squelch_of_raw_meat_and_offal_squeezed_hard_t_variation1-s01.wav,"Firefly_audio_wet_squelch_of_raw_meat_and_offal_squeezed_hard,_t_variation1.wav",short,40,200,160,gore_wet,0.94,
-wet_squelch_of_raw_meat_and_offal_squeezed_hard_t_variation1-s02.wav,"Firefly_audio_wet_squelch_of_raw_meat_and_offal_squeezed_hard,_t_variation1.wav",short,190,370,180,gore_wet,0.94,
-wet_squelch_of_raw_meat_and_offal_squeezed_hard_t_variation1-long.wav,"Firefly_audio_wet_squelch_of_raw_meat_and_offal_squeezed_hard,_t_variation1.wav",long,40,370,330,gore_wet,0.94,
-wet_squelch_of_raw_meat_and_offal_squeezed_hard_t_variation3-s01.wav,"Firefly_audio_wet_squelch_of_raw_meat_and_offal_squeezed_hard,_t_variation3.wav",single,22,218,196,gore_wet,0.73,satellite @350ms -27dB; satellite @504ms -26dB
-bone_crack_impact_composite-s01.wav,bone_crack_impact-composite.wav,short,18,378,360,imp_body,1.0,satellite @512ms -30dB
-bone_crack_impact_composite-s02.wav,bone_crack_impact-composite.wav,short,368,518,150,imp_body,1.0,satellite @512ms -30dB
-bone_crack_impact_composite-long.wav,bone_crack_impact-composite.wav,long,18,518,500,imp_body,1.0,satellite @512ms -30dB
-crunsh_gran_or_gore_split_at_half_has_two_sound-s01.wav,crunsh_gran_or gore-split-at-half-has-two-sound.wav,short,66,274,208,,0.96,satellite @624ms -29dB; satellite @822ms -27dB
-crunsh_gran_or_gore_split_at_half_has_two_sound-s02.wav,crunsh_gran_or gore-split-at-half-has-two-sound.wav,short,366,498,132,,0.96,satellite @624ms -29dB; satellite @822ms -27dB
-crunsh_gran_or_gore_split_at_half_has_two_sound-s03.wav,crunsh_gran_or gore-split-at-half-has-two-sound.wav,short,528,616,88,,0.96,satellite @624ms -29dB; satellite @822ms -27dB
-crunsh_gran_or_gore_split_at_half_has_two_sound-s04.wav,crunsh_gran_or gore-split-at-half-has-two-sound.wav,short,714,828,114,,0.96,satellite @624ms -29dB; satellite @822ms -27dB
-crunsh_gran_or_gore_split_at_half_has_two_sound-s05.wav,crunsh_gran_or gore-split-at-half-has-two-sound.wav,short,874,948,74,,0.96,satellite @624ms -29dB; satellite @822ms -27dB
-crunsh_gran_or_gore_split_at_half_has_two_sound-long.wav,crunsh_gran_or gore-split-at-half-has-two-sound.wav,long,66,948,882,,0.96,satellite @624ms -29dB; satellite @822ms -27dB
-limb_tap-s01.wav,limb_tap.wav,single,22,236,214,limb_tap,1.0,
+bone_crunch_tick_2-s01.wav,bone_crunch_tick_2.wav,short,52,150,98,,0.87,
+bone_crunch_tick_2-s02.wav,bone_crunch_tick_2.wav,short,172,310,138,,0.87,
+crunch_short_3-s01.wav,crunch_short_3.wav,short,20,488,468,,0.84,satellite @710ms -29dB; satellite @808ms -31dB
+crunch_short_3-s02.wav,crunch_short_3.wav,short,500,594,94,,0.84,satellite @710ms -29dB; satellite @808ms -31dB
+crunch_short_3-s03.wav,crunch_short_3.wav,short,584,716,132,,0.84,satellite @710ms -29dB; satellite @808ms -31dB
+gore_and_crunch-s01.wav,gore_and_crunch.wav,single,120,820,700,,0.97,
+gore_gristle_2-s01.wav,gore_gristle (2).wav,single,26,764,738,,0.98,satellite @758ms -31dB
+gore_gristle-s01.wav,gore_gristle.wav,single,52,922,870,,0.84,
+gore_wet_crunch_2-s01.wav,gore_wet_crunch_2.wav,single,56,462,406,gore_wet,0.9,satellite @638ms -25dB
+gore_wet_squelsh-s01.wav,gore_wet_squelsh.wav,single,46,774,728,gore_wet,0.94,
+imp-s01.wav,imp.wav,single,10,238,227,,1.0,
+imp_body_heavy-s01.wav,imp_body_heavy.wav,single,0,364,364,imp_body,0.96,satellite @358ms -33dB
+imp_body_light-s01.wav,imp_body_light.wav,single,40,408,368,imp_body,1.0,satellite @402ms -33dB; satellite @480ms -34dB
+imp_body_light_2-s01.wav,imp_body_light_2.wav,single,92,624,532,imp_body,0.92,satellite @618ms -30dB
+imp_body_light_3-s01.wav,imp_body_light_3.wav,single,36,318,282,imp_body,1.0,
+imp_heavy-s01.wav,imp_heavy.wav,single,22,316,294,,0.99,
+imp_heavy_2-s01.wav,imp_heavy_2.wav,short,19,140,121,,0.92,
+imp_heavy_2-s02.wav,imp_heavy_2.wav,short,129,736,607,,0.92,
+imp_heavy_3-s01.wav,imp_heavy_3.wav,single,20,454,434,,0.98,
+imp_heavy_4_2-s01.wav,imp_heavy_4 (2).wav,single,22,450,428,,1.0,satellite @444ms -32dB
+imp_heavy_4-s01.wav,imp_heavy_4.wav,single,35,348,313,,1.0,
+imp_heavy_5_2-s01.wav,imp_heavy_5 (2).wav,single,22,380,358,,1.0,
+imp_heavy_5-s01.wav,imp_heavy_5.wav,single,22,315,293,,1.0,
+imp_heavy_6_2-s01.wav,imp_heavy_6 (2).wav,single,18,584,566,,1.0,
+imp_heavy_6-s01.wav,imp_heavy_6.wav,single,20,518,498,,1.0,
+imp_heavy_7-s01.wav,imp_heavy_7.wav,single,18,584,566,,1.0,
+imp_metallic-s01.wav,imp_metallic.wav,single,21,557,536,,0.99,
+imp_wet-s01.wav,imp_wet.wav,single,64,540,476,,0.98,
+metallic_sharp-s01.wav,metallic_sharp.wav,single,24,174,150,,0.87,
+metallic_sharp_2-s01.wav,metallic_sharp_2.wav,single,18,350,332,,0.95,
+scrape_dirt_dead_brush-loop.wav,scrape_dirt_dead_brush.wav,loop,0,1951,1951,,0.87,scrape_limb; window swept for seam
+scrape_dirt_dead_brush-long.wav,scrape_dirt_dead_brush.wav,long,0,1951,1951,,0.87,"scrape_limb; full take, not seam-matched"
+scrape_grain_stone-s01.wav,scrape_grain_stone.wav,short,62,414,352,scrape_grain,0.98,satellite @566ms -30dB
+scrape_grain_stone-s02.wav,scrape_grain_stone.wav,short,404,572,168,scrape_grain,0.98,satellite @566ms -30dB
+scrape_long_limb_stone-loop.wav,scrape_long_limb_stone.wav,loop,800,3308,2508,,0.92,scrape_limb; window swept for seam
+scrape_long_limb_stone-long.wav,scrape_long_limb_stone.wav,long,0,8358,8358,,0.92,"scrape_limb; full take, not seam-matched"
+scrape_soft_carpet-loop.wav,scrape_soft_carpet.wav,loop,800,3308,2508,,0.89,scrape_limb; window swept for seam
+scrape_soft_carpet-long.wav,scrape_soft_carpet.wav,long,0,6869,6869,,0.89,"scrape_limb; full take, not seam-matched"
+scrape_stone_2-loop.wav,scrape_stone_2.wav,loop,560,3068,2508,,0.92,scrape_limb; window swept for seam
+scrape_stone_2-long.wav,scrape_stone_2.wav,long,0,5738,5738,,0.92,"scrape_limb; full take, not seam-matched"
+scrape_wood-loop.wav,scrape_wood.wav,loop,440,2948,2508,,0.9,scrape_limb; window swept for seam
+scrape_wood-long.wav,scrape_wood.wav,long,0,4541,4541,,0.9,"scrape_limb; full take, not seam-matched"

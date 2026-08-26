@@ -3,10 +3,13 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <map>
 #include <numbers>
+#include <string>
 
 #include "miniaudio.h"
-#include "rds/Synth.h"
+
+#include "rds/VanillaTrack.h"
 
 namespace tb {
 namespace {
@@ -84,11 +87,27 @@ void AddLoop(std::vector<float>& mix, std::size_t frames, const std::vector<floa
     if (srcLen < 2.0) return;
 
     const std::size_t start = static_cast<std::size_t>(std::max(0.0, points.front().timeSec) * sr);
+
+    // The *first* stop ends the loop, not only a trailing one.
+    //
+    // A voice's points arrive in cue-list order, and the offline runner sorts
+    // that list by time - so a stop whose timestamp is older than the updates
+    // emitted before it does not come last. Testing `points.back()` alone then
+    // read "no stop at all" and ran the loop to the end of the mix at whatever
+    // gain it last held: a single grind droning under the remaining two minutes
+    // of a take the engine had actually stopped. The engine no longer stamps a
+    // stop in the past, and this no longer depends on it not doing so.
+    //
+    // Anything after the stop is dead by construction - the render walks frames
+    // up to `end` and never reaches those points - so the first one is the whole
+    // answer.
     std::size_t end = frames;
     float outFadeMs = 0.0f;
-    if (points.back().stop) {
-        end = std::min(frames, static_cast<std::size_t>(std::max(0.0, points.back().timeSec) * sr));
-        outFadeMs = points.back().fadeMs;
+    for (const LoopPoint& point : points) {
+        if (!point.stop) continue;
+        end = std::min(frames, static_cast<std::size_t>(std::max(0.0, point.timeSec) * sr));
+        outFadeMs = point.fadeMs;
+        break;
     }
     if (end <= start) return;
 
@@ -225,31 +244,15 @@ const std::vector<float>& SoundSource::Get(rds::SlotId slot, std::uint8_t varian
     // Get, never Resolve: Resolve advances the shuffle bag and would hand back a
     // different variant than the cue names, so the audio would not be the cue
     // list the arbitrator emitted.
-    if (m_bank != nullptr && m_bank->Get(slot, variant, resolved) && !resolved.procedural &&
-        !resolved.path.empty()) {
+    if (m_bank != nullptr && m_bank->Get(slot, variant, resolved) && !resolved.path.empty()) {
         int rate = 0;
-        if (DecodeFile(resolved.path, 1, m_sampleRate, e.samples, rate) && !e.samples.empty()) {
-            e.procedural = false;
-        }
+        DecodeFile(resolved.path, 1, m_sampleRate, e.samples, rate);
     }
-    if (e.procedural) {
-        // The backend's own stand-in, not a second one written here. If the
-        // testbench synthesised its own the tuning would be against a sound the
-        // shipped mod never makes.
-        const rds::SlotDesc& d = rds::Slot(slot);
-        const float lengthMs = d.maxLengthMs > 0.0f ? 0.5f * (d.minLengthMs + d.maxLengthMs) : 200.0f;
-        e.samples = rds::Synthesise(slot, variant, lengthMs, static_cast<float>(m_sampleRate)).samples;
-    }
-
+    // Empty when the slot has no recording, and cached that way on purpose: the
+    // mix is then what the shipped mod plays, which is this layer missing. The
+    // stand-in that used to fill it made the testbench the one place the mod
+    // sounded complete.
     return m_cache.emplace(key, std::move(e)).first->second.samples;
-}
-
-bool SoundSource::IsProcedural(rds::SlotId slot, std::uint8_t variant) const {
-    if (m_auditionSlot == static_cast<int>(slot) && !m_auditionSamples.empty()) {
-        return false;
-    }
-    auto it = m_cache.find(CacheKey(slot, variant));
-    return it == m_cache.end() ? true : it->second.procedural;
 }
 
 void SoundSource::SetAudition(rds::SlotId slot, const std::string& path) {
@@ -273,18 +276,6 @@ void SoundSource::ClearAudition() {
     m_auditionSlot = -1;
     m_auditionPath.clear();
     m_auditionSamples.clear();
-}
-
-std::vector<std::string> SoundSource::Report() const {
-    std::vector<std::string> lines;
-    for (const auto& [key, e] : m_cache) {
-        const auto slot = static_cast<rds::SlotId>(key >> 8);
-        const std::string_view name = rds::ToString(slot);
-        lines.push_back(std::string(name) + "_" + std::to_string(key & 0xFF) + ": " +
-                        (e.procedural ? "procedural" : "file") + ", " + std::to_string(e.samples.size()) +
-                        " samples");
-    }
-    return lines;
 }
 
 void SoundSource::Invalidate() { m_cache.clear(); }
@@ -350,6 +341,154 @@ MixedAudio MixCues(const std::vector<rds::Cue>& cues, double audioDurationMs,
     // The raw peak is kept and shown: the soft clip is a testbench convenience
     // and the game has no limiter, so a config that only sounds controlled here
     // is a config that will clip in Skyrim.
+    float peak = 0.0f, raw = 0.0f;
+    for (float& s : out.stereo) {
+        raw = std::max(raw, std::fabs(s));
+        if (limiter) s = std::tanh(s * 0.9f) * 1.111f;
+        peak = std::max(peak, std::fabs(s));
+    }
+    out.peak = peak;
+    out.rawPeak = raw;
+    return out;
+}
+
+// ── the vanilla mix ──────────────────────────────────────────────────────────
+
+namespace {
+
+/// Equal-power pan for a bare world position. `PanFor` takes a Cue and a vanilla
+/// row is not one; the geometry is identical and duplicating it here rather than
+/// generalising both keeps Cue's own "bone index means centre" rule where it
+/// belongs, since a vanilla row has no bone to be attached to.
+void PanForPosition(const rds::Vec3& position, const rds::ListenerState& listener, float& gl,
+                    float& gr) {
+    float pan = 0.0f;
+    const rds::Vec3 f = listener.facing;
+    const float rx = f.y, ry = -f.x;
+    const float rlen = std::sqrt(rx * rx + ry * ry);
+    if (rlen > 1e-4f) {
+        const float dx = position.x - listener.position.x;
+        const float dy = position.y - listener.position.y;
+        const float lateral = (dx * rx + dy * ry) / rlen;
+        pan = std::clamp(lateral / 220.0f, -1.0f, 1.0f) * 0.75f;
+    }
+    const float a = (pan + 1.0f) * 0.25f * kPi;
+    gl = std::cos(a);
+    gr = std::sin(a);
+}
+
+/// Which of a descriptor's files this row draws.
+///
+/// Vanilla draws uniformly at the moment of the play and does not tell anyone
+/// which it drew (VanillaTrack.h). So this draws too - from the seed and the
+/// row, which makes it repeatable across runs and across machines without
+/// pretending to be the draw that actually happened. A hash rather than a
+/// running counter, so trimming the take's front does not reshuffle its tail.
+[[nodiscard]] std::size_t DrawIndex(std::uint32_t seed, std::uint32_t row, std::size_t count) {
+    if (count <= 1) {
+        return 0;
+    }
+    std::uint32_t h = seed * 2654435761u + row * 2246822519u;
+    h ^= h >> 15;
+    h *= 2246822519u;
+    h ^= h >> 13;
+    return h % count;
+}
+
+/// One decoded file per path, for the length of one mix.
+///
+/// Local rather than a member of anything: the vanilla side is re-mixed when the
+/// checkbox moves and not per frame, a take touches a handful of distinct files,
+/// and a cache that outlived the call would have to be invalidated when the root
+/// changed - one more thing to get wrong for a saving nobody would measure.
+class Decoded {
+public:
+    Decoded(int sampleRate) : m_sampleRate(sampleRate) {}
+
+    const std::vector<float>& Get(const std::string& path) {
+        const auto it = m_cache.find(path);
+        if (it != m_cache.end()) {
+            return it->second;
+        }
+        std::vector<float> samples;
+        int rate = 0;
+        // Empty on failure and cached that way, exactly as SoundSource does for a
+        // slot with no recording: an xwm the decoder will not read is silence
+        // here, and silence is the honest answer rather than a stand-in.
+        if (!DecodeFile(path, 1, m_sampleRate, samples, rate)) {
+            samples.clear();
+        }
+        return m_cache.emplace(path, std::move(samples)).first->second;
+    }
+
+private:
+    int m_sampleRate;
+    std::map<std::string, std::vector<float>> m_cache;
+};
+
+}  // namespace
+
+MixedAudio MixVanilla(const std::vector<rds::FeedEvent>& track, double audioDurationMs,
+                      const rds::ListenerState& listener, const VanillaLibrary& library,
+                      int sampleRate, float masterGainDb, bool limiter, std::uint32_t seed,
+                      std::size_t& played, std::size_t& misses) {
+    played = 0;
+    misses = 0;
+
+    MixedAudio out;
+    out.sampleRate = sampleRate;
+
+    double durMs = audioDurationMs;
+    for (const rds::FeedEvent& e : track) durMs = std::max(durMs, e.timeMs + 1200.0);
+    durMs = std::clamp(durMs, 250.0, 300000.0);
+    out.durationMs = durMs;
+
+    const std::size_t frames = static_cast<std::size_t>(durMs * 0.001 * sampleRate) + 1;
+    out.stereo.assign(frames * 2, 0.0f);
+
+    const float master = DbToLin(masterGainDb);
+    Decoded decoded{sampleRate};
+    std::uint32_t row = 0;
+
+    for (const rds::FeedEvent& event : track) {
+        if (event.kind != rds::EventKind::kVanillaSound) continue;
+        const std::uint32_t thisRow = row++;
+        // A row with no name is a miss, not a skip. The game could not name the
+        // descriptor (VanillaSoundFlag::kNameMissing), so nothing can find its
+        // file - and counting it as anything other than a miss would report the
+        // vanilla side as complete while it was playing half the take.
+        if (event.text[0] == '\0') {
+            ++misses;
+            continue;
+        }
+
+        const std::vector<std::string>& files = library.Files(event.text);
+        if (files.empty()) {
+            ++misses;
+            continue;
+        }
+
+        const std::vector<float>& src =
+            decoded.Get(files[DrawIndex(seed, thisRow, files.size())]);
+        if (src.empty()) {
+            ++misses;
+            continue;
+        }
+
+        // Static attenuation only, and it is an *attenuation*: the CK field is
+        // how much quieter the descriptor is, so it subtracts. Everything else
+        // vanilla would do to this voice - the output model's distance curve, the
+        // acoustic space, the dB roll - is either the game's to apply or is not
+        // knowable, and is left out rather than approximated.
+        const float gain = DbToLin(-rds::vanilla::AttenuationDb(event.vanilla)) * master;
+
+        float gl = 1.0f, gr = 1.0f;
+        PanForPosition(event.position, listener, gl, gr);
+        AddOneShot(out.stereo, frames, src, event.timeMs * 0.001, sampleRate, 1.0f, gain, gl, gr,
+                   0.0f);
+        ++played;
+    }
+
     float peak = 0.0f, raw = 0.0f;
     for (float& s : out.stereo) {
         raw = std::max(raw, std::fabs(s));

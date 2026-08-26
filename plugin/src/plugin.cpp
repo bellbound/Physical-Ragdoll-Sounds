@@ -14,11 +14,15 @@
 #include <string>
 
 #include "AudioBlobs.h"
+#include "Benchmark.h"
 #include "DevLink.h"
 #include "FrameHook.h"
 #include "GameFeed.h"
 #include "GameRenderer.h"
+#include "HiggsLink.h"
 #include "TestCue.h"
+#include "VanillaGate.h"
+#include "VanillaImpactHook.h"
 #include "VanillaSuppression.h"
 #include "rds/ConfigManager.h"
 #include "rds/Engine.h"
@@ -43,6 +47,7 @@ struct Mod {
     rds::game::GameRenderer renderer;
     rds::Engine engine;
     rds::game::DevLink link;
+    rds::game::Benchmark bench;
     /// The feed the engine actually reads. Either `feed` itself, or `feed`
     /// wrapped in the tee that copies each drained batch to the testbench - so
     /// with the link off there is not so much as an extra virtual call.
@@ -60,6 +65,18 @@ Mod& Get() {
     static Mod mod;
     return mod;
 }
+
+/// Where the vanilla impact hook puts what it saw.
+///
+/// A free function rather than a lambda because the hook takes a plain function
+/// pointer: it runs on the impact manager's thread and a std::function there
+/// would be an indirect call through a heap object nobody owns.
+///
+/// It goes on the contact ring, so a vanilla row is drained in time order beside
+/// the contacts it belongs with and reaches the testbench through the tap that is
+/// already there. The engine ignores the kind (Engine.cpp's Ingest), which is
+/// what keeps this a recording and not an input.
+void PushVanillaSound(const rds::FeedEvent& event) { Get().feed.PushEvent(event); }
 
 /// The engine's clock lives in GameFeed.h - milliseconds since the session
 /// opened, monotonic, the same clock a recording's t_ms is. It has to be one
@@ -112,6 +129,7 @@ void ApplyDevbench(Mod& mod) {
         // willing to hear an actor the feed had already stopped tracking.
         mod.feed.SetCullRadius(pending.config.distance.simplifiedRadius);
         mod.feed.SetBodySampleEveryNTicks(pending.config.ingest.bodySampleEveryNTicks);
+        mod.feed.SetGameIntegration(pending.config.game);
     }
     if (pending.sfx) {
         config.PushSfxOverride(pending.sfxTable);
@@ -124,7 +142,15 @@ void ApplyDevbench(Mod& mod) {
         // Going back to ours re-reads the ini rather than assuming suppression:
         // an install that deliberately runs with vanilla underneath ours must be
         // left the way it was, not "fixed" by having used the switch once.
-        if (pending.useVanillaAudio) {
+        //
+        // Through the hook when it is installed, which is a flag rather than a
+        // form edit - so the switch no longer has to put anything back, and the
+        // vanilla track is recorded either way. Nulling is still driven the old
+        // way on a runtime where the hook could not be placed.
+        if (rds::game::VanillaImpactHookInstalled()) {
+            rds::game::SetVanillaImpactsSuppressed(!pending.useVanillaAudio);
+            mod.renderer.SetMuted(pending.useVanillaAudio);
+        } else if (pending.useVanillaAudio) {
             mod.renderer.SetMuted(true);
             rds::game::RestoreVanillaBodyImpacts();
         } else {
@@ -144,6 +170,7 @@ void ApplyDevbench(Mod& mod) {
         mod.engine.SetConfig(algorithm);
         mod.feed.SetCullRadius(algorithm.distance.simplifiedRadius);
         mod.feed.SetBodySampleEveryNTicks(algorithm.ingest.bodySampleEveryNTicks);
+        mod.feed.SetGameIntegration(algorithm.game);
     }
 }
 
@@ -189,16 +216,30 @@ void OnFrame() {
         rds::game::FireTestCue(mod.renderer, now);
     }
 
+    const float frameSeconds = rds::game::FrameHook::DeltaSeconds();
+
     // The publisher half of the phase gate: only the game thread may ask an actor
     // whether it is ragdolling, and the contact callback runs on a Havok worker
     // (07 §1). This is where that answer is written down.
-    mod.feed.PublishTick(rds::game::FrameHook::DeltaSeconds());
+    //
+    // The three benchmark scopes below bound the mod's whole per-frame cost, in
+    // the three pieces it comes in. ApplyDevbench and PublishDevbenchStatus sit
+    // deliberately outside them: they are a development link that is off in
+    // every shipping install, and timing them would report a cost no player
+    // pays.
+    {
+        rds::game::BenchScope scope{mod.bench, rds::game::Benchmark::Span::kFeed};
+        mod.feed.PublishTick(frameSeconds);
+    }
 
     // Before the tick, so a config that arrived this frame is the one this
     // frame's contacts are judged by.
     ApplyDevbench(mod);
 
-    mod.engine.Tick(*mod.engineFeed, now);
+    {
+        rds::game::BenchScope scope{mod.bench, rds::game::Benchmark::Span::kEngine};
+        mod.engine.Tick(*mod.engineFeed, now);
+    }
 
     PublishDevbenchStatus(mod, now);
 
@@ -207,7 +248,10 @@ void OnFrame() {
     // say how far our audio ended up from them - the feed has just refreshed them
     // from the VR camera root, which is where the game's own listener sits.
     mod.renderer.SetListener(mod.feed.Listener().position);
-    mod.renderer.Update(now);
+    {
+        rds::game::BenchScope scope{mod.bench, rds::game::Benchmark::Span::kRender};
+        mod.renderer.Update(now);
+    }
 
     // One line when the last tracked actor lets go. The engine writes its own
     // per-knockdown summary from Release; this is the half it cannot see - how
@@ -218,6 +262,29 @@ void OnFrame() {
     // counts cues, and one composite is now one voice, so the real cost sits well
     // under what the config budgets.
     const std::size_t tracked = mod.engine.TrackedActors();
+
+    // EndFrame before OnTracking, and the order is load-bearing. OnTracking is
+    // what opens and closes sampling, so calling it first would fold a frame of
+    // zeros into the spans on the frame a knockdown starts, and would close
+    // sampling before the last frame of one had been banked.
+    // What the frame was carrying, for the benchmark's slow-frame lines. Three
+    // getters and a pair of counters, all of them reads the frame has already
+    // paid for elsewhere - and `Sampling()` is false in every shipping install,
+    // so this is a bool test and a return in the normal case.
+    rds::game::FrameLoad load{};
+    if (mod.bench.Sampling()) {
+        std::uint64_t benchCuesIn = 0;
+        std::uint64_t benchVoicesOut = 0;
+        mod.renderer.Counters(benchCuesIn, benchVoicesOut);
+        load.trackedActors = static_cast<std::uint32_t>(tracked);
+        load.liveVoices = static_cast<std::uint32_t>(mod.engine.LiveVoices());
+        load.contactsIn = mod.engine.Stats().contactsIn;
+        load.cuesOut = static_cast<std::uint32_t>(benchCuesIn);
+        load.voicesOut = static_cast<std::uint32_t>(benchVoicesOut);
+    }
+    mod.bench.EndFrame(now, frameSeconds, mod.engine.Stats(), load);
+    mod.bench.OnTracking(tracked != 0, now, mod.engine.Stats());
+
     if (tracked == 0 && mod.wasTracking) {
         std::uint64_t cuesIn = 0;
         std::uint64_t voicesOut = 0;
@@ -245,7 +312,38 @@ void OnDataLoaded() {
     Mod& mod = Get();
     const auto& general = rds::ConfigManager::Get().General();
 
-    if (general.suppression.suppressVanillaBodyImpacts) {
+    // One trampoline for every hook this DLL writes. Allocated here rather than
+    // inside either of them because SKSE::AllocTrampoline *releases* the block it
+    // already held: a second caller frees the branch the first one is running
+    // through, and the crash lands a frame later somewhere else entirely.
+    SKSE::AllocTrampoline(1 << 6);
+
+    // The set of records the body impact sets reach. Wanted whether or not
+    // anything is suppressed - it is the hook's filter, and without it every
+    // impact in the game would look like ours.
+    rds::game::BuildBodyImpactIndex();
+
+    // How wide a downed actor's claim on vanilla's body impacts is. Read here
+    // rather than per play: the gate is asked on the impact manager's thread and
+    // the config lives behind a mutex, which is the same reason the feed
+    // publishes the phase instead of looking it up.
+    rds::game::SetVanillaGateRadius(general.suppression.suppressionRadius);
+
+    const bool suppress = general.suppression.suppressVanillaBodyImpacts;
+    if (rds::game::InstallVanillaImpactHook(&PushVanillaSound)) {
+        // Per call. Nothing is mutated, a set we do not own keeps its sound, and
+        // vanilla's own decision is written down on the way past even while it is
+        // being dropped.
+        rds::game::SetVanillaImpactsSuppressed(suppress);
+        if (!suppress) {
+            spdlog::info("vanilla body impacts left alone; ours will layer on top of them - the "
+                         "hook is still recording what they were");
+        }
+    } else if (suppress) {
+        // The fallback, and it is a worse trade: global, and it silences the
+        // records rather than the calls, so there is nothing left to record.
+        spdlog::warn("vanilla hook unavailable on this runtime - falling back to nulling the "
+                     "impact records, which also means no vanilla track in a take");
         rds::game::SuppressVanillaBodyImpacts();
     } else {
         spdlog::info("vanilla body impacts left alone; ours will layer on top of them");
@@ -274,6 +372,7 @@ void OnDataLoaded() {
     // Algorithm() hands back a copy of a large struct and this runs every frame.
     mod.feed.SetCullRadius(algorithm.distance.simplifiedRadius);
     mod.feed.SetBodySampleEveryNTicks(algorithm.ingest.bodySampleEveryNTicks);
+    mod.feed.SetGameIntegration(algorithm.game);
     mod.feed.Install();
 
     // The renderer knows a cue wants a bone; only the feed knows how that actor's
@@ -290,6 +389,11 @@ void OnDataLoaded() {
     rds::game::ResetClock();
 
     rds::game::InstallTestCue(&mod.renderer, general.audio.testCueKey);
+
+    // Read once, here, and never again: a benchmark that could be switched on
+    // mid-session would be one whose first sampled knockdown is not the session's
+    // first, which is the one thing it is measuring. See Benchmark.h.
+    mod.bench.Configure(general.benchmark);
 
     // The testbench link, and the tee that feeds it. Both behind bEnableDevbench:
     // with the flag off the engine reads the feed directly and nothing here
@@ -321,6 +425,12 @@ void MessageHandler(SKSE::MessagingInterface::Message* message) {
         return;
     }
     switch (message->type) {
+        case SKSE::MessagingInterface::kPostPostLoad:
+            // The one message HIGGS answers its interface query on, and it has to
+            // be asked before anything wants to know whether a body is held. A
+            // no-op outside VR - see HiggsLink.h.
+            rds::game::higgs::Acquire(SKSE::GetMessagingInterface());
+            break;
         case SKSE::MessagingInterface::kDataLoaded:
             OnDataLoaded();
             break;

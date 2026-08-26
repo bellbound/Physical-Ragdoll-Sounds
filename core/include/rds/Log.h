@@ -12,8 +12,8 @@
 //   info   liberal, and aimed at somebody else's log. Init, both ini paths, the
 //          values that differ from default, the sound bank's per-slot resolution,
 //          vanilla suppression naming every form it touched, one summary line per
-//          knockdown (contacts in, cues out, bursts, peak, duration), voice cap
-//          hits, and every refusal to start (disabled, no bank, bad file)
+//          knockdown (contacts in, cues out, bursts, peak, duration), and every
+//          refusal to start (disabled, no bank, bad file)
 //   debug  the firehose. Per-contact admit/reject with the reason, phase
 //          transitions, every arbitration drop with the margin, every cue emitted
 //   warn   clamped config values with both numbers, unknown ini keys, an

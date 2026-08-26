@@ -16,7 +16,7 @@ This file fixes the vocabulary. It is a naming rule, not a feature.
 | **demote** | move it to a lesser class, not a lower level | `intensity < 0.15` becomes a `limb_tap` |
 | **duck** | damp it *because* something else is happening | `fPreImpactDuckDb` |
 | **suppress** | stop it existing at all | the arbitrator's drops |
-| **gate** | suppress it for falling below a threshold | `fGateFrac`, `fCrunchGateFrac` |
+| **gate** | suppress it for falling below a threshold | `fGateFrac`, `Damage:f*AtFrac` |
 | **mask** | suppress it because something louder covers it | `maskCeilingDb` |
 | **cap** | suppress it because a budget is spent | `fRateCapMs`, `iBurstMaxGrains` |
 | **merge** | suppress it by folding it into a neighbour | `chain merge`, `bCollapseManifolds` |
@@ -74,24 +74,42 @@ must not grow a term each time a rule learns to trim.
 - **Trim** is a correction applied to the finished decision. "This wav is hot",
   "the sub is too much in VR", "the settle phase should sit back". Use it when
   the number describes the *mix*, not the event.
-- **Weight** does not exist yet. It is reserved for the planned
-  `Proposal::priorityDb`, so an event can be made more or less important without
-  being made louder or quieter.
+
+  The first of those three is no longer a config key at all: `[Sfx] TrimDb` in a
+  file's own `.meta.ini` is a trim on **one recording**, and it is the strongest
+  form the rule takes. It cannot change what was chosen because nothing knows
+  which *file* a layer resolved to until `Emit` calls `SoundBank::Resolve`, long
+  after Stage 4 has sorted, rate-capped and burst-shaped. That is the ordering,
+  not a promise. `[Sfx] Pitch` sits beside it and is the same kind of thing: a
+  correction to the recording, multiplied into the pitch the engine chose rather
+  than replacing it. Both belong to the sound and apply wherever it is used, the
+  way `Disabled` does; a level difference wanted on *one slot* is
+  `SlotGain:f<Slot>` instead.
+- **Weight** is `Proposal::priorityDb`: an event made more or less important
+  without being made louder or quieter. Three of them exist —
+  `Arbitration:fTorsoWeightDb`, `fHeadWeightDb`, `fLimbWeightDb` — and all three
+  default to 0, so the priority is the level until somebody moves one. Only the
+  arbitrator may write a weight (01 §6.1); a strategy that could would be a
+  strategy able to make its own cue outrank the frame.
 
 The suffix carries it: `f…GainDb`, `f…TrimDb`, `f…WeightDb`. A reader must never
 have to open `Engine.cpp` to find out which side a slider is on.
 
 ## Why it matters
 
-`HeadImpact:fGainDb = -27.5` is a voicing decision - the head_impact wav is hot
-and needs pulling down. It sat harmlessly on the pre-arbitration side for as
-long as the head accent was an accessory, because accessories skip Stage 4
-entirely.
+`HeadImpact:fGainDb` is a voicing decision - the head_impact wav is hot and
+needs pulling down. It sat harmlessly on the pre-arbitration side for as long as
+the head accent was an accessory, because accessories skip Stage 4 entirely. It
+was -27.5 dB when this was written, which is what made the failure so stark;
+today it defaults to **-2.0** and most of the pull has moved into `fTrimDb`,
+where it belongs.
 
 Then `bHeadClaimsOnset` was added. A head impact stops being an accessory and
-becomes its own onset - and the instant it does, that -27.5 dB voicing trim
-becomes its priority, and the loudest skull landing in the take loses the sort
-to a hand.
+becomes its own onset - and the instant it does, that voicing trim becomes its
+priority, and the loudest skull landing in the take loses the sort to a hand.
+The default that made it a 27.5 dB demotion is gone; the mechanism is not, and
+`bClaimsOnsetOnHero` defaults to **true**, so the trap is armed and only the
+numbers are currently small enough to survive it.
 
 **The trap is not that the parameter was on the wrong side. It is that a flag
 moved it across the line at runtime.**
@@ -99,15 +117,23 @@ moved it across the line at runtime.**
 That flag is now `HeadImpact:bClaimsOnsetOnHero` and it fires on the moment axis
 rather than on the head's own air-time ramp - but **the trap is unchanged**. A
 better trigger does not fix it; the flag still moves the proposal across the
-line, and `fGainDb` still becomes a rank when it does. The only real fix is the
-`Proposal::priorityDb` split at the end of this file.
+line, and `fGainDb` still becomes a rank when it does.
+
+`Proposal::priorityDb` now exists (01 §6.1), which is what makes that fixable
+rather than merely mitigable: there is somewhere to put a number that is
+*supposed* to change rank, so a voicing number has no excuse to be doing it.
+What has **not** happened is the head accent's own move - `fGainDb` still lands
+in `levelDb` and still becomes a rank the moment `bClaimsOnsetOnHero` fires.
+Doing that properly means voicing to the trim and the deliberate half to
+`Arbitration:fHeadWeightDb`, and it is a tuning change with ears in it rather
+than a refactor.
 
 Hence the hard rule below - and the pairs that exist because of it.
 `fGainDb`/`fTrimDb`, `fHeadGainDb`/`fHeadTrimDb` and
 `fCompanyDampDb`/`fCompanyTrimDb` are each the same decision split across the
 line, so voicing can be moved off the sort without giving up the ability to put
-it there deliberately. Until `priorityDb` lands, putting head voicing in the
-trim is the mitigation.
+it there deliberately. Until the head's own move happens, putting head voicing
+in the trim is the mitigation.
 
 ---
 
@@ -143,15 +169,24 @@ trim is the mitigation.
 | `AirTime:fHeadMaxLevelDb` | a ceiling on the accent once the air-time boost is in |
 | `AirTime:fBodyGainDb` | any contact that is not the head, after air time |
 | `AirTime:fBodyMaxLevelDb` | a ceiling on that lift |
-| `CrunchGore:fCrunchGainDb`, `fGoreGainDb` | the crunch and gore accessories |
+| `Damage:f*CrunchQuietDb` / `LoudDb`, `f*GoreQuietDb` / `LoudDb` | the crunch and gore accessories, per part |
 | `ScrapeLoop:fGainDb`, `fSpeedRangeDb` | the scrape loop |
 | `MotionFoley:fBedGainDb`, `fAirborneRiseGainDb`, `fPreImpactDuckDb` | the bed and the rise |
 | `SettleClose:fGainDb` | the closing cue |
 
-`levelDb` for a composite is the **max across its layers**, so the four
-`ImpactComposite` pairs above already leak layer voicing into priority. Trim
+`levelDb` for a composite is the **max across the layers that rank**, so the
+four `ImpactComposite` pairs above still leak layer voicing into priority. Trim
 `fSubGainAtMaxDb` far enough and you change which contacts win the rate cap.
 That is live today and is the same confusion in a different place.
+
+The surface skin is the one layer held out of it, matching what `ProposeTap` has
+always done with its own skin: a floor is what a contact *hit*, not how big it
+was. It cost nothing to fix - body sits exactly 4 dB over surface at every
+intensity on the shipping defaults, so the skin could never have been the max -
+but that was arithmetic nobody had written down, and re-voicing either pair
+turned floor colour into rank. Measured with the surface forced to +6 dB, the
+unguarded engine moved 70 extra contacts into the masking drop and closed the
+hero cliff from 6.3 dB to 3.1.
 
 ### After the line - loudness only
 
@@ -163,6 +198,7 @@ That is live today and is the same confusion in a different place.
 | `Mix:fTransientTrimDb`, `fBodyTrimDb`, `fSubTrimDb`, `fSurfaceTrimDb`, `fGrainTrimDb`, `fLoopTrimDb` | `RoleTrimDb` |
 | `Player:fSubTrimDb` | `RoleTrimDb`, player only |
 | `SlotGain:*` (all 14) | `SlotTrimDb` |
+| `Surface.<name>:fTrimDb` (one per opened floor) | `SlotTrimDb`, summed on top of `Mix:fSurfaceTrimDb` |
 | `HeadImpact:fTrimDb`, `fCompanyTrimDb` | `Proposal::postTrimDb` |
 | `AirTime:fHeadTrimDb`, `fBodyTrimDb` | `Proposal::postTrimDb`, via `Contact::modTrimDb` |
 | `GlancingImpact:fMaxTrimCutDb` | `Proposal::postTrimDb` |
@@ -175,6 +211,54 @@ so no ini needs touching. The four `AirTime:fHeadHalo*` keys are gone entirely.
 Note `PhaseBudget` already splits correctly on its own: `gainTrimDb` is read
 only in `Emit`, `maxCuesPerBurst` only in `Arbitrate`. Same struct, both sides,
 no ambiguity.
+
+### The surfaces list
+
+Thirteen surface classes live in a **second file**,
+`RagdollSounds_Algorithm_Surfaces.ini`, one `[Surface.<name>]` block each - and
+only the blocks you have opened are in it. A fresh install's copy is a header and
+nothing else.
+
+A class with no block **inherits**, and the chain it inherits along is the same
+one its *sound* falls back along:
+
+| class | inherits from | plays, until a file exists for it |
+|---|---|---|
+| `soft`, `wood`, `stone` | `[Surfaces]` in the algorithm ini | itself - these are the three with recordings |
+| `metal`, `glass`, `ice` | `stone` | `surf_stone` |
+| `dirt`, `gravel`, `snow`, `water`, `body` | `soft` | `surf_soft` |
+| `waterpuddle` | `water` | `surf_water` -> `surf_soft` |
+| `bone` | `body` | `surf_body` -> `surf_soft` |
+
+One relationship declared once, so "ice plays the stone skin" and "ice reads
+stone's numbers" can never drift apart.
+
+Eight keys per block, and the split is the point: a key is **in** a block if it
+is a property of the *material*, and stays in `[Surfaces]` if it is a property
+of the *system*.
+
+| in a block | in `[Surfaces]` |
+|---|---|
+| `bEnabled` - this floor's mute | `bEnabled` - the master switch |
+| `fTrimDb` - this floor alone | `fTrimDb` - the role trim, summed on top |
+| `fOffsetMs` - a knock has a resonant delay a crack does not | `fTapOffsetMs` - describes the grain, not the floor |
+| `fGainAtMinDb` / `fGainAtMaxDb` - **the widest real difference**: glass is silent at a brush and a shatter at speed, carpet is flat | `fTapHeadroomDb` - a rank-safety clamp |
+| `bOnTaps` - water is why this is per-surface: a splash on nine of every ten contacts is absurd | |
+| `fTapGainAtMinDb` / `fTapGainAtMaxDb` | |
+
+**Opening a block is free.** It starts holding exactly what it was inheriting,
+so nothing changes until you move a slider - press `+ Surface` in the testbench,
+or write the section by hand. Closing it (the button on its header, or deleting
+the block) returns it to *inheriting*, which is not the same as resetting it to
+the defaults: a class under a tuned parent goes back to that parent.
+
+Migration off a pre-list ini is automatic and one-way. `Surfaces:fWoodTrimDb`,
+`bStone` and their four neighbours - and the `SlotGain:` / `Layers:` names they
+had before that - are read once, and a class is opened **only if its value
+differed from the default**. Somebody who never touched them gets thirteen closed
+blocks and an empty file, which is right: their tuning *was* the defaults. The
+old keys are then taken out of the algorithm ini rather than left sitting there
+looking editable.
 
 ### Neither - a cutoff, not a gain
 
@@ -308,11 +392,16 @@ audible moment, not one per layer.
 That ledger used to be per layer, which meant a four-layer composite spent four
 slots on the one voice it became, and the budget could run out *inside* a stack
 and drop the sub off it. It is now one booking per proposal, sized by the longest
-layer and all-or-nothing, which is the only thing a mixed buffer can be. There is
-no global ceiling at all - see 00-Design.md section 14 for the measurement that
-retired it - so `dropped voice cap` in an export now only ever means one actor
-had more than `kVoiceCapPerActor` moments overlapping at once, which across the
-whole capture set never happens.
+layer and all-or-nothing, which is the only thing a mixed buffer can be.
+
+There is no ceiling on it at all any more, global or per actor - see 00-Design.md
+section 14 for the measurement that retired the first, and the same measurement
+repeated against the second. `dropped voice cap` is gone from the export with it:
+a counter that can only ever read zero is worse than no counter, because it reads
+as a budget being respected rather than as a budget that no longer exists. What
+is left standing between the mix and a pile of inaudible voices is `Mix:
+fVoiceFloorDb`, which drops a layer on how loud it came out rather than on how
+many came before it.
 
 ---
 
@@ -367,15 +456,25 @@ suppression design assumes most contacts are inaudible - the reduction target is
 about 10:1. Lifting quiet cues up to a floor inverts that and fills the mix back
 in with exactly the grains the arbitrator spent its rules removing.
 
-## The change this convention is waiting on
+## The change this convention was waiting on
 
-`Proposal::priorityDb`, defaulting to `levelDb`, so the split is enforced by the
-type system rather than by discipline:
+`Proposal::priorityDb` has landed. The split the rest of this file argues for is
+now a field rather than a discipline:
 
 - **priority** - the sort, the rate-cap override, the chain merge, `lastOnsetDb`,
   `chainLastDb`
-- **level** - masking and `maskCeilingDb`, which are audibility questions and
-  should read the *predicted rendered* level, trims included, rather than the
-  pre-trim number they read now
+- **level** - masking and `maskCeilingDb`, which are audibility questions
 
-Until that lands, rule 4 is the whole defence: when in doubt, `Trim`.
+`priorityDb` is `levelDb` plus the site weight, assembled in `Arbitrate` and
+nowhere else, and every weight defaults to 0 - so today the two are the same
+number and the arbitrator behaves exactly as it did. See 01 §6.1.
+
+**Two halves of it are still open**, and both are tuning rather than plumbing:
+
+- Masking reads the *pre-trim* level, not the predicted rendered one. It should
+  read the level a cue will actually come out at, trims included.
+- `HeadImpact:fGainDb` still becomes a rank when `bClaimsOnsetOnHero` fires. The
+  fix is to move the voicing into the trim and the deliberate half into
+  `Arbitration:fHeadWeightDb`.
+
+Rule 4 is still the defence for anything not covered: when in doubt, `Trim`.

@@ -196,6 +196,11 @@ constexpr auto kBackoffMax = std::chrono::milliseconds(30000);
 constexpr DWORD kHandshakeTimeoutMs = 10000;
 constexpr DWORD kConnectTimeoutMs = 3000;
 
+/// How long to let OBS finish writing a stopped recording before giving up on
+/// the stopped event and taking the file as it stands. A long hybrid-MP4 take
+/// rewrites its header on close, and that is seconds, not milliseconds.
+constexpr std::uint32_t kStopFinaliseTimeoutMs = 60000;
+
 // ── strings and crypto ───────────────────────────────────────────────────────
 
 std::wstring Widen(const std::string& text) {
@@ -540,6 +545,11 @@ std::string g_recordDirectory;
 /// Fired once when OBS reports the output actually running, so an impact take
 /// can set its t0 to a moment that is inside the video.
 std::function<void(bool)> g_takeArmed;
+/// Fired once when OBS reports the output actually stopped. StopRecord answers
+/// as soon as the stop is *asked for*, and its outputPath names a file OBS is
+/// still finalising - moving it then leaves the mp4 with no moov atom and no
+/// frames to decode. The stopped event is the file being closed.
+std::function<void(std::string)> g_takeStopped;
 
 std::atomic<bool> g_threadRunning{false};
 std::atomic<bool> g_wantConnected{false};
@@ -579,10 +589,14 @@ void Enqueue(std::string type, json data, Reply reply = {}) {
 void FailPending(const std::string& reason) {
     std::unordered_map<std::string, PendingRequest> pending;
     std::function<void(bool)> armed;
+    std::function<void(std::string)> stopped;
+    std::string lastPath;
     {
         const std::lock_guard lock(g_mutex);
         pending.swap(g_pending);
         armed.swap(g_takeArmed);
+        stopped.swap(g_takeStopped);
+        lastPath = g_lastOutputPath;
     }
     for (auto& [id, request] : pending) {
         if (request.reply) {
@@ -591,6 +605,12 @@ void FailPending(const std::string& reason) {
     }
     if (armed) {
         armed(false);
+    }
+    // The socket went away mid-stop. OBS is still finalising on its own side, so
+    // the path is worth handing over - it is the take's video either way, and a
+    // waiter left armed here is a take that never finishes at all.
+    if (stopped) {
+        stopped(lastPath);
     }
 }
 
@@ -617,9 +637,21 @@ void OnRecordState(const json& data) {
         g_autoPaused.store(false);
         g_manualPaused.store(false);
         g_durationMs.store(0);
-        if (const auto path = StringOr(data, "outputPath"); !path.empty()) {
+        std::function<void(std::string)> stopped;
+        std::string path = StringOr(data, "outputPath");
+        {
             const std::lock_guard lock(g_mutex);
-            g_lastOutputPath = path;
+            if (!path.empty()) {
+                g_lastOutputPath = path;
+            } else {
+                // A stop event without a path still ends the wait, and the path
+                // StopRecord gave us is the same file.
+                path = g_lastOutputPath;
+            }
+            stopped.swap(g_takeStopped);
+        }
+        if (stopped) {
+            stopped(path);
         }
     } else if (state == "OBS_WEBSOCKET_OUTPUT_PAUSED") {
         g_paused.store(true);
@@ -1372,15 +1404,47 @@ void StopTake(std::function<void(std::string)> done) {
         Defer([done]() { done({}); });
         return;
     }
+
+    // Once-only, so a stopped event arriving after the timeout cannot hand the
+    // same take a second video.
+    auto once = std::make_shared<std::atomic_flag>();
+    auto guarded = [once, done](std::string path) {
+        if (once->test_and_set()) {
+            return;
+        }
+        Defer([done, path]() { done(path); });
+    };
+    {
+        const std::lock_guard lock(g_mutex);
+        g_takeStopped = guarded;
+    }
+
     Enqueue("StopRecord", json::object(),
-            [done](bool ok, std::uint64_t, const json& data, const std::string&, std::uint64_t) {
-                std::string path = ok ? StringOr(data, "outputPath") : std::string{};
+            [guarded](bool ok, std::uint64_t, const json& data, const std::string&, std::uint64_t) {
+                const std::string path = ok ? StringOr(data, "outputPath") : std::string{};
                 if (!path.empty()) {
                     const std::lock_guard lock(g_mutex);
                     g_lastOutputPath = path;
                 }
-                Defer([done, path]() { done(path); });
+                // Only a refusal finishes here. A stop that was accepted waits
+                // for the stopped event, because the file is not closed yet.
+                if (!ok) {
+                    guarded({});
+                }
             });
+    // A long recording takes real time to finalise, and finishing the take
+    // without its video is a better outcome than moving a half-written file. The
+    // path is still handed over on the timeout - the take is the user's either
+    // way - but it has had every chance to be a whole one first.
+    DeferAfter(kStopFinaliseTimeoutMs, [guarded]() {
+        std::string path;
+        {
+            const std::lock_guard lock(g_mutex);
+            path = g_lastOutputPath;
+        }
+        guarded(path);
+    });
+
     // After the stop, so the file being closed keeps the name it was opened with.
     RestoreFilenameFormat();
 }
