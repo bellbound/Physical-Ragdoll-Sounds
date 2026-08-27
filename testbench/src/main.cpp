@@ -179,8 +179,8 @@ std::vector<fs::path> RecordingCsvs(const fs::path& dir) {
 }
 
 int RunVerify(const Args& args) {
-    rds::AlgorithmConfig cfg{};
-    cfg.slots.rngSeed = 1;
+    rds::ConfigSet cfg{};
+    cfg.Base().slots.rngSeed = 1;
     if (!args.configFile.empty()) {
         const std::size_t keys = rds::ConfigManager::LoadInto(args.configFile, &cfg, rds::AlgorithmParams());
         std::printf("config: %s (%zu keys)\n", args.configFile.string().c_str(), keys);
@@ -273,8 +273,8 @@ int RunSmoke(const Args& args) {
     std::printf("take: %s (%.0f ms, %u impacts)\n", rec.Info().stem.c_str(), rec.Info().durationMs,
                 rec.Info().impacts);
 
-    rds::AlgorithmConfig cfg{};
-    cfg.slots.rngSeed = 1;
+    rds::ConfigSet cfg{};
+    cfg.Base().slots.rngSeed = 1;
     rds::SoundBank bank;
     rds::SfxLibrary library;
     rds::SfxAssignments assignments;
@@ -339,13 +339,13 @@ int RunExport(const Args& args) {
         return 2;
     }
 
-    rds::AlgorithmConfig cfg{};
+    rds::ConfigSet cfg{};
     if (!args.configFile.empty()) {
         const auto found =
             rds::ConfigManager::LoadInto(args.configFile, &cfg, rds::AlgorithmParams());
         std::printf("config %s: %zu keys\n", args.configFile.string().c_str(), found);
     }
-    cfg.slots.rngSeed = 1;
+    cfg.Base().slots.rngSeed = 1;
 
     rds::SoundBank bank;
     rds::SfxLibrary library;
@@ -471,8 +471,8 @@ int RunImport(const Args& args) {
 /// question about two builds rather than two configs and therefore has to be
 /// askable without a window, a take selected by hand, or anybody clicking.
 int RunBenchMode(const Args& args) {
-    rds::AlgorithmConfig cfg{};
-    cfg.slots.rngSeed = 1;
+    rds::ConfigSet cfg{};
+    cfg.Base().slots.rngSeed = 1;
     if (!args.configFile.empty()) {
         const std::size_t keys =
             rds::ConfigManager::LoadInto(args.configFile, &cfg, rds::AlgorithmParams());

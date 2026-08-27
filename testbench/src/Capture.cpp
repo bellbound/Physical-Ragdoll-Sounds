@@ -27,7 +27,8 @@ namespace {
 /// because this schema has moved once already - but it matters to whoever opens
 /// one of these in a spreadsheet next to a take the game wrote.
 constexpr const char* kCsvHeader =
-    "seq,t_ms,game_hour,event,phase,actor,actor_id,limb,limb_index,impact_speed,normal_speed,"
+    "seq,t_ms,game_hour,event,phase,combat,actor,actor_id,limb,limb_index,impact_speed,"
+    "normal_speed,"
     "tangent_speed,body_speed,angular_speed,mass,limb_radius,pos_x,pos_y,pos_z,nrm_x,nrm_y,nrm_z,"
     "vel_x,vel_y,vel_z,other_layer,other_material,material_source,other_body,other_limb,"
     "manifold_first,manifold_last,dropped,state";
@@ -105,7 +106,8 @@ void WriteRow(std::ostream& out, const rds::FeedEvent& event, std::uint32_t seq,
     const bool hasLimb = limb != nullptr && isLimbEvent;
 
     out << seq << ',' << std::format("{:.3f}", timeMs) << ",0.0000," << rds::ToString(event.kind)
-        << ',' << rds::PhaseName(event.phase) << ',' << actorName << ','
+        << ',' << rds::PhaseName(event.phase) << ',' << (event.inCombat ? 1 : 0) << ','
+        << actorName << ','
         << std::format("{:08X}", static_cast<std::uint32_t>(event.actorId)) << ','
         << (hasLimb ? limb->boneName : std::string("-")) << ',';
     if (isLimbEvent) {

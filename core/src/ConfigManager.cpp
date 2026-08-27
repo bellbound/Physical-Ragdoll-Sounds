@@ -168,7 +168,7 @@ ConfigManager& ConfigManager::Get() {
 }
 
 std::size_t ConfigManager::LoadInto(const std::filesystem::path& file, void* root,
-                                    std::span<const ParamDesc> params) {
+                                    std::span<const ParamDesc> params, bool reportUnknown) {
     const auto lines = ReadLines(file);
     if (lines.empty()) {
         return 0;
@@ -198,8 +198,13 @@ std::size_t ConfigManager::LoadInto(const std::filesystem::path& file, void* roo
         }
         if (desc == nullptr) {
             // A key we removed should not cost a user their whole file, so it is
-            // left exactly where it is and only mentioned at debug.
-            spdlog::debug("config: ignoring unknown key [{}] {}", section, key);
+            // left exactly where it is and only mentioned at debug. Silenced
+            // entirely for a caller reading one column out of a file that holds
+            // three: every line of the other two is "unknown" to that pass, and
+            // saying so a thousand times would bury the ones that mean something.
+            if (reportUnknown) {
+                spdlog::debug("config: ignoring unknown key [{}] {}", section, key);
+            }
             continue;
         }
         if (desc->type == ParamType::kString) {
@@ -224,6 +229,17 @@ std::size_t ConfigManager::LoadInto(const std::filesystem::path& file, void* roo
         ++found;
     }
     return found;
+}
+
+std::size_t ConfigManager::LoadSet(const std::filesystem::path& file, ConfigSet& set) {
+    std::size_t keys = LoadInto(file, &set, AlgorithmFileParams());
+    for (std::size_t m = 1; m < static_cast<std::size_t>(ActorMode::kCount); ++m) {
+        set.modes[m] = set.Base();
+    }
+    for (const ActorMode mode : {ActorMode::kGameplay, ActorMode::kCombat}) {
+        keys += LoadInto(file, &set, ModeParams(mode), false);
+    }
+    return keys;
 }
 
 std::string ConfigManager::ToIniText(const void* root, std::span<const ParamDesc> params,
@@ -542,10 +558,7 @@ void ConfigManager::Initialize(const std::filesystem::path& directory) {
     m_general = GeneralConfig{};
     m_algorithm = ConfigSet{};
     LoadInto(m_generalPath, &m_general, GeneralParams());
-    // Over the whole set: the file's bare sections fill the ragdoll column and
-    // its `.Gameplay` / `.Combat` sections the other two, so a file written
-    // before the modes existed loads as three identical columns.
-    LoadInto(m_algorithmPath, &m_algorithm, AlgorithmSetFileParams());
+    LoadSet(m_algorithmPath, m_algorithm);
 
     // The surfaces list. If the file does not exist yet, this install predates
     // it, so the three trims and three mutes that used to live in the algorithm
@@ -629,7 +642,7 @@ void ConfigManager::Load() {
     ConfigSet algorithm{};
     SfxAssignments sfx{};
     const std::size_t generalKeys = LoadInto(m_generalPath, &general, GeneralParams());
-    std::size_t algorithmKeys = LoadInto(m_algorithmPath, &algorithm, AlgorithmSetFileParams());
+    std::size_t algorithmKeys = LoadSet(m_algorithmPath, algorithm);
     if (!std::filesystem::exists(m_surfacePath)) {
         MigrateSurfaces(m_algorithmPath, algorithm.Base());
     } else {

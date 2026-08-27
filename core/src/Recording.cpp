@@ -608,6 +608,11 @@ bool Recording::Load(const std::filesystem::path& csvPath, std::string& error) {
         return false;
     }
     const std::size_t cPhase = columnOf("phase");
+    // Added with the mode columns. A take recorded before it simply has no such
+    // column, and every row of it reads as "not fighting" - which is what those
+    // takes were: a knockdown in an empty room. Columns are resolved by name, so
+    // an older CSV needs nothing done to it.
+    const std::size_t cCombat = columnOf("combat");
     const std::size_t cActorId = columnOf("actor_id");
     const std::size_t cLimbIndex = columnOf("limb_index");
     const std::size_t cImpact = columnOf("impact_speed");
@@ -649,6 +654,7 @@ bool Recording::Load(const std::filesystem::path& csvPath, std::string& error) {
         event.sourceSeq = static_cast<std::uint32_t>(ToInt(at(cSeq)));
         event.kind = KindFromName(at(cEvent));
         event.phase = PhaseFromName(at(cPhase));
+        event.inCombat = ToInt(at(cCombat)) != 0;
         event.actorId = static_cast<ActorId>(ToHex(at(cActorId)));
         event.limbIndex = static_cast<std::uint16_t>(std::max<std::int64_t>(0, ToInt(at(cLimbIndex))));
         event.impactSpeed = ToFloat(at(cImpact));

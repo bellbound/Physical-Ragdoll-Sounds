@@ -27,6 +27,11 @@ namespace {
 ///
 /// ImGui has no splitter widget: the idiom is an invisible button you read the
 /// drag delta from, which is all this is. `vertical` describes the *bar*, so a
+/// The gap between two mode columns. Wide enough for the pair of copy arrows the
+/// row draws into it while the cursor is on that row, which is what the gap is
+/// there for - a divider you can act on rather than only look at.
+constexpr float kModeColumnGap = 30.0f;
+
 /// vertical bar moves a left/right split.
 bool Splitter(const char* id, bool vertical, float& frac, float span, float minFrac,
               float maxFrac) {
@@ -291,8 +296,8 @@ bool App::Init(const Paths& paths) {
     m_player.SetPreviewGainDb(m_sfxPreviewGainDb);
 
     for (ConfigSide& s : m_side) {
-        s.cfg = rds::AlgorithmConfig{};
-        s.cfg.slots.rngSeed = m_seed;  // fixed, so an A/B compares configs
+        s.cfg = rds::ConfigSet{};
+        s.cfg.Base().slots.rngSeed = m_seed;  // fixed, so an A/B compares configs
         std::snprintf(s.saveName, sizeof(s.saveName), "%s", NextConfigName().c_str());
     }
 
@@ -603,33 +608,39 @@ void App::StepConfig(int delta) {
     LoadConfigFile(m_focusSide, m_configFiles[static_cast<std::size_t>(m_configIndex)]);
 }
 
-std::vector<rds::ParamDesc> App::AlgorithmAndOpenedSurfaces(const rds::AlgorithmConfig& cfg) {
-    // Everything, then the surfaces that have a block. A closed class writes no
-    // lines, and `SaveFrom` takes any `[Surface.x]` block that is not in this
-    // span back out of the file it is rewriting.
-    const auto base = rds::AlgorithmFileParams();
+std::vector<rds::ParamDesc> App::AlgorithmAndOpenedSurfaces(const rds::ConfigSet& cfg) {
+    // Everything - all three columns, so a saved testbench config carries the
+    // gameplay and combat tuning the same way the game's ini does - then the
+    // surfaces that have a block. A closed class writes no lines, and `SaveFrom`
+    // takes any `[Surface.x]` block that is not in this span back out of the file
+    // it is rewriting.
+    const auto base = rds::AlgorithmSetFileParams();
     std::vector<rds::ParamDesc> out{base.begin(), base.end()};
-    const auto opened = rds::OpenedSurfaceParams(cfg);
+    const auto opened = rds::OpenedSurfaceParams(cfg.Base());
     out.insert(out.end(), opened.begin(), opened.end());
     return out;
 }
 
-void App::LoadAlgorithmFile(const fs::path& file, rds::AlgorithmConfig& cfg) {
+void App::LoadAlgorithmFile(const fs::path& file, rds::ConfigSet& cfg) {
     // A testbench config is one file where the game splits into two, so it
     // carries the surfaces list inline. Which classes are opened still comes
     // from the `[Surface.x]` headers that are present rather than from a key,
     // for the same reason it does in the game: the file is the list.
-    rds::ConfigManager::LoadInto(file, &cfg, rds::AlgorithmFileParams());
-    rds::ConfigManager::ReadOpenedSurfaces(file, cfg);
-    rds::ConfigManager::LoadInto(file, &cfg, rds::SurfaceParams());
-    cfg.surfaces.Resolve();
+    //
+    // Through LoadSet, so a config saved before the mode columns existed loads as
+    // three identical ones rather than as one tuned column and two default ones.
+    rds::ConfigManager::LoadSet(file, cfg);
+    rds::ConfigManager::ReadOpenedSurfaces(file, cfg.Base());
+    rds::ConfigManager::LoadInto(file, &cfg.Base(), rds::SurfaceParams());
+    cfg.Base().surfaces.Resolve();
+    rds::MirrorSharedRows(cfg);
 }
 
 void App::LoadConfigFile(int side, const fs::path& file) {
     ConfigSide& s = m_side[side];
-    s.cfg = rds::AlgorithmConfig{};
+    s.cfg = rds::ConfigSet{};
     LoadAlgorithmFile(file, s.cfg);
-    s.cfg.slots.rngSeed = m_seed;
+    s.cfg.Base().slots.rngSeed = m_seed;
     s.name = file.stem().string();
     std::snprintf(s.saveName, sizeof(s.saveName), "%s", s.name.c_str());
     s.dirty = true;
@@ -664,25 +675,41 @@ void App::SaveConfigFile(int side) {
 
 void App::LoadCompareFile(int side, const fs::path& file) {
     ConfigSide& s = m_side[side];
-    s.compareCfg = rds::AlgorithmConfig{};
+    s.compareCfg = rds::ConfigSet{};
     LoadAlgorithmFile(file, s.compareCfg);
     // The seed is this machine's, not the file's: every side is forced onto
     // m_seed so an A/B is the same shuffle twice, and a diff whose first line
     // was "rngSeed differs" would be reporting the testbench to itself.
-    s.compareCfg.slots.rngSeed = m_seed;
+    s.compareCfg.Base().slots.rngSeed = m_seed;
     s.compareName = file.stem().string();
 }
 
 void App::ClearCompare(int side) {
     m_side[side].compareName.clear();
-    m_side[side].compareCfg = rds::AlgorithmConfig{};
+    m_side[side].compareCfg = rds::ConfigSet{};
 }
 
-bool App::ParamDiffers(const rds::AlgorithmConfig& a, const rds::AlgorithmConfig& b,
-                       const rds::ParamDesc& p) {
+bool App::ParamDiffersAnyMode(const rds::ConfigSet& a, const rds::ConfigSet& b,
+                              const rds::ParamDesc& p) {
+    if (!p.perMode) {
+        return ParamDiffers(a, b, p, rds::ActorMode::kRagdoll);
+    }
+    for (std::size_t m = 0; m < static_cast<std::size_t>(rds::ActorMode::kCount); ++m) {
+        if (ParamDiffers(a, b, p, static_cast<rds::ActorMode>(m))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool App::ParamDiffers(const rds::ConfigSet& a, const rds::ConfigSet& b, const rds::ParamDesc& p,
+                       rds::ActorMode mode) {
+    const void* left = &a[mode];
+    const void* right = &b[mode];
     if (p.type == rds::ParamType::kString)
-        return rds::GetParamString(&a, p) != rds::GetParamString(&b, p);
-    return rds::FormatParam(p, rds::GetParam(&a, p)) != rds::FormatParam(p, rds::GetParam(&b, p));
+        return rds::GetParamString(left, p) != rds::GetParamString(right, p);
+    return rds::FormatParam(p, rds::GetParam(left, p)) !=
+           rds::FormatParam(p, rds::GetParam(right, p));
 }
 
 void App::CompareCounts(int side, int& differing, int& same) const {
@@ -691,7 +718,7 @@ void App::CompareCounts(int side, int& differing, int& same) const {
     const ConfigSide& s = m_side[side];
     if (s.compareName.empty()) return;
     for (const rds::ParamDesc& p : rds::AlgorithmParams()) {
-        if (ParamDiffers(s.cfg, s.compareCfg, p))
+        if (ParamDiffersAnyMode(s.cfg, s.compareCfg, p))
             ++differing;
         else
             ++same;
@@ -703,7 +730,7 @@ std::vector<const rds::ParamDesc*> App::CompareDeltas(int side) const {
     const ConfigSide& s = m_side[side];
     if (s.compareName.empty()) return out;
     for (const rds::ParamDesc& p : rds::AlgorithmParams())
-        if (ParamDiffers(s.cfg, s.compareCfg, p)) out.push_back(&p);
+        if (ParamDiffersAnyMode(s.cfg, s.compareCfg, p)) out.push_back(&p);
     return out;
 }
 
@@ -886,11 +913,15 @@ namespace {
 constexpr std::size_t kUndoDepth = 128;
 }  // namespace
 
-bool App::SameConfig(const rds::AlgorithmConfig& a, const rds::AlgorithmConfig& b) {
+bool App::SameConfig(const rds::ConfigSet& a, const rds::ConfigSet& b) {
     // Field by field through the schema rather than memcmp: the structs have
     // padding, and two copies of "the same config" must not differ because of it.
-    for (const rds::ParamDesc& p : rds::AlgorithmParams())
-        if (rds::GetParam(&a, p) != rds::GetParam(&b, p)) return false;
+    // Every column, because an edit to one of them is an edit.
+    for (std::size_t m = 0; m < static_cast<std::size_t>(rds::ActorMode::kCount); ++m) {
+        const auto mode = static_cast<rds::ActorMode>(m);
+        for (const rds::ParamDesc& p : rds::AlgorithmParams())
+            if (rds::GetParam(&a[mode], p) != rds::GetParam(&b[mode], p)) return false;
+    }
     return true;
 }
 
@@ -911,7 +942,7 @@ void App::CommitEdit(int side) {
     PushEdit(side, s.editBase, s.editLabel);
 }
 
-void App::PushEdit(int side, const rds::AlgorithmConfig& before, std::string_view label) {
+void App::PushEdit(int side, const rds::ConfigSet& before, std::string_view label) {
     ConfigSide& s = m_side[side];
     if (SameConfig(before, s.cfg)) return;
     s.undo.push_back({before, std::string(label), ++m_editSeq});
@@ -930,7 +961,7 @@ void App::Undo(int side) {
     s.undo.pop_back();
     s.redo.push_back({s.cfg, step.label, ++m_editSeq});
     s.cfg = step.cfg;
-    s.cfg.slots.rngSeed = m_seed;  // the seed is the testbench's, not the config's
+    s.cfg.Base().slots.rngSeed = m_seed;  // the seed is the testbench's, not the config's
     s.dirty = true;
     s.verifyRun = false;
 }
@@ -943,7 +974,7 @@ void App::Redo(int side) {
     s.redo.pop_back();
     s.undo.push_back({s.cfg, step.label, ++m_editSeq});
     s.cfg = step.cfg;
-    s.cfg.slots.rngSeed = m_seed;
+    s.cfg.Base().slots.rngSeed = m_seed;
     s.dirty = true;
     s.verifyRun = false;
 }
@@ -1871,8 +1902,8 @@ void App::DrawCuesTable() {
                                 "Per layer, so the other layers of this composite may have been "
                                 "held by a different amount or not at all.",
                                 rds::ToString(c.compressBand),
-                                rds::CompressThresholdDb(s.cfg.compress, c.compressBand),
-                                s.cfg.compress.ratio, -c.compressCutDb,
+                                rds::CompressThresholdDb(s.cfg.Base().compress, c.compressBand),
+                                s.cfg.Base().compress.ratio, -c.compressCutDb,
                                 c.gainDb - c.compressCutDb, c.gainDb));
             } else {
                 ImGui::Text("%.1f", c.gainDb);
@@ -2619,7 +2650,7 @@ void App::DrawTimeline(float height) {
 
     // burst brackets: cues separated by less than the config's burst gap are one
     // burst, which is the rhythm the whole design is aiming at.
-    const double burstGap = s.cfg.arb.burstMinGapMs;
+    const double burstGap = s.cfg.Base().arb.burstMinGapMs;
     double burstStart = -1.0, burstEnd = -1.0;
     int burstCount = 0;
     auto flushBurst = [&] {
@@ -3116,9 +3147,9 @@ void App::DrawTimeline(float height) {
                 ImGui::TextColored(ImVec4(1.0f, 0.80f, 0.51f, 1.0f),
                                    "compressed %.1f dB at %.0f:1 - Compress:%.*s is %.1f and this "
                                    "layer was over it, so it plays at %.1f instead of %.1f",
-                                   -c.compressCutDb, s.cfg.compress.ratio,
+                                   -c.compressCutDb, s.cfg.Base().compress.ratio,
                                    static_cast<int>(bandKey.size()), bandKey.data(),
-                                   rds::CompressThresholdDb(s.cfg.compress, c.compressBand),
+                                   rds::CompressThresholdDb(s.cfg.Base().compress, c.compressBand),
                                    c.gainDb, c.gainDb - c.compressCutDb);
             }
             ImGui::TextDisabled("%.*s   intensity %.2f   seq %u",
@@ -3702,8 +3733,8 @@ void App::DrawSelectedCue() {
                         "0 dB is the loudest contact the engine can hear - so turning the master "
                         "gain up moves this cue and the point it starts being held together.",
                         rds::ToString(c.compressBand),
-                        rds::CompressThresholdDb(s.cfg.compress, c.compressBand),
-                        s.cfg.compress.ratio, -c.compressCutDb));
+                        rds::CompressThresholdDb(s.cfg.Base().compress, c.compressBand),
+                        s.cfg.Base().compress.ratio, -c.compressCutDb));
     }
     const std::string_view reason = rds::ToString(c.reason);
     const std::string_view site = rds::ToString(c.site);
@@ -3822,9 +3853,9 @@ void App::DrawRight(int side, float height, bool split) {
         "worth keeping too, and overwriting it is the one thing Ctrl+Z cannot take back.");
     ImGui::SameLine();
     if (ImGui::Button("Defaults")) {
-        const rds::AlgorithmConfig before = s.cfg;
-        s.cfg = rds::AlgorithmConfig{};
-        s.cfg.slots.rngSeed = m_seed;
+        const rds::ConfigSet before = s.cfg;
+        s.cfg = rds::ConfigSet{};
+        s.cfg.Base().slots.rngSeed = m_seed;
         s.dirty = true;
         PushEdit(side, before, "defaults");
     }
@@ -3964,7 +3995,7 @@ void App::DrawParams(int side) {
         // by the next Resolve is worse than no slider. The `+` below is how one
         // gets opened.
         const rds::SurfaceClass rowSurface = rds::SurfaceClassOfParam(p);
-        if (rowSurface != rds::SurfaceClass::kCount && !s.cfg.surfaces.Opened(rowSurface)) {
+        if (rowSurface != rds::SurfaceClass::kCount && !s.cfg.Base().surfaces.Opened(rowSurface)) {
             continue;
         }
 
@@ -3978,7 +4009,9 @@ void App::DrawParams(int side) {
         // Hidden before the group header rather than after it, so a stage the
         // two configs agree on top to bottom disappears entirely instead of
         // leaving an empty heading behind - same as the text filter above.
-        if (m_diffOnly && CompareOn(side) && !ParamDiffers(s.cfg, s.compareCfg, p)) continue;
+        // Any column: a row the two configs agree on in the ragdoll column but not
+        // in combat is still a difference, and hiding it would make diff-only lie.
+        if (m_diffOnly && CompareOn(side) && !ParamDiffersAnyMode(s.cfg, s.compareCfg, p)) continue;
 
         if (p.group != openGroup) {
             openGroup = p.group;
@@ -4009,8 +4042,8 @@ void App::DrawParams(int side) {
                                 ImGui::GetStyle().ScrollbarSize);
                 if (ImGui::SmallButton(label.c_str())) {
                     BeginEdit(side, std::format("close Surface: {}", rds::ToString(rowSurface)));
-                    s.cfg.surfaces.opened[static_cast<std::size_t>(rowSurface)] = false;
-                    s.cfg.surfaces.Resolve();
+                    s.cfg.Base().surfaces.opened[static_cast<std::size_t>(rowSurface)] = false;
+                    s.cfg.Base().surfaces.Resolve();
                     s.dirty = true;
                     s.verifyRun = false;
                     m_focusSide = side;
@@ -4040,14 +4073,17 @@ void App::DrawParams(int side) {
         const float right = left + ImGui::GetContentRegionAvail().x;
         float startX = 0.0f;  ///< 0 means "start the row here", without a SameLine
         float columnRight = right;
+        // A row drawn in three columns takes the whole line: pairing it with the
+        // next one would put six widgets where the panel has room for three.
+        const bool pairs = p.pairWithNext && !(p.perMode && m_modeColumns);
         if (pairOpen) {
             startX = left + columnWidth + kColumnGap;
-        } else if (p.pairWithNext) {
+        } else if (pairs) {
             columnWidth = (right - left - kColumnGap) * 0.5f;
             columnRight = left + columnWidth;
         }
         DrawParam(side, p, startX, columnRight);
-        pairOpen = !pairOpen && p.pairWithNext;
+        pairOpen = !pairOpen && pairs;
         groupDrew = true;
     }
 
@@ -4079,7 +4115,7 @@ void App::DrawSurfaceAdd(int side) {
 
     std::size_t closed = 0;
     for (int i = 0; i < static_cast<int>(rds::SurfaceClass::kCount); ++i) {
-        closed += s.cfg.surfaces.opened[static_cast<std::size_t>(i)] ? 0u : 1u;
+        closed += s.cfg.Base().surfaces.opened[static_cast<std::size_t>(i)] ? 0u : 1u;
     }
     if (closed == 0) {
         ImGui::TextDisabled("Every surface has a block of its own.");
@@ -4095,7 +4131,7 @@ void App::DrawSurfaceAdd(int side) {
     if (ImGui::BeginPopup("##addsurface")) {
         for (int i = 0; i < static_cast<int>(rds::SurfaceClass::kCount); ++i) {
             const auto surface = static_cast<rds::SurfaceClass>(i);
-            if (s.cfg.surfaces.Opened(surface)) continue;
+            if (s.cfg.Base().surfaces.Opened(surface)) continue;
             const std::string label = std::format("{}   (now follows {})", rds::ToString(surface),
                                                   SurfaceParentName(surface));
             if (ImGui::Selectable(label.c_str())) {
@@ -4103,7 +4139,7 @@ void App::DrawSurfaceAdd(int side) {
                 // No values are copied: Resolve has already left this block
                 // holding what it inherits, so setting the bit *is* the
                 // snapshot. That is the whole reason opening one is free.
-                s.cfg.surfaces.opened[static_cast<std::size_t>(surface)] = true;
+                s.cfg.Base().surfaces.opened[static_cast<std::size_t>(surface)] = true;
                 s.dirty = true;
                 s.verifyRun = false;
                 m_focusSide = side;
@@ -4113,71 +4149,14 @@ void App::DrawSurfaceAdd(int side) {
     }
 }
 
-void App::DrawParam(int side, const rds::ParamDesc& p, float startX, float rightX) {
-    ConfigSide& s = m_side[side];
-    void* root = &s.cfg;
-
-    // The desc's own address, not the key text: several sections carry a key
-    // spelled the same way (fGainDb), and two widgets sharing an ImGui id
-    // fight over which one is active.
-    ImGui::PushID(static_cast<const void*>(&p));
-
-    double value = rds::GetParam(root, p);
-    const bool moved = std::fabs(value - p.defaultValue) > 1e-9;
-
-    std::string tip = std::string(p.tooltip);
-    tip += "\n\n" + rds::QualifiedKey(p) + "   default " + rds::FormatParam(p, p.defaultValue);
-
-    // What the compare config, if there is one, has on this row.
-    const bool comparing = !s.compareName.empty();
-    const bool differs = comparing && ParamDiffers(s.cfg, s.compareCfg, p);
-    if (comparing) {
-        const std::string theirs =
-            p.type == rds::ParamType::kString
-                ? std::string(rds::GetParamString(&s.compareCfg, p))
-                : rds::FormatParam(p, rds::GetParam(&s.compareCfg, p));
-        tip += "\n" + s.compareName + " has " + theirs + (differs ? "" : "   - the same");
-    }
-
-    // The right-hand half of a pair goes back up onto the line the left-hand
-    // half just finished.
-    if (startX > 0.0f) ImGui::SameLine(startX);
-    const float left = ImGui::GetCursorPosX();
-
-    // The compare marker, in a column of its own in front of the name. Both
-    // states get a glyph, not just the interesting one: "these two agree" is an
-    // answer to the same question as "these two differ", and a row with nothing
-    // in front of it reads as a row the comparison never looked at.
-    if (comparing) {
-        if (differs)
-            ImGui::TextColored(ImVec4(0.45f, 0.8f, 1.0f, 1.0f), "*");
-        else
-            ImGui::TextDisabled("=");
-        Tip(differs ? "Written differently in " + s.compareName + "."
-                    : s.compareName + " has the same value.");
-        ImGui::SameLine(0.0f, 4.0f);
-    }
-
-    // The name gets a column of its own. Letting the widget carry its label
-    // pushes the text off the right edge of the panel, which turns a tuning
-    // surface into a hundred anonymous numbers.
-    if (moved) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.45f, 1.0f));
-    ImGui::TextUnformatted(p.label.data(), p.label.data() + p.label.size());
-    if (moved) ImGui::PopStyleColor();
-    Tip(tip);
-
-    // Half as wide means half the room for a name, so the widget column starts
-    // at whichever is further right: the 190 the full-width rows line up on, or
-    // whatever this name actually needed.
-    const float nameEnd = ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x;
-    const float indent = std::min(190.0f, (rightX - left) * 0.5f);
-    const float widgetX = std::max(left + indent, nameEnd + 12.0f);
-    ImGui::SameLine(widgetX);
-    ImGui::SetNextItemWidth(std::max(60.0f, rightX - widgetX - 4.0f));
-
-    const std::string id = "##" + std::string(p.key);
+/// One value's widget, sized by whatever `SetNextItemWidth` is holding, reading
+/// and writing `value`.
+///
+/// Split out of `DrawParam` so a `perMode` row can draw it once per column
+/// against a different config each time: three columns are the same widget on
+/// three roots, not three code paths.
+bool App::ParamWidget(const rds::ParamDesc& p, const std::string& id, double& value) {
     bool changed = false;
-
     switch (p.type) {
         case rds::ParamType::kBool: {
             bool b = value != 0.0;
@@ -4226,28 +4205,210 @@ void App::DrawParam(int side, const rds::ParamDesc& p, float startX, float right
             break;
         }
     }
+    return changed;
+}
+
+void App::DrawParam(int side, const rds::ParamDesc& p, float startX, float rightX) {
+    ConfigSide& s = m_side[side];
+    // The ragdoll column for a row with one value, and the left-hand column for a
+    // row with three. Read before anything draws, because the copy arrows are
+    // part of the row and ImGui draws in the order it is told.
+    const bool columns = p.perMode && m_modeColumns;
+    const bool hovered = columns && RowHovered(ImGui::GetFrameHeight());
+    void* root = &s.cfg.Base();
+
+    // The desc's own address, not the key text: several sections carry a key
+    // spelled the same way (fGainDb), and two widgets sharing an ImGui id
+    // fight over which one is active.
+    ImGui::PushID(static_cast<const void*>(&p));
+
+    double value = rds::GetParam(root, p);
+    // "Moved off its default" is asked of every column a row has: a row left at
+    // the default for ragdolls and pulled for combat has been tuned, and a label
+    // that stayed grey would say it had not.
+    bool moved = std::fabs(value - p.defaultValue) > 1e-9;
+    if (columns) {
+        for (std::size_t m = 1; m < static_cast<std::size_t>(rds::ActorMode::kCount); ++m) {
+            const auto mode = static_cast<rds::ActorMode>(m);
+            moved = moved || std::fabs(rds::GetParam(&s.cfg[mode], p) - p.defaultValue) > 1e-9;
+        }
+    }
+
+    std::string tip = std::string(p.tooltip);
+    tip += "\n\n" + rds::QualifiedKey(p) + "   default " + rds::FormatParam(p, p.defaultValue);
+
+    // What the compare config, if there is one, has on this row.
+    const bool comparing = !s.compareName.empty();
+    const bool differs = comparing && ParamDiffersAnyMode(s.cfg, s.compareCfg, p);
+    if (comparing) {
+        const std::string theirs =
+            p.type == rds::ParamType::kString
+                ? std::string(rds::GetParamString(&s.compareCfg, p))
+                : rds::FormatParam(p, rds::GetParam(&s.compareCfg, p));
+        tip += "\n" + s.compareName + " has " + theirs + (differs ? "" : "   - the same");
+    }
+
+    // The right-hand half of a pair goes back up onto the line the left-hand
+    // half just finished.
+    if (startX > 0.0f) ImGui::SameLine(startX);
+    const float left = ImGui::GetCursorPosX();
+
+    // The compare marker, in a column of its own in front of the name. Both
+    // states get a glyph, not just the interesting one: "these two agree" is an
+    // answer to the same question as "these two differ", and a row with nothing
+    // in front of it reads as a row the comparison never looked at.
+    if (comparing) {
+        if (differs)
+            ImGui::TextColored(ImVec4(0.45f, 0.8f, 1.0f, 1.0f), "*");
+        else
+            ImGui::TextDisabled("=");
+        Tip(differs ? "Written differently in " + s.compareName + "."
+                    : s.compareName + " has the same value.");
+        ImGui::SameLine(0.0f, 4.0f);
+    }
+
+    // The name gets a column of its own. Letting the widget carry its label
+    // pushes the text off the right edge of the panel, which turns a tuning
+    // surface into a hundred anonymous numbers.
+    if (moved) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.45f, 1.0f));
+    ImGui::TextUnformatted(p.label.data(), p.label.data() + p.label.size());
+    if (moved) ImGui::PopStyleColor();
+    Tip(tip);
+
+    // Half as wide means half the room for a name, so the widget column starts
+    // at whichever is further right: the 190 the full-width rows line up on, or
+    // whatever this name actually needed.
+    const float nameEnd = ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x;
+    const float indent = std::min(190.0f, (rightX - left) * 0.5f);
+    const float widgetX = std::max(left + indent, nameEnd + 12.0f);
+
+    // Three columns: one label, and the same widget over each column's own
+    // config. Side by side rather than in three sections, because the question
+    // being asked of them is "how much quieter should this be on its feet?" and
+    // that is not a question you can answer by scrolling.
+    if (columns) {
+        const float span = std::max(120.0f, rightX - widgetX);
+        const float width = (span - 2.0f * kModeColumnGap) / 3.0f;
+        for (std::size_t m = 0; m < static_cast<std::size_t>(rds::ActorMode::kCount); ++m) {
+            DrawParamColumn(side, p, static_cast<rds::ActorMode>(m),
+                            widgetX + static_cast<float>(m) * (width + kModeColumnGap), width,
+                            hovered);
+        }
+        ImGui::PopID();
+        return;
+    }
+
+    ImGui::SameLine(widgetX);
+    ImGui::SetNextItemWidth(std::max(60.0f, rightX - widgetX - 4.0f));
+
+    const std::string id = "##" + std::string(p.key);
+    bool changed = ParamWidget(p, id, value);
     Tip(tip);
 
     if (changed) {
-        // Snapshot before the first write of this gesture. The step is not
-        // pushed until the widget is released, in DrawParams.
-        BeginEdit(side, std::string(p.group) + " / " + std::string(p.label));
-        m_focusSide = side;
-
-        if (p.step > 0.0 && p.type == rds::ParamType::kFloat)
-            value = std::round(value / p.step) * p.step;
-        rds::SetParam(root, p, rds::CoerceParam(p, value));
-        // Any surface edit can move a class that is following it: pulling
-        // stone's trim has to take ice and glass with it, and pulling the
-        // [Surfaces] ramp has to take every unopened class. Cheap enough to run
-        // on every edit rather than work out which edits are the ones that
-        // matter - thirteen classes, three hops at worst.
-        s.cfg.surfaces.Resolve();
-        s.cfg.slots.rngSeed = m_seed;
-        s.dirty = true;
-        s.verifyRun = false;
+        ApplyParamEdit(side, p, rds::ActorMode::kRagdoll, value,
+                       std::string(p.group) + " / " + std::string(p.label));
     }
 
+    ImGui::PopID();
+}
+
+void App::ApplyParamEdit(int side, const rds::ParamDesc& p, rds::ActorMode mode, double value,
+                         std::string_view what) {
+    ConfigSide& s = m_side[side];
+    // Snapshot before the first write of this gesture. The step is not pushed
+    // until the widget is released, in DrawParams.
+    BeginEdit(side, what);
+    m_focusSide = side;
+
+    if (p.step > 0.0 && p.type == rds::ParamType::kFloat)
+        value = std::round(value / p.step) * p.step;
+    rds::SetParam(&s.cfg[mode], p, rds::CoerceParam(p, value));
+    // A row with one value has three homes, and the engine reads whichever the
+    // actor is in - so a shared row edited in one column has to reach the others
+    // before anything renders. Cheap, and unconditional so it cannot be the thing
+    // somebody forgets on a new edit path.
+    if (!p.perMode) {
+        rds::MirrorSharedRows(s.cfg);
+    }
+    // Any surface edit can move a class that is following it: pulling stone's
+    // trim has to take ice and glass with it, and pulling the [Surfaces] ramp has
+    // to take every unopened class. Cheap enough to run on every edit rather than
+    // work out which edits are the ones that matter - thirteen classes, three
+    // hops at worst.
+    s.cfg.Base().surfaces.Resolve();
+    for (rds::AlgorithmConfig& column : s.cfg.modes) {
+        column.slots.rngSeed = m_seed;
+    }
+    s.dirty = true;
+    s.verifyRun = false;
+}
+
+/// Whether the mouse is over the row about to be drawn.
+///
+/// Measured before the row exists rather than after, because the arrows are part
+/// of the row and ImGui draws in the order it is told. The rect is the full width
+/// of the content region at the cursor, one frame high, which is what a row is.
+bool App::RowHovered(float height) {
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const float width = ImGui::GetContentRegionAvail().x;
+    return ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+           ImGui::IsMouseHoveringRect(at, ImVec2(at.x + width, at.y + height), false);
+}
+
+void App::DrawParamColumn(int side, const rds::ParamDesc& p, rds::ActorMode mode, float x,
+                          float width, bool hovered) {
+    ConfigSide& s = m_side[side];
+    ImGui::PushID(static_cast<int>(mode));
+
+    ImGui::SameLine(x);
+    ImGui::SetNextItemWidth(std::max(48.0f, width));
+    double value = rds::GetParam(&s.cfg[mode], p);
+    const std::string id = "##" + std::string(p.key);
+    if (ParamWidget(p, id, value)) {
+        ApplyParamEdit(side, p, mode, value,
+                       std::format("{} / {} ({})", p.group, p.label, rds::ToString(mode)));
+    }
+    // The column's own tooltip, so hovering a slider says which column it is
+    // rather than leaving the header at the top of the panel to be remembered.
+    Tip(std::format("{}   {}\n\n{}", rds::QualifiedKey(p),
+                    mode == rds::ActorMode::kRagdoll
+                        ? std::string("ragdoll - a body on the floor")
+                        : std::string(rds::ToString(mode)) +
+                              (mode == rds::ActorMode::kCombat
+                                   ? " - upright, in a fight"
+                                   : " - upright, nobody fighting them"),
+                    p.tooltip));
+
+    // The arrow into the column on the right, drawn in the gap between the two
+    // and only while the row is under the cursor: three columns of sliders is
+    // already a lot to look at, and a permanent pair of buttons between each of
+    // them would be more furniture than tuning surface.
+    const auto next = static_cast<rds::ActorMode>(static_cast<std::size_t>(mode) + 1);
+    if (hovered && next != rds::ActorMode::kCount) {
+        ImGui::SameLine(x + width + 2.0f);
+        if (ImGui::SmallButton(">")) {
+            BeginEdit(side, std::format("{} -> {}", rds::ToString(mode), rds::ToString(next)));
+            rds::CopyRow(s.cfg, p, mode, next);
+            CommitEdit(side);
+            s.dirty = true;
+            s.verifyRun = false;
+            m_focusSide = side;
+        }
+        Tip(std::format("Copy this value from {} into {}.", rds::ToString(mode),
+                        rds::ToString(next)));
+        ImGui::SameLine(0.0f, 1.0f);
+        if (ImGui::SmallButton("<")) {
+            BeginEdit(side, std::format("{} -> {}", rds::ToString(next), rds::ToString(mode)));
+            rds::CopyRow(s.cfg, p, next, mode);
+            CommitEdit(side);
+            s.dirty = true;
+            s.verifyRun = false;
+            m_focusSide = side;
+        }
+        Tip(std::format("Copy {}'s value back into {}.", rds::ToString(next),
+                        rds::ToString(mode)));
+    }
     ImGui::PopID();
 }
 
@@ -4309,7 +4470,7 @@ void App::DrawCompareReport(int side) {
         ImGui::TableHeadersRow();
 
         for (const rds::ParamDesc& p : rds::AlgorithmParams()) {
-            const bool rowDiffers = ParamDiffers(s.cfg, s.compareCfg, p);
+            const bool rowDiffers = ParamDiffersAnyMode(s.cfg, s.compareCfg, p);
             if (!rowDiffers && !m_compareShowSame) continue;
 
             const std::string mine = p.type == rds::ParamType::kString

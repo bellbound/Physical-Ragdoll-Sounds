@@ -45,7 +45,7 @@ namespace tb {
 /// hundred bytes and "restore this" cannot get out of step with the schema the
 /// way a per-field patch can.
 struct ConfigEdit {
-    rds::AlgorithmConfig cfg{};
+    rds::ConfigSet cfg{};
     std::string label;
     /// Where this step sits in the one history the user actually has. Config
     /// edits and loop-region changes live in separate stacks - they undo
@@ -107,7 +107,11 @@ struct CueSound {
 /// One half of the right-hand panel. In split mode there are two of these and
 /// playback alternates between their buffers on each loop.
 struct ConfigSide {
-    rds::AlgorithmConfig cfg{};
+    /// All three tuning columns, because the panel draws all three: a `perMode`
+    /// row is one label with a slider per column, and an edit to one of them is
+    /// an edit to this side like any other - one undo stack, one re-render, one
+    /// save.
+    rds::ConfigSet cfg{};
     std::string name{"(unsaved)"};
     char saveName[64]{};
 
@@ -133,7 +137,7 @@ struct ConfigSide {
     /// Open from the frame a widget first moves until the frame it is released:
     /// a drag across fifty frames has to be one undo step, not fifty.
     bool editOpen{};
-    rds::AlgorithmConfig editBase{};
+    rds::ConfigSet editBase{};
     std::string editLabel;
 
     // ── the config this one is being read against ────────────────────────────
@@ -142,7 +146,7 @@ struct ConfigSide {
     // panel can say which parameters this side moved. Not a third side - nothing
     // renders it, nothing saves it, and switching it costs no re-run.
     std::string compareName;  ///< empty means no comparison is running
-    rds::AlgorithmConfig compareCfg{};
+    rds::ConfigSet compareCfg{};
 
     /// What the last patch off the control socket said it was for, if one has
     /// landed on this side. Shown on the picker's tooltip: a config that
@@ -230,8 +234,17 @@ private:
     /// four decimals, a slider lands on the nearest float, and two configs that
     /// write the same line are the same config. Bit-for-bit would report half
     /// the table as changed the moment a value made a round trip through disk.
-    [[nodiscard]] static bool ParamDiffers(const rds::AlgorithmConfig& a,
-                                           const rds::AlgorithmConfig& b, const rds::ParamDesc& p);
+    /// Whether one row differs between two configs, in one column. `mode` is the
+    /// column being compared; a row that is not `perMode` reads the same through
+    /// any of them.
+    [[nodiscard]] static bool ParamDiffers(const rds::ConfigSet& a, const rds::ConfigSet& b,
+                                           const rds::ParamDesc& p, rds::ActorMode mode);
+
+    /// The same question over every column a row has. What the diff-only filter
+    /// and the compare counts ask, so a row the two agree on for ragdolls and
+    /// disagree on for combat still counts as a difference.
+    [[nodiscard]] static bool ParamDiffersAnyMode(const rds::ConfigSet& a, const rds::ConfigSet& b,
+                                                  const rds::ParamDesc& p);
     /// How many parameters differ between this side and its compare config, and
     /// how many are identical. Walked fresh each frame - it is ~200 doubles and
     /// a format, and a cached count that went stale after an undo would be worse
@@ -266,7 +279,7 @@ private:
     // ── undo ─────────────────────────────────────────────────────────────────
     void BeginEdit(int side, std::string_view label);
     void CommitEdit(int side);
-    void PushEdit(int side, const rds::AlgorithmConfig& before, std::string_view label);
+    void PushEdit(int side, const rds::ConfigSet& before, std::string_view label);
     void Undo(int side);
     void Redo(int side);
     void ClearHistory(int side);
@@ -278,7 +291,7 @@ private:
     void RedoRegion();
     /// The only way the region is allowed to change, so every change is a step.
     void SetRegion(double startMs, double endMs, std::string_view label);
-    [[nodiscard]] static bool SameConfig(const rds::AlgorithmConfig& a, const rds::AlgorithmConfig& b);
+    [[nodiscard]] static bool SameConfig(const rds::ConfigSet& a, const rds::ConfigSet& b);
 
     void SetSplit(bool on);
     void CollapseOnto(int side);
@@ -509,11 +522,11 @@ public:
     /// Public, with the writer below, because a testbench config is one file where
     /// the game keeps two - so anything reading or writing one has to splice the
     /// surfaces list the same way, and Export and Control both do.
-    static void LoadAlgorithmFile(const std::filesystem::path& file, rds::AlgorithmConfig& cfg);
+    static void LoadAlgorithmFile(const std::filesystem::path& file, rds::ConfigSet& cfg);
 
     /// The rows a testbench config is written from: everything, plus the
     /// surfaces that are opened. Closed classes contribute nothing.
-    static std::vector<rds::ParamDesc> AlgorithmAndOpenedSurfaces(const rds::AlgorithmConfig& cfg);
+    static std::vector<rds::ParamDesc> AlgorithmAndOpenedSurfaces(const rds::ConfigSet& cfg);
 
 private:
     void DrawParams(int side);
@@ -533,6 +546,24 @@ private:
     /// shares that row's line at the halfway mark. A full-width row is
     /// `startX == 0`.
     void DrawParam(int side, const rds::ParamDesc& p, float startX, float width);
+
+    /// One column of a `perMode` row: the widget, its edit, and the arrow that
+    /// copies it sideways. Returns the x the next column starts at.
+    void DrawParamColumn(int side, const rds::ParamDesc& p, rds::ActorMode mode, float x,
+                         float width, bool hovered);
+
+    /// The widget for one value. `value` is read in and written back; the return
+    /// says whether this frame moved it.
+    static bool ParamWidget(const rds::ParamDesc& p, const std::string& id, double& value);
+
+    /// Whether the mouse is over the row about to be drawn. The copy arrows are
+    /// only drawn on that row, so this has to be asked before the row exists.
+    [[nodiscard]] static bool RowHovered(float height);
+
+    /// Write one column of one row, with the undo step and the re-render that go
+    /// with any edit.
+    void ApplyParamEdit(int side, const rds::ParamDesc& p, rds::ActorMode mode, double value,
+                        std::string_view what);
     void HandleKeys();
 
     Paths m_paths;
@@ -622,6 +653,14 @@ private:
     /// The panel is ~200 rows and a tuning session moves a dozen; this is the
     /// difference between "what did I change" and scrolling for it.
     bool m_diffOnly{};
+
+    /// Draw a `perMode` row as three columns - ragdoll, gameplay, combat - rather
+    /// than as the ragdoll column alone. On by default: a mod whose whole point is
+    /// that a body on the floor and a body on its feet are tuned differently
+    /// should show both, and a panel that hid two thirds of the tuning behind a
+    /// toggle would be the reason somebody spent an evening wondering why their
+    /// combat edit did nothing.
+    bool m_modeColumns{true};
     /// The compare report window, and whether it lists the identical rows too.
     bool m_showCompareReport{};
     bool m_compareShowSame{};
@@ -842,7 +881,7 @@ private:
     /// send everything again.
     bool m_pushedValid{};
     bool m_wasConnected{};
-    rds::AlgorithmConfig m_pushedConfig{};
+    rds::ConfigSet m_pushedConfig{};
     rds::SfxAssignments m_pushedSfx;
     std::string m_pushedLibrary;
 

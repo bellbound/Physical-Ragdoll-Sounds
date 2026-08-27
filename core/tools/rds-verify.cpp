@@ -667,6 +667,139 @@ int CheckConfigRoundTrip() {
     return ok ? 0 : 1;
 }
 
+/// The mode columns: that a `.Combat` section lands in the combat column and
+/// nowhere else, that a shared row still reads the same through all three, and
+/// that a file written before the modes existed loads as three identical copies.
+///
+/// Worth a check of its own rather than trusting the round-trip above, because
+/// every failure mode here is silent. A row that quietly stops being per mode
+/// reads as "the combat column does nothing"; a shared row that stops being
+/// mirrored reads as "this slider only works on ragdolls"; and both are the kind
+/// of thing that is noticed a fortnight later while tuning something else.
+int CheckModeColumns() {
+    const auto dir = std::filesystem::temp_directory_path() / "rds-verify-modes";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+
+    auto& manager = rds::ConfigManager::Get();
+    manager.Initialize(dir);
+
+    const auto algorithmPath = dir / "RagdollSounds_Algorithm.ini";
+    const auto read = [&algorithmPath] {
+        std::ifstream in(algorithmPath, std::ios::binary);
+        return std::string{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    };
+    const auto write = [&algorithmPath](const std::string& text) {
+        std::ofstream out(algorithmPath, std::ios::binary | std::ios::trunc);
+        out << text;
+    };
+
+    // How many rows carry three columns, and that the file has a block per mode
+    // for each section holding one.
+    std::size_t perMode = 0;
+    for (const rds::ParamDesc& p : rds::AlgorithmParams()) {
+        perMode += p.perMode ? 1 : 0;
+    }
+    std::string text = read();
+    const bool wroteBlocks = text.find("[Ingest.Gameplay]") != std::string::npos &&
+                             text.find("[Ingest.Combat]") != std::string::npos &&
+                             text.find("[Rustle.Combat]") != std::string::npos;
+    // And that nothing shared got a block it has no business having.
+    const bool noSharedBlocks = text.find("[Arbitration.Combat]") == std::string::npos &&
+                                text.find("[Mix.Gameplay]") == std::string::npos &&
+                                text.find("[RagdollDamage.Combat]") == std::string::npos;
+
+    // One value moved in one column, and one shared value moved in the only
+    // column it has.
+    const auto replaceIn = [&text](std::string_view section, const std::string& before,
+                                   const std::string& after) {
+        const auto head = text.find(section);
+        if (head == std::string::npos) {
+            return false;
+        }
+        const auto at = text.find(before, head);
+        if (at == std::string::npos) {
+            return false;
+        }
+        text.replace(at, before.size(), after);
+        return true;
+    };
+    const bool edited = replaceIn("[Ingest.Combat]", "fMinImpactSpeed = ", "fMinImpactSpeed = 321 ;") &&
+                        replaceIn("[Arbitration]", "fRateCapMs = ", "fRateCapMs = 61 ;");
+    write(text);
+    manager.Load();
+
+    const rds::ConfigSet set = manager.Algorithm();
+    const float ragdollFloor = set[rds::ActorMode::kRagdoll].ingest.minImpactSpeed;
+    const bool combatOnly = set[rds::ActorMode::kCombat].ingest.minImpactSpeed == 321.0f &&
+                            set[rds::ActorMode::kGameplay].ingest.minImpactSpeed != 321.0f &&
+                            ragdollFloor != 321.0f;
+    // A shared row reaches every column, which is what lets the engine read
+    // everything through the actor's own one.
+    const bool sharedMirrored = set[rds::ActorMode::kRagdoll].arb.rateCapMs == 61.0f &&
+                                set[rds::ActorMode::kGameplay].arb.rateCapMs == 61.0f &&
+                                set[rds::ActorMode::kCombat].arb.rateCapMs == 61.0f;
+
+    // Saved and reloaded: the edit has to survive the merge writer in its own
+    // column, and not leak into another.
+    manager.Save();
+    manager.Load();
+    const rds::ConfigSet again = manager.Algorithm();
+    const bool survivedSave = again[rds::ActorMode::kCombat].ingest.minImpactSpeed == 321.0f &&
+                              again[rds::ActorMode::kRagdoll].ingest.minImpactSpeed == ragdollFloor;
+
+    // And the migration: a file with no mode blocks at all is the ragdoll column,
+    // and the other two start as copies of it rather than as defaults.
+    std::string legacy = read();
+    const auto firstBlock = legacy.find("[Ingest.Gameplay]");
+    if (firstBlock != std::string::npos) {
+        legacy.erase(firstBlock);
+    }
+    const auto floorAt = legacy.find("fMinImpactSpeed = ");
+    if (floorAt != std::string::npos) {
+        legacy.replace(floorAt, std::string("fMinImpactSpeed = ").size(), "fMinImpactSpeed = 77 ;");
+    }
+    write(legacy);
+    manager.Load();
+    const rds::ConfigSet migrated = manager.Algorithm();
+    const bool inherited = migrated[rds::ActorMode::kRagdoll].ingest.minImpactSpeed == 77.0f &&
+                           migrated[rds::ActorMode::kGameplay].ingest.minImpactSpeed == 77.0f &&
+                           migrated[rds::ActorMode::kCombat].ingest.minImpactSpeed == 77.0f;
+
+    // The arrow the panel draws between two columns, over the same table.
+    rds::ConfigSet copied = migrated;
+    copied[rds::ActorMode::kCombat].ingest.minImpactSpeed = 5.0f;
+    const rds::ParamDesc* floorRow = nullptr;
+    for (const rds::ParamDesc& p : rds::AlgorithmParams()) {
+        if (rds::QualifiedKey(p) == "Ingest:fMinImpactSpeed") {
+            floorRow = &p;
+        }
+    }
+    bool copyWorks = floorRow != nullptr;
+    if (floorRow != nullptr) {
+        rds::CopyRow(copied, *floorRow, rds::ActorMode::kCombat, rds::ActorMode::kGameplay);
+        copyWorks = copied[rds::ActorMode::kGameplay].ingest.minImpactSpeed == 5.0f &&
+                    copied[rds::ActorMode::kRagdoll].ingest.minImpactSpeed == 77.0f &&
+                    rds::CountDiffering(copied, rds::AlgorithmParams(), rds::ActorMode::kRagdoll,
+                                        rds::ActorMode::kCombat) == 1;
+    }
+
+    const bool ok = wroteBlocks && noSharedBlocks && edited && combatOnly && sharedMirrored &&
+                    survivedSave && inherited && copyWorks;
+    std::printf("modes       %s - %zu of %zu rows carry three columns; blocks written %s, "
+                "shared rows have none %s\n"
+                "                   an edit stays in its column %s, survives a save %s; a shared "
+                "edit reaches all three %s\n"
+                "                   a pre-mode ini loads as three copies %s, the copy arrow moves "
+                "one row %s\n\n",
+                ok ? "ok  " : "FAIL", perMode, rds::AlgorithmParams().size(),
+                wroteBlocks ? "yes" : "NO", noSharedBlocks ? "yes" : "NO",
+                edited && combatOnly ? "yes" : "NO", survivedSave ? "yes" : "NO",
+                sharedMirrored ? "yes" : "NO", inherited ? "yes" : "NO",
+                copyWorks ? "yes" : "NO");
+    return ok ? 0 : 1;
+}
+
 /// `--set Section:Key=value`, straight through the schema. One line here gives
 /// every parameter a command-line override, which is the same payoff the ini
 /// reader and the testbench's slider panel get from the same table.
@@ -910,6 +1043,7 @@ int main(int argc, char** argv) {
     failures += CheckSfxDuplicatePlacement(bankDir);
     failures += CheckSfxCorrections(bankDir);
     failures += CheckPcmAndMix(bank);
+    failures += CheckModeColumns();
 
     rds::ConfigSet config{};  // shipping defaults in all three columns, which are the point
     for (const auto& assignment : overrides) {

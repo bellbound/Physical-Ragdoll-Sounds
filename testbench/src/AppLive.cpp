@@ -181,7 +181,7 @@ void App::SyncToGame() {
         m_pushedLibrary = library;
     }
 
-    const rds::AlgorithmConfig& config = m_side[m_focusSide].cfg;
+    const rds::ConfigSet& config = m_side[m_focusSide].cfg;
     if (!m_pushedValid || !SameConfig(m_pushedConfig, config)) {
         m_link.PushAlgorithm(config);
         m_pushedConfig = config;

@@ -481,18 +481,18 @@ std::string App::ApplyControl(const ControlRequest& request) {
 
     // The base first, so a patch against a named config is that config's values
     // and not this side's.
-    rds::AlgorithmConfig patched = s.cfg;
+    rds::ConfigSet patched = s.cfg;
     std::string family = s.name;
     if (!request.base.empty()) {
         const fs::path* file = FindConfigFile(request.base);
         if (file == nullptr) {
             return fail(std::format("no config named '{}'", request.base));
         }
-        patched = rds::AlgorithmConfig{};
+        patched = rds::ConfigSet{};
         App::LoadAlgorithmFile(*file, patched);
         family = file->stem().string();
     }
-    patched.slots.rngSeed = m_seed;
+    patched.Base().slots.rngSeed = m_seed;
 
     // Every assignment is checked before any of them lands. Half a patch is a
     // config nobody asked for, and the file it would be saved under would carry
@@ -542,7 +542,7 @@ std::string App::ApplyControl(const ControlRequest& request) {
         // Surface.ice:fTrimDb=-3` plainly means "ice has its own trim now".
         if (const rds::SurfaceClass surface = rds::SurfaceClassOfParam(p);
             surface != rds::SurfaceClass::kCount) {
-            patched.surfaces.opened[static_cast<std::size_t>(surface)] = true;
+            patched.Base().surfaces.opened[static_cast<std::size_t>(surface)] = true;
         }
         if (assignment.isString) {
             const std::string before(rds::GetParamString(&patched, p));
@@ -573,9 +573,9 @@ std::string App::ApplyControl(const ControlRequest& request) {
     // from being undone.
     // After every assignment, so a patch that tunes an opened parent takes the
     // classes following it along in the same step.
-    patched.surfaces.Resolve();
+    patched.Base().surfaces.Resolve();
 
-    const rds::AlgorithmConfig previous = s.cfg;
+    const rds::ConfigSet previous = s.cfg;
     s.cfg = patched;
     m_focusSide = side;
     PushEdit(side, previous, request.note.empty() ? std::string("patch")

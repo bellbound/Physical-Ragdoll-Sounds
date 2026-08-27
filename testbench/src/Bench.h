@@ -121,7 +121,7 @@ struct BenchResult {
 /// time - which is exactly the interference the best-of-many is trying to
 /// avoid. A button labelled "benchmark" is allowed to stop the world for half a
 /// second.
-[[nodiscard]] BenchResult RunBench(rds::Recording& rec, const rds::AlgorithmConfig& cfg,
+[[nodiscard]] BenchResult RunBench(rds::Recording& rec, const rds::ConfigSet& cfg,
                                    rds::SoundBank& bank, const BenchOptions& opt = {});
 
 }  // namespace tb

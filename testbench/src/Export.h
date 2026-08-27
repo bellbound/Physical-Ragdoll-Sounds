@@ -30,7 +30,7 @@ class VideoTake;
 struct ExportRequest {
     const rds::Recording* recording{};
     const rds::RecordingInfo* info{};
-    const rds::AlgorithmConfig* config{};
+    const rds::ConfigSet* config{};
     const rds::OfflineResult* result{};
     const rds::SoundBank* bank{};
     const MixedAudio* audio{};

@@ -1,3 +1,4 @@
+#include "rds/ConfigSchema.h"
 #include "rds/Offline.h"
 
 #include <spdlog/spdlog.h>
@@ -299,6 +300,11 @@ OfflineResult RunOffline(Recording& recording, const ConfigSet& config, SoundBan
     for (AlgorithmConfig& column : seeded.modes) {
         column.slots.rngSeed = options.seed == 0 ? 1u : options.seed;
     }
+    // On the copy, so no caller can hand the engine a set whose shared rows were
+    // edited in one column and not the others. The live path does this when the
+    // ini is read and when an override is pushed; this is the same guarantee for
+    // every offline run, and it costs one walk of the table per run.
+    MirrorSharedRows(seeded);
     bank.Seed(seeded.Base().slots.rngSeed);
 
     recording.Rewind();

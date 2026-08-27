@@ -133,7 +133,20 @@ public:
     /// Read one ini file into `root` using `params`. Returns how many keys were
     /// found; 0 means the file was missing or empty.
     static std::size_t LoadInto(const std::filesystem::path& file, void* root,
-                                std::span<const ParamDesc> params);
+                                std::span<const ParamDesc> params, bool reportUnknown = true);
+
+    /// Read one algorithm file into all three columns.
+    ///
+    /// Three passes, and the order is the whole migration story:
+    ///   1. the bare sections, which fill the ragdoll column;
+    ///   2. that column copied over the other two, so anything the file does not
+    ///      say twice more is inherited rather than defaulted;
+    ///   3. the `.Gameplay` and `.Combat` sections over the top.
+    ///
+    /// So a file written before the modes existed loads as three identical
+    /// columns, and a half-written mode block inherits the rest of its column
+    /// instead of silently reverting those rows to the shipping defaults.
+    static std::size_t LoadSet(const std::filesystem::path& file, ConfigSet& set);
 
     /// Write `root` out through `params`, one section per group, each key
     /// preceded by its tooltip as a comment.

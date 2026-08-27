@@ -30,7 +30,7 @@ double BenchResult::Spread() const {
     return medianMs / bestMs;
 }
 
-BenchResult RunBench(rds::Recording& rec, const rds::AlgorithmConfig& cfg, rds::SoundBank& bank,
+BenchResult RunBench(rds::Recording& rec, const rds::ConfigSet& cfg, rds::SoundBank& bank,
                      const BenchOptions& opt) {
     BenchResult out;
 

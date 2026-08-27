@@ -810,14 +810,14 @@ void App::DrawSlotWidget(rds::SlotId slot) {
     // Writes the same flag the [Layers] and [Surfaces] panels do, through
     // rds::LayerMute, so the two are one switch shown twice. Like every mute it
     // lands at render, which is what makes it an honest A/B.
-    if (const bool* mute = rds::LayerMute(m_side[m_focusSide].cfg, slot); mute != nullptr) {
+    if (const bool* mute = rds::LayerMute(m_side[m_focusSide].cfg.Base(), slot); mute != nullptr) {
         const bool audible = *mute;
         ImGui::SameLine();
         if (!audible) ImGui::PushStyleColor(ImGuiCol_Text, kDirty);
         if (ImGui::SmallButton(audible ? "mute" : "muted")) {
             ConfigSide& s = m_side[m_focusSide];
-            const rds::AlgorithmConfig before = s.cfg;
-            *rds::LayerMute(s.cfg, slot) = !audible;
+            const rds::ConfigSet before = s.cfg;
+            *rds::LayerMute(s.cfg.Base(), slot) = !audible;
             // A surface skin's mute lives in that class's block, and writing to
             // a *closed* block is writing somewhere the next Resolve overwrites.
             // Silencing one floor is a setting of its own, so say so: open it.
@@ -825,8 +825,8 @@ void App::DrawSlotWidget(rds::SlotId slot) {
             // undo itself the next time anything else was touched.
             if (const rds::SurfaceClass surface = rds::SurfaceOfSlot(rds::MuteOwner(slot));
                 surface != rds::SurfaceClass::kCount) {
-                s.cfg.surfaces.opened[static_cast<std::size_t>(surface)] = true;
-                s.cfg.surfaces.Resolve();
+                s.cfg.Base().surfaces.opened[static_cast<std::size_t>(surface)] = true;
+                s.cfg.Base().surfaces.Resolve();
             }
             s.dirty = true;
             PushEdit(m_focusSide, before,
@@ -979,7 +979,7 @@ void App::DrawSlotWidget(rds::SlotId slot) {
         }
     }
 
-    const rds::SlotResolutionConfig& resolution = m_side[m_focusSide].cfg.slots;
+    const rds::SlotResolutionConfig& resolution = m_side[m_focusSide].cfg.Base().slots;
     int removeAt = -1;
     // Where a dropped row came from, and what this slot is about to ask of it.
     // Collected rather than acted on, for the same reason `removeAt` is: the
