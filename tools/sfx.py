@@ -82,6 +82,15 @@ SPEC = {
                           tilt_max=-2, peak_dbfs=-1.5),
     "surf_soft":     dict(len=(150, 250), hpf=120, decay20=(15, 200), centroid=(300, 3200),
                           tilt=3, peak_dbfs=-1.5),
+    # Dirt is the one surface whose numbers came from a reference rather than from
+    # the brief, and the reference contradicted the brief: a real dirt contact
+    # measures -9.3 dB tilt at a 5010 Hz centroid, -20 dB in 26 ms. That is
+    # *brighter* than surf_soft and only a few dB off surf_stone - packed earth is
+    # grain, and the "duller than soft, no grain on top" line in Slots.md had it
+    # backwards. Judged against soft's `tilt=3` the reference itself is a RETRY,
+    # so dirt needs its own row or a correct take can never pass.
+    "surf_dirt":     dict(len=(150, 250), hpf=120, decay20=(10, 60), centroid=(3000, 7000),
+                          tilt_max=-5, peak_dbfs=-1.5),
     # The armour skins. No reference measurement behind these yet - the bands are
     # the manifest's lengths and the character line's intent - so `eval` judges a
     # new armour file against a brief rather than against a reference, and the

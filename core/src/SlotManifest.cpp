@@ -47,8 +47,11 @@ constexpr SlotDesc kSlots[] = {
     {SlotId::kSurfBody, "surf_body", SlotFamily::kSurface, 0, 120.0f, 250.0f, false,
      "Flesh on flesh. The most common contact in the whole capture set and the one with "
      "no colour of its own until now", SlotId::kSurfSoft},
-    {SlotId::kSurfDirt, "surf_dirt", SlotFamily::kSurface, 0, 150.0f, 250.0f, false,
-     "Packed earth: duller and shorter than soft, with no grain on top", SlotId::kSurfSoft},
+    {SlotId::kSurfDirt, "surf_dirt", SlotFamily::kSurface, 3, 150.0f, 250.0f, false,
+     "Packed earth: grain, not weight. Brighter and far deader than soft - a reference dirt "
+     "contact measures -9 dB tilt at a 5 kHz centroid and is 20 dB down in 26 ms, which is "
+     "nearer stone than the cushion it falls back to. The dull-and-no-grain brief this line "
+     "used to carry had it backwards", SlotId::kSurfSoft},
     {SlotId::kSurfGravel, "surf_gravel", SlotFamily::kSurface, 0, 150.0f, 300.0f, false,
      "Loose stones scattering. Soft underneath with a rattle riding on it", SlotId::kSurfSoft},
     {SlotId::kSurfSnow, "surf_snow", SlotFamily::kSurface, 0, 150.0f, 300.0f, false,
@@ -64,16 +67,12 @@ constexpr SlotDesc kSlots[] = {
     {SlotId::kSurfBone, "surf_bone", SlotFamily::kSurface, 0, 120.0f, 250.0f, false,
      "A dry rattle over the flesh underneath. Draugr and skeletons", SlotId::kSurfBody},
 
-    // The armour skins. Every one ships with `expectedVariants = 0`, which is
-    // what makes the whole feature additive rather than merely intended to be:
-    // Resolve returns false for a slot with no files and none expected, the
-    // layer is skipped silently, and the composite is the four layers it always
-    // was. Drop `armor_heavy_01.wav` into the pack and it starts playing; take
-    // it away and the mod goes back. Same door `grunt_impact` sits behind.
+    // The armour skins. Every one ships with `expectedVariants = 0`, which is what
+    // makes the feature additive: Resolve returns false for a slot with no files
+    // and none expected, and the layer is skipped silently.
     //
-    // Deliberately no `fallback` between them. A missing plate rattle is not
-    // improved by playing the leather one, and an armour class with nothing
-    // recorded should say nothing rather than say the wrong thing.
+    // Deliberately no `fallback` between them: a missing plate rattle is not
+    // improved by playing the leather one.
     {SlotId::kArmorBare, "armor_bare", SlotFamily::kArmor, 0, 80.0f, 200.0f, false,
      "A flat skin slap. Wet-ish, no snap. Nothing equipped"},
     {SlotId::kArmorCloth, "armor_cloth", SlotFamily::kArmor, 0, 100.0f, 250.0f, false,
@@ -131,33 +130,26 @@ constexpr SlotDesc kSlots[] = {
     {SlotId::kScreamBig, "scream_big", SlotFamily::kVoice, 0, 800.0f, 1500.0f, false,
      "Declared and unfilled"},
 
-    // Belongs beside `imp_body`, and sits here instead because this table is
-    // indexed by `SlotId` and a slot's number is an input to the variant hash -
-    // see the note on the enum. New rows go at the end.
+    // Belongs beside `imp_body`, and sits here because this table is indexed by
+    // `SlotId` and a slot's number is an input to the variant hash. New rows go at
+    // the end.
     //
-    // The impact family was the one place the mod did not make a distinction it
-    // makes everywhere else: the loops have `scrape_loop` against `scrape_limb`
-    // and the crunches have three tunings, but a faceplant and a forearm were
-    // built from the same wav, so the only thing telling them apart was how loud
-    // the mass term made them.
+    // The impact family was the one place the mod made no distinction it makes
+    // everywhere else: the loops have `scrape_loop` against `scrape_limb` and the
+    // crunches three tunings, but a faceplant and a forearm came from the same wav.
     //
     // Falls back to `imp_body` and shares its mute, so an install with nothing
-    // recorded sounds exactly like an install without the feature - the same
-    // door `scrape_body_stone` and the armour skins sit behind. It keeps a trim
-    // of its own for the reason the three crunches do: two separate recordings
-    // arrive at two different levels.
+    // recorded sounds like one without the feature. Its own trim, for the reason
+    // the three crunches have one.
     {SlotId::kImpBodyLimb, "imp_body_limb", SlotFamily::kImpact, 3, 120.0f, 200.0f, false,
      "imp_body out on an arm or a leg: drier, tighter and higher than the torso's, with "
      "less weight under it",
      SlotId::kImpBody, SlotId::kImpBody},
 
-    // The garment. One slot for all four armour classes, because a slot can
-    // carry conditional variants now - see the note on the enum - so `heavy`
-    // and `cloth` are two placements here rather than two slots.
-    //
-    // No fallback and `expectedVariants = 0`: with nothing recorded it resolves
-    // to nothing, the loop never starts, and an install without the file is
-    // byte-identical to an install without the feature.
+    // The garment. One slot for all four armour classes, since a slot can carry
+    // conditional variants, so `heavy` and `cloth` are two placements rather than
+    // two slots. No fallback and `expectedVariants = 0`: with nothing recorded it
+    // resolves to nothing and the loop never starts.
     {SlotId::kClothRustle, "cloth_rustle", SlotFamily::kLoop, 0, 1500.0f, 3000.0f, true,
      "Fabric and armour shifting under a falling body. Flat and seamless - the engine owns "
      "the envelope, so a designed swish with an arc is unusable"},
@@ -281,15 +273,12 @@ bool SoundBank::HasSound(SlotId slot) const {
 }
 
 SlotId BodySlot(LimbSite site) {
-    // Binned through `DamageSiteFor` rather than through a second switch of its
-    // own. It already answers exactly this question - is this the column, the
-    // skull, or a stick - with the neck counted as spine and anything off an
-    // unrecognised skeleton counted as a limb, and two mappings of one question
-    // are two mappings that have to be kept in agreement by hand.
+    // Binned through `DamageSiteFor` rather than a second switch: it already
+    // answers this question, with the neck counted as spine and an unrecognised
+    // skeleton as a limb.
     //
-    // The head goes to the torso's layer rather than the limb's: a skull has the
-    // mass to sound like one, and what makes a faceplant a faceplant on top of
-    // that is `head_impact`, which is its own accent and a separate decision.
+    // The head goes to the torso's layer, not the limb's: a skull has the mass to
+    // sound like one, and what makes a faceplant a faceplant is `head_impact`.
     return DamageSiteFor(site) == DamageSite::kLimb ? SlotId::kImpBodyLimb : SlotId::kImpBody;
 }
 
@@ -832,15 +821,14 @@ void SoundBank::ClearOverrides() {
 
 bool SoundBank::Resolve(SlotId slot, SurfaceClass surface, Coverage coverage, LimbSite site,
                         ResolvedSound& out, std::uint32_t token) {
-    // Nothing recorded for this one: play what it says to play instead. Before
-    // the pin, before the count and before either picker, because a slot with no
-    // files has nothing to pin, count or shuffle - and because the alternative
-    // to falling back is now silence, so the walk is the only thing standing
-    // between an unrecorded surface variant and a missing layer.
+    // Nothing recorded for this one: play what it says to play instead. Before the
+    // pin, the count and either picker, because a slot with no files has nothing to
+    // pin, count or shuffle - and because the alternative to falling back is
+    // silence.
     //
-    // `PlaysAs` is that walk, and the only copy of it: a picker that fell back
-    // by one rule while a label reported another is how "it says it has nothing
-    // to play but I can hear the default" happens.
+    // `PlaysAs` is that walk and the only copy of it: a picker falling back by one
+    // rule while a label reported another is how "it says it has nothing to play
+    // but I can hear the default" happens.
     slot = PlaysAs(slot);
 
     SlotFiles& files = m_slots[Index(slot)];
@@ -885,17 +873,14 @@ bool SoundBank::Resolve(SlotId slot, SurfaceClass surface, Coverage coverage, Li
     }
 
     // The specificity ladder. A file tagged `stone / heavy` is not a candidate
-    // anywhere else, and where it *is* a candidate it beats the plain files
-    // rather than merely joining them - otherwise a recording made for one
-    // combination would show up as one option in three on every contact, which
-    // is the opposite of what tagging it was for.
+    // anywhere else, and where it *is* one it beats the plain files rather than
+    // joining them - otherwise a recording made for one combination would be one
+    // option in three on every contact.
     //
-    // Three steps: drop what mismatches, keep the most specific tier that has
-    // anything left in it, and hand the rest to the picker unchanged. The picker
-    // never learns conditions exist, and neither does `Get` - a variant index is
-    // still a position in `files`, so a cue's (slot, variant) still round-trips
-    // back to the same file. That is the constraint that could have killed this
-    // whole idea, and the reason the narrowing happens here and nowhere else.
+    // Three steps: drop what mismatches, keep the most specific tier with anything
+    // left in it, hand the rest to the picker unchanged. The picker never learns
+    // conditions exist, and neither does `Get` - a variant index is still a
+    // position in `files`, so a cue's (slot, variant) round-trips to the same file.
     if (m_conditions && files.conditionCount != 0) {
         std::uint8_t tiered[256];
         std::size_t tieredCount = 0;
@@ -981,14 +966,13 @@ bool SoundBank::Resolve(SlotId slot, SurfaceClass surface, Coverage coverage, Li
     const std::uint8_t pick = files.bag[files.bagCursor++];
     files.lastVariant = pick;
 
-    // Surface and coverage have already been used, above, to narrow which
-    // variants were candidates at all. Size has not: keying a condition on the
-    // limb site was considered and dropped, so nothing reads it yet.
+    // Surface and coverage have already narrowed which variants are candidates.
+    // Size has not: keying a condition on the limb site was considered and dropped.
     //
-    // Whatever reads it later may only pick between *files*: `Get` has to
-    // reproduce a resolution from the (slot, variant) a cue carries and nothing
-    // else, so anything that changed the sound rather than the choice would make
-    // a recorded cue unreproducible.
+    // Whatever reads it later may only pick between *files*: `Get` reproduces a
+    // resolution from the (slot, variant) a cue carries and nothing else, so
+    // anything changing the sound rather than the choice would make a recorded cue
+    // unreproducible.
     (void)site;
 
     return Get(slot, pick, out);

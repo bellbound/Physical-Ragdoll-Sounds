@@ -2,22 +2,18 @@
 
 // Cue list to samples.
 //
-// This used to be testbench-only, and that was the one place the two halves were
-// allowed to differ: the testbench mixed a cue list into a buffer, and the game
-// handed the engine one voice per layer and let frame boundaries decide when each
-// arrived. They cannot both be right. At 60 fps a frame is 16.7 ms and the
-// composite the whole design rests on is transient +0 / surface +8 / body +20 /
-// sub +65 - so the first two land on the same frame and the mechanism is gone.
+// This used to be testbench-only, and it was the one place the two halves were
+// allowed to differ: the testbench mixed a cue list into a buffer while the game
+// handed the engine one voice per layer and let frame boundaries decide. At 60 fps
+// a frame is 16.7 ms and the composite is transient +0 / surface +8 / body +20 /
+// sub +65, so the first two land on the same frame and the mechanism is gone.
 //
-// So the game mixes its composites too, in-process, and hands the engine one
-// voice per acoustic moment. That is what this header is for, and it is why it
-// lives in core/ rather than in the testbench: the placement, the resample and
-// the gain are now the same arithmetic in both halves, so tuning offline says
-// something about the game rather than something near it.
+// So the game mixes its composites too and hands the engine one voice per acoustic
+// moment. It lives in core/ rather than the testbench because the placement, the
+// resample and the gain are now the same arithmetic in both halves.
 //
-// What is NOT here, deliberately: panning and a master limiter. The engine
-// spatialises our mono buffer through its own output model, and it has no bus to
-// limit. Both stay on the testbench side of the line (00 section 13).
+// NOT here, deliberately: panning and a master limiter. The engine spatialises our
+// mono buffer through its own output model and has no bus to limit (00 §13).
 
 #include <cstdint>
 #include <optional>
@@ -32,15 +28,13 @@ namespace rds {
 
 /// Read `source` at `pitch` with linear interpolation and add it into `dst` at
 /// `startFrame`, at `gain`, fading in over `fadeInMs` and out over `fadeOutMs`.
-///
 /// The fade-out is measured back from where the voice actually ends, which the
-/// pitch decides, so a tile pitched up still fades over the same milliseconds
-/// rather than the same fraction of itself.
+/// pitch decides, so a tile pitched up fades over the same milliseconds rather
+/// than the same fraction of itself.
 ///
 /// `stride` is how many floats one output frame occupies, so a caller mixing
-/// interleaved stereo passes 2 and points `dst` at the channel it wants. That is
-/// the only concession to the testbench in here, and it costs one resample per
-/// channel rather than a second copy of this loop somewhere else.
+/// interleaved stereo passes 2 and points `dst` at the channel it wants - the only
+/// concession to the testbench here.
 void MixVoice(std::span<const float> source, std::ptrdiff_t startFrame, float gain, float pitch,
               float fadeInMs, float fadeOutMs, int sampleRate, float* dst, std::size_t dstFrames,
               std::size_t stride);
@@ -106,29 +100,19 @@ struct MixBuffer {
 ///
 /// Offsets come out of the cues themselves - each carries an absolute time that
 /// already includes its layer offset - so the earliest cue defines frame zero and
-/// everything else lands at its true distance from it, to the sample. That is the
-/// whole point of mixing rather than scheduling.
+/// everything else lands at its true distance from it, to the sample.
 ///
 /// `out` is a reference rather than a return value so the caller can hold a pool
-/// and keep the steady path free of allocation; it is resized, never reallocated,
-/// once the pool has warmed.
+/// and keep the steady path free of allocation. False when there was nothing to
+/// mix.
 ///
-/// False when there was nothing to mix - every cue empty, or a slot with no
-/// recording behind it.
-///
-/// `timeBaseMs` overrides which instant is frame zero, and exists for one
-/// caller: the game splits a moment's cues across two sound categories and mixes
-/// each half into its own buffer. Left to itself each half would take its own
-/// earliest cue as zero, so a crunch sitting +20 ms behind the transient would
-/// start at the head of its buffer and the offset - the thing mixing exists to
-/// preserve - would be gone, replaced by whichever frame each voice happened to
-/// open on. Passing the whole moment's earliest time to both halves puts that
-/// 20 ms back as leading silence inside the gore buffer, so the two voices start
-/// on the same frame and the layers still land to the sample.
-///
-/// A base later than a cue would push it before the buffer; the layout clamps
-/// rather than trusting the caller, so the worst a wrong base can do is stack
-/// layers at frame zero.
+/// `timeBaseMs` overrides which instant is frame zero, for one caller: the game
+/// splits a moment's cues across two sound categories and mixes each half into its
+/// own buffer. Left to itself each half would take its own earliest cue as zero,
+/// so a crunch +20 ms behind the transient would start at the head of its buffer.
+/// Passing the whole moment's earliest time to both puts that 20 ms back as
+/// leading silence, so the two voices start on the same frame with their layers
+/// intact. A base later than a cue is clamped rather than trusted.
 bool MixComposite(std::span<const Cue> cues, PcmCache& cache, const MixParams& params,
                   MixBuffer& out, std::optional<TimeMs> timeBaseMs = std::nullopt);
 

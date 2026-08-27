@@ -105,13 +105,11 @@ void Tip(std::string_view text) {
 
 // ── dragging a placement ────────────────────────────────────────────────────
 //
-// Putting a sound on a different slot used to be four gestures - read the name,
-// `x`, `+ add` over there, then find it again in a library of a hundred files
-// while looking straight at it. Dragging the row is the same edit said once.
+// Putting a sound on a different slot used to be four gestures. Dragging the row
+// is the same edit said once.
 //
-// The payload is the row's *address* and not its filename, because a filename
-// is not an identity here: a slot may place one wav twice, plain and tagged,
-// and only the position says which of the two is in the hand.
+// The payload is the row's *address*, not its filename: a slot may place one wav
+// twice, plain and tagged, and only the position says which is in the hand.
 
 constexpr const char* kRowPayload = "rds.sfx.row";
 
@@ -164,15 +162,13 @@ void RowDragSource(rds::SlotId slot, int index, std::string_view label) {
 
 // ── conditions ──────────────────────────────────────────────────────────────
 //
-// A file on a slot can ask something of the contact before it is a candidate,
-// and where it applies it beats the plain files rather than merely joining
-// them. That is one recording that only plays on stone, or only in plate, and
-// it is the difference between a slot that has five sounds and a slot that
-// knows which of them belongs where.
+// A file on a slot can ask something of the contact before it is a candidate, and
+// where it applies it beats the plain files rather than joining them - the
+// difference between a slot that has five sounds and one that knows which of them
+// belongs where.
 //
-// The engine has done this since the armour build; until now the only way to
-// set one was to type it into RagdollSounds_SFX.ini by hand, which meant the
-// feature existed and nobody could reach it.
+// The engine has done this since the armour build; until now the only way to set
+// one was to type it into RagdollSounds_SFX.ini by hand.
 
 /// The two axes, in the order the popover lays them out. `any` first on both,
 /// because the top-left cell is "no opinion" and reading right or down is
@@ -239,16 +235,13 @@ constexpr rds::CoverageMatch kCondArmour[] = {
                        ArmourWords(cond.coverage));
 }
 
-/// The popover's grid: every combination of surface and armour, one click each.
+/// The popover's grid: every combination of surface and armour, one click each. A
+/// table rather than two dropdowns, because "which corner of the space is this
+/// recording for" is a thing you point at and two combos would make `stone / heavy`
+/// two decisions. True on the frame a cell was clicked, with `out` set to it.
 ///
-/// A table rather than two dropdowns because the question is "which corner of
-/// the space is this recording for", and a corner is a thing you point at - two
-/// combos would make choosing `stone / heavy` two decisions when it is one.
-/// Returns true on the frame a cell was clicked, with `out` set to it.
-///
-/// `allowPlain` is the top-left cell, which asks nothing of anything. Off while
-/// adding, where it would mean the same as `+ add`; on while re-tagging, where
-/// it is how a tag comes back off.
+/// `allowPlain` is the top-left cell, which asks nothing. Off while adding, where
+/// it means the same as `+ add`; on while re-tagging, where it takes a tag off.
 [[nodiscard]] bool DrawConditionGrid(rds::VariantCondition& out, bool allowPlain) {
     bool picked = false;
     if (ImGui::BeginTable("cond", 1 + static_cast<int>(std::size(kCondSurfaces)),
@@ -390,23 +383,19 @@ void App::RedoSfx() {
 // forcing and muting
 // ═════════════════════════════════════════════════════════════════════════════
 //
-// Two ways to point a whole take at one file, and they are not the same kind of
-// thing - which is the reason they are stored in two different places.
+// Two ways to point a whole take at one file, and not the same kind of thing -
+// which is why they are stored in two places.
 //
-// A **force** pins one file: every cue the slot emits plays it, so a candidate
-// can be heard against the take it will live in rather than against a preview
-// button. That is a way to listen and nothing else. It lives in m_sfxSession,
-// is written nowhere, is not pushed to the game, is not an undo step, and dies
-// with the process.
+// A **force** pins one file so a candidate can be heard against the take it will
+// live in rather than against a preview button. A way to listen and nothing else:
+// it lives in m_sfxSession, is written nowhere, is not pushed to the game, is not
+// an undo step, and dies with the process.
 //
-// A **mute** suspends one: the slot carries on without it, which is how you find
-// out whether the one you dislike is the one you keep hearing - and once you
-// know, the answer is "never play this here", which is a decision about the
-// pack. So it lives in m_sfx beside the file list, saves into
-// RagdollSounds_SFX.ini, undoes and redoes with every other assignment edit, and
-// goes over the link so a running game stops playing it too. The file keeps its
-// place in the list, so its variant index is untouched and unmuting puts the
-// take back exactly as it was.
+// A **mute** suspends one and lets the slot carry on without it, which is a
+// decision about the pack. It lives in m_sfx beside the file list, saves into
+// RagdollSounds_SFX.ini, undoes with every other assignment edit, and goes over
+// the link. The file keeps its place in the list, so unmuting puts the take back
+// exactly as it was.
 
 namespace {
 
@@ -813,17 +802,14 @@ void App::DrawSlotWidget(rds::SlotId slot) {
 
     // The whole slot's mute, beside the files it would have played.
     //
-    // Not the same switch as the per-file mutes below it: those suspend one
-    // recording and let the slot pick another, which answers "is this the right
-    // file". This silences the layer, which answers "does the mix need this
-    // layer at all" - and that is the question the design keeps asking, because
-    // its central claim is that muting imp_sub should take the gnarl with it.
+    // Not the same switch as the per-file mutes below: those answer "is this the
+    // right file", this answers "does the mix need this layer at all" - the
+    // question the design keeps asking, since its central claim is that muting
+    // imp_sub should take the gnarl with it.
     //
-    // It writes the same flag the [Layers] and [Surfaces] panels do, through
-    // rds::LayerMute, so the two are one switch shown twice rather than two
-    // switches that can disagree. Like every mute it lands at render, which is
-    // what makes it an honest A/B: arbitration made the same decisions either
-    // way and only the sound is gone.
+    // Writes the same flag the [Layers] and [Surfaces] panels do, through
+    // rds::LayerMute, so the two are one switch shown twice. Like every mute it
+    // lands at render, which is what makes it an honest A/B.
     if (const bool* mute = rds::LayerMute(m_side[m_focusSide].cfg, slot); mute != nullptr) {
         const bool audible = *mute;
         ImGui::SameLine();

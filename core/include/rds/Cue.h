@@ -1,18 +1,16 @@
 #pragma once
 
-// The other clean seam: Stage 4 emits an abstract cue list, and something else
-// turns it into voices. The game renders it through Skyrim's audio, the
-// testbench through miniaudio, both implementing the same limited feature set.
+// The other clean seam: Stage 4 emits an abstract cue list and something else
+// turns it into voices - the game through Skyrim's audio, the testbench through
+// miniaudio, both implementing the same limited feature set.
 //
-// That feature set is deliberately what CommonLibVR actually offers, verified
-// (§13): volume, continuous pitch, an updatable position, attachment to a bone,
-// whole-file looping, fade in/out over N ms, and playing a raw wav off disk.
-// Not available: per-voice filtering or EQ, reverb send control, and
-// sample-accurate scheduling - voices start on frame boundaries, so the layer
-// offsets quantise to 7-20 ms.
+// That set is what CommonLibVR actually offers (§13): volume, continuous pitch, an
+// updatable position, attachment to a bone, whole-file looping, fades, and playing
+// a raw wav off disk. Not available: per-voice filtering or EQ, reverb send
+// control, and sample-accurate scheduling.
 //
-// Nothing richer belongs here. If the testbench can do something the game
-// cannot, we will tune something the game cannot reproduce.
+// Nothing richer belongs here. If the testbench can do something the game cannot,
+// we will tune something the game cannot reproduce.
 
 #include <cstdint>
 #include <string_view>
@@ -53,16 +51,13 @@ struct CompressConfig;
 /// Which line of `[Compress]` holds a layer down.
 ///
 /// A band and not a reason, because the impact composite is four bands under one
-/// reason: `imp_transient`, `imp_body`, `imp_sub` and `imp_body_limb` are the
-/// frequency ranges of one hit, they arrive at levels 8 dB apart, and the one
-/// that owns the composite's peak is not the one that owns its character. A
-/// threshold per band is what lets the body be held while the transient is left
-/// alone - which is the whole reason to hold anything.
+/// reason: the four impact layers are frequency ranges of one hit arriving 8 dB
+/// apart, and the one that owns the composite's peak is not the one that owns its
+/// character. A threshold per band is what lets the body be held while the
+/// transient is left alone.
 ///
-/// Everything else a composite carries - the surface skin, the armour skin -
-/// answers `kImpact`, the catch-all the section shipped with. Those two ride the
-/// body layer and sit ~12 dB under it, so they are never the layer that clips,
-/// and a line of their own would be a decision nobody would ever make.
+/// The surface and armour skins answer `kImpact`, the catch-all: they ride the
+/// body layer ~12 dB under it and are never the layer that clips.
 enum class CompressBand : std::uint8_t {
     kTransient = 0,
     kBody,
@@ -82,16 +77,13 @@ enum class CompressBand : std::uint8_t {
 /// than describing it. `"fBodyDb"`, not `"body"`.
 [[nodiscard]] std::string_view ToString(CompressBand band);
 
-/// Which band governs a layer. **The slot decides before the reason does**, and
-/// that order is the whole of the impact split: all four impact layers carry
-/// `kImpactComposite`, so a mapping that asked the reason first could only ever
-/// give the four of them one answer.
+/// Which band governs a layer. **The slot decides before the reason does**, which
+/// is the whole of the impact split: all four impact layers carry
+/// `kImpactComposite`, so asking the reason first could only give them one answer.
 ///
-/// Asked with the slot the *proposal* named, never the one the bank resolved to.
-/// `imp_body_limb` falls back to `imp_body`'s recording until somebody records a
-/// limb one, and keying on the resolution would make `fBodyLimbDb` inert until
-/// that day - the same trap `SlotGain:fImpBodyLimb` already avoids by trimming
-/// the file the limb composite falls back to.
+/// Asked with the slot the *proposal* named, never the one the bank resolved to:
+/// `imp_body_limb` falls back to `imp_body`'s recording, and keying on the
+/// resolution would leave `fBodyLimbDb` inert until somebody records a limb one.
 [[nodiscard]] CompressBand CompressBandFor(SlotId slot, CueReason reason);
 
 /// The compression threshold that governs a band, on the pre-trim scale

@@ -113,17 +113,15 @@ MixedAudio MixCues(const std::vector<rds::Cue>& cues, double audioDurationMs,
 ///
 /// One row is one file at its descriptor's static attenuation, panned from the
 /// listener exactly as a cue is. **No distance rolloff**, for the reason
-/// Engine.cpp gives at length where it declines to apply one: the game attenuates
-/// a positioned voice itself through its output model, so neither side of this
-/// comparison has falloff in it and both are the un-attenuated thing. A rolloff
-/// here would make the A/B a comparison of my distance law.
+/// Engine.cpp declines to apply one: the game attenuates a positioned voice itself,
+/// so neither side of this comparison has falloff in it. A rolloff here would make
+/// the A/B a comparison of my distance law.
 ///
-/// Two pieces of vanilla's randomness are not reproduced and cannot be: which of
-/// a descriptor's wavs was drawn, and what its dB and frequency variance rolled.
-/// The draw is made here from `seed`, so a replay is repeatable and an A/B is
-/// honest; the variance is left flat rather than rolled, because inventing a
-/// number and calling it vanilla's is worse than admitting there is none.
-/// VanillaTrack.h says the same about the file these rows came from.
+/// Two pieces of vanilla's randomness cannot be reproduced: which of a
+/// descriptor's wavs was drawn, and what its dB and frequency variance rolled. The
+/// draw is made here from `seed` so a replay is repeatable; the variance is left
+/// flat, because inventing a number and calling it vanilla's is worse than
+/// admitting there is none.
 ///
 /// `played` counts the rows that found a file and `misses` the ones that did
 /// not - the difference between "vanilla was quiet here" and "the library is not

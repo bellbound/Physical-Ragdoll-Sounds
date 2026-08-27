@@ -66,14 +66,10 @@ using ini::Trim;
 }
 
 /// Keys that no longer exist anywhere and should be taken out of a file rather
-/// than copied through it.
-///
-/// Different from a legacy name, which is a key that *moved*: the reader takes a
-/// legacy value and the writer drops the line because the value now lives under
-/// a new name. These six did not move to a new name - they became thirteen
-/// blocks in a second file, and `MigrateSurfaces` has already read them. Left
-/// alone they would sit in every upgraded install's ini looking editable and
-/// doing nothing, which is worse than a key that is merely gone.
+/// than copied through it. Different from a legacy name, which is a key that
+/// *moved*: these six became thirteen blocks in a second file, which
+/// `MigrateSurfaces` has already read. Left alone they would sit in every upgraded
+/// install's ini looking editable and doing nothing.
 [[nodiscard]] bool IsRetiredKey(std::string_view section, std::string_view key) {
     struct Retired {
         std::string_view section;
@@ -115,14 +111,13 @@ void WriteTooltipParagraph(std::string& out, std::string_view text) {
     }
 }
 
-/// The tooltip, word-wrapped into `; ` comment lines. This is what makes a fresh
-/// install ship a file somebody can read rather than ninety numbers.
+/// The tooltip, word-wrapped into `; ` comment lines - what makes a fresh install
+/// ship a file somebody can read rather than ninety numbers.
 ///
 /// Paragraphs first, then wrapping inside each. A tooltip is also rendered by the
-/// testbench's slider panel, where a `\n` is just a line break and costs nothing -
-/// so the moment one is written the ini writer has to agree, or it emits the rest
-/// of the paragraph with no `; ` in front of it and the file stops being an ini.
-/// Wrapping the whole string as one run is what did that.
+/// slider panel, where a `\n` costs nothing, so the ini writer has to agree or it
+/// emits the rest of the paragraph with no `; ` in front and the file stops being
+/// an ini.
 void WriteTooltip(std::string& out, std::string_view tooltip) {
     std::size_t start = 0;
     while (start <= tooltip.size()) {
@@ -271,22 +266,17 @@ bool ConfigManager::SaveFrom(const std::filesystem::path& file, const void* root
         // Every key the schema puts in `name` that the file has not carried yet,
         // written at the end of that section's existing block.
         //
-        // Without this the append pass at the bottom was the only thing that
-        // wrote a missing key, and it opens a `[Section]` header for each group
-        // it emits - so a key *added to a section the file already had* arrived
-        // under a second copy of that header at the end of the file. Three
-        // rounds of adding keys to `[Damage]` produced three `[Damage]` blocks,
-        // and the reader takes the last value it sees, so the file stopped
-        // saying what it was doing. Nothing detected it: every key was present,
-        // every value was right, and the round-trip check passed throughout.
+        // Without this the append pass at the bottom was the only thing writing a
+        // missing key, and it opens a `[Section]` header per group - so a key added
+        // to a section the file already had arrived under a *second* copy of that
+        // header. Three rounds of adding keys to `[Damage]` produced three
+        // `[Damage]` blocks, and the reader takes the last value it sees. Nothing
+        // detected it: every key was present, every value right, round-trip passed.
         //
-        // A section that is genuinely new to the file still falls through to the
-        // append pass and gets its header there, which is what that pass is for.
-        // `limit` bounds it to the params that come *before* a given schema
-        // index, which is what puts a re-added key back in its proper place
-        // rather than at the end of the block: schema order is the ini's key
-        // order by design (01 §7.3), and a file that has drifted out of it is a
-        // file whose diff against a fresh one is unreadable.
+        // A genuinely new section still falls through to the append pass. `limit`
+        // bounds this to the params before a given schema index, which puts a
+        // re-added key back in its proper place: schema order is the ini's key
+        // order by design (01 §7.3).
         const auto emitMissingFor = [&](std::string_view name, std::size_t limit) {
             if (name.empty()) {
                 return;
@@ -311,16 +301,14 @@ bool ConfigManager::SaveFrom(const std::filesystem::path& file, const void* root
             }
             pending.clear();
         };
-        // A `[Surface.x]` block for a class `params` does not carry - i.e. one
-        // the user has closed - is dropped whole: header, keys and comments.
+        // A `[Surface.x]` block for a class `params` does not carry - one the user
+        // closed - is dropped whole: header, keys and comments.
         //
-        // Every other unrecognised line in this writer is copied through, which
-        // is right for a key we removed from a file where every key is always
-        // present. It is wrong for a list, because closing an entry is exactly
-        // "these keys are no longer recognised" and the entry would survive
-        // every save. Dropping the *header* too is what makes it safe: an empty
-        // `[Surface.wood]` left behind still reads as opened on the next load,
-        // and would come back holding defaults instead of what it inherits.
+        // Every other unrecognised line here is copied through, which is right for
+        // a removed key and wrong for a list, where closing an entry is exactly
+        // "these keys are no longer recognised". Dropping the *header* too is what
+        // makes it safe: an empty `[Surface.wood]` still reads as opened on the
+        // next load and would come back holding defaults.
         bool droppingSection = false;
         const auto isClosedSurfaceSection = [&](std::string_view name) {
             constexpr std::string_view kPrefix = "Surface.";

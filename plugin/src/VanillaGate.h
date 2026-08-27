@@ -3,12 +3,11 @@
 // Where the mod owns vanilla's body impacts, published per tick and asked per
 // play.
 //
-// Suppression is not a session-wide switch. A body impact vanilla plays and we
-// do not replace is a sound the player loses for nothing, and vanilla plays them
-// far outside a knockdown: an actor's ragdoll bodies are in contact with the
-// floor the whole time they are on their feet, which is the very thing GameFeed's
-// phase gate exists to keep quiet on our side. Dropping those left the game
-// quieter than vanilla with nothing put back.
+// Suppression is not a session-wide switch. Vanilla plays body impacts far
+// outside a knockdown - an actor's ragdoll bodies are in contact with the floor
+// the whole time they are on their feet, the very thing GameFeed's phase gate
+// keeps quiet on our side - so dropping those left the game quieter than vanilla
+// with nothing put back.
 //
 // So the drop is *claimed*, per actor, by the same tick that publishes the phase:
 //
@@ -25,29 +24,26 @@
 //
 // ── why a position and not a reference ───────────────────────────────────────
 //
-// `ImpactSoundData` carries the impact record, a world point and vanilla's own
-// light/heavy decision, and that is all. It does not carry the reference: on the
-// collision path `objectToFollow` is filled with null, and the two refs live in
-// the arguments of the enclosing per-pair helper, which the call VanillaImpactHook
-// patches cannot see. The world point is therefore the only thing the tick and
-// the play have in common - so the tick publishes where its actors are, and the
-// play asks whether it happened on one of them.
+// `ImpactSoundData` carries the record, a world point and vanilla's light/heavy
+// decision, and nothing else. On the collision path `objectToFollow` is null and
+// the two refs live in the arguments of the enclosing per-pair helper, which the
+// patched call cannot see. The world point is the only thing the tick and the
+// play have in common.
 //
 // ── threading ────────────────────────────────────────────────────────────────
 //
 // Written by the game thread in GameFeed::PublishTick, read on whatever thread
 // the impact manager is on. Fixed storage and atomic scalars, so the reader
-// cannot be led out of the array and never waits on the writer. It can read a
-// claim mid-update and judge one impact against a position half a tick old,
-// which is the same tick of coarseness the phase gate already accepts.
+// cannot be led out of the array and never waits on the writer. It can judge an
+// impact against a position half a tick old, which is the coarseness the phase
+// gate already accepts.
 
 #include <cstddef>
 
 namespace rds::game {
 
 /// Begin a tick's publication. Game thread only. Between this and the commit the
-/// gate reads as empty, so an impact landing mid-update is left to vanilla rather
-/// than judged against a half-written list.
+/// gate reads as empty, so an impact landing mid-update is left to vanilla.
 void BeginVanillaGate();
 
 /// Claim everything happening around `x, y, z` for this tick.

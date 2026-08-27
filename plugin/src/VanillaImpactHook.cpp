@@ -26,13 +26,10 @@ using ImpactSoundData = RE::BGSImpactManager::ImpactSoundData;
     return address;
 }
 
-/// Anchor to call site, per runtime. Zero means "not measured on this one", and
-/// the signature scan is what covers it.
-///
-/// VR is 0x5ABF54 - 0x5A9FF0. SE and AE are zero because neither binary could be
-/// read here: the Steam AE executable is DRM-packed, and no 1.5.97 build was
-/// present. Filling either in is one number, and the verification below is what
-/// makes guessing at one safe to try.
+/// Anchor to call site, per runtime. Zero means "not measured on this one", which
+/// the signature scan covers. VR is 0x5ABF54 - 0x5A9FF0; SE and AE are zero
+/// because neither binary could be read here. Filling either in is one number, and
+/// the verification below is what makes guessing safe to try.
 [[nodiscard]] std::ptrdiff_t CallSiteFromAnchor() {
     return REL::Relocate<std::ptrdiff_t>(0, 0, 0x1F64);
 }
@@ -45,10 +42,9 @@ using ImpactSoundData = RE::BGSImpactManager::ImpactSoundData;
 ///     49 8B D8           mov  rbx, r8               ; the collision event
 ///     48 85 C9           test rcx, rcx
 ///
-/// Sixteen bytes with no relocation in them, unique in VR's `.text`, and the call
-/// we want is at +0x84. Used only when the offset above is zero or fails to
-/// verify - a scan is a last resort, not a first choice, because a signature that
-/// matches twice is worse than one that matches never.
+/// Sixteen bytes with no relocation in them, unique in VR's `.text`, with the call
+/// at +0x84. Used only when the offset above is zero or fails to verify: a
+/// signature that matches twice is worse than one that matches never.
 constexpr std::uint8_t kPrologue[] = {0x40, 0x53, 0x48, 0x83, 0xEC, 0x60, 0x48, 0x8B,
                                       0x49, 0x48, 0x49, 0x8B, 0xD8, 0x48, 0x85, 0xC9};
 constexpr std::ptrdiff_t kCallFromPrologue = 0x84;
@@ -59,13 +55,10 @@ std::atomic<std::uint64_t> g_dropped{};
 VanillaSoundSink g_sink = nullptr;
 bool g_installed = false;
 
-/// Is `address` a five-byte relative call to `target`?
-///
-/// Both halves matter. The opcode alone is FrameHook's check and it is the right
-/// one there, because that site is an offset into a function we identified. Here
-/// the offset crosses functions, so the target check is what turns "this is a
-/// call" into "this is *the* call" - and a wrong offset then declines to patch
-/// rather than patching something else.
+/// Is `address` a five-byte relative call to `target`? Both halves matter: the
+/// opcode alone is enough where the site is an offset into a function we
+/// identified, but here the offset crosses functions, so the target check is what
+/// turns "this is a call" into "this is *the* call".
 [[nodiscard]] bool IsCallTo(std::uintptr_t address, std::uintptr_t target) {
     if (*reinterpret_cast<const std::uint8_t*>(address) != 0xE8) {
         return false;
@@ -74,11 +67,9 @@ bool g_installed = false;
     return address + 5 + static_cast<std::ptrdiff_t>(displacement) == target;
 }
 
-/// The one prologue match in the module's text, or 0 for none and 0 for several.
-///
-/// Several is deliberately the same answer as none: two matches means the
-/// signature no longer identifies one function, and picking either would be a
-/// guess written into the game's code.
+/// The one prologue match in the module's text, or 0 for none and 0 for several -
+/// deliberately the same answer, because two matches means the signature no longer
+/// identifies one function.
 [[nodiscard]] std::uintptr_t ScanForCallSite(std::uintptr_t target) {
     const auto& module = REL::Module::get();  // a singleton, and not copyable
     const auto text = module.segment(REL::Segment::textx);
@@ -116,11 +107,9 @@ bool g_installed = false;
 // ── reading the play ─────────────────────────────────────────────────────────
 
 /// The descriptor that is about to sound, and which of the pair it was.
-///
-/// `playSound1` and `playSound2` are the caller's own light/heavy decision and
-/// exactly one of them is set - but they are read rather than assumed, because a
-/// mod ahead of us in the chain is free to set both and the honest record of a
-/// double play is the heavy one, which is what would dominate.
+/// `playSound1`/`playSound2` are the caller's light/heavy decision and exactly one
+/// is set - read rather than assumed, because a mod ahead of us may set both and
+/// the honest record of a double play is the heavy one.
 [[nodiscard]] RE::BGSSoundDescriptorForm* Firing(const ImpactSoundData& data, bool& heavy) {
     RE::BGSImpactData* impact = data.impactData;
     if (impact == nullptr) {
@@ -135,13 +124,10 @@ bool g_installed = false;
     return data.playSound1 ? impact->sound1 : nullptr;
 }
 
-/// Fill the gain and variance block off a standard sound descriptor.
-///
-/// `skyrim_cast` rather than an unchecked cast: a descriptor form can hold a
-/// `BGSSoundDescriptor` that is not the standard kind, and reading
-/// `soundCharacteristics` off one of those would be reading a neighbouring
-/// field as a volume. A failed cast leaves the block zeroed, which the sidecar
-/// writes as a row with no characteristics rather than as a silent one.
+/// Fill the gain and variance block off a standard sound descriptor. `skyrim_cast`
+/// rather than an unchecked cast: a descriptor form can hold a non-standard
+/// `BGSSoundDescriptor`, and reading `soundCharacteristics` off one would read a
+/// neighbouring field as a volume. A failed cast leaves the block zeroed.
 void ReadCharacteristics(RE::BGSSoundDescriptorForm* form, VanillaSoundInfo& out) {
     if (form == nullptr) {
         return;
@@ -162,13 +148,10 @@ void ReadCharacteristics(RE::BGSSoundDescriptorForm* form, VanillaSoundInfo& out
         std::min<std::size_t>(standard->soundFiles.size(), 255));
 }
 
-/// What vanilla's own call would have answered.
-///
-/// Only consulted while suppressing, and only so the caller's cooldown map is
-/// armed exactly as it would have been - see the header. It can differ from the
-/// truth in one direction: the audio engine can refuse to start a sound it had a
-/// descriptor for, and this says it played. Erring that way keeps the throttle
-/// on, which is the behaviour a listener would have heard.
+/// What vanilla's own call would have answered. Only consulted while suppressing,
+/// so the caller's cooldown map is armed as it would have been (see the header).
+/// It can differ in one direction - the audio engine can refuse a sound it had a
+/// descriptor for - and erring that way keeps the throttle on.
 [[nodiscard]] bool WouldHavePlayed(const ImpactSoundData& data) {
     const RE::BGSImpactData* impact = data.impactData;
     if (impact == nullptr) {
@@ -180,15 +163,13 @@ void ReadCharacteristics(RE::BGSSoundDescriptorForm* form, VanillaSoundInfo& out
 
 /// Is this play one we are answering for?
 ///
-/// The master flag says whether we may drop anything at all - the ini, and the
-/// testbench's A/B switch. The gate says whether *this* one is ours: an actor
-/// ragdolling or getting up at that spot. Both, because either alone gets it
-/// wrong - the flag alone silences the game outside a knockdown, and the gate
-/// alone would ignore an install that deliberately runs vanilla underneath us.
+/// The master flag says whether we may drop anything at all; the gate says whether
+/// *this* one is ours. Both, because either alone gets it wrong - the flag alone
+/// silences the game outside a knockdown, the gate alone ignores an install that
+/// deliberately runs vanilla underneath us.
 ///
-/// A play with no position cannot be placed and is left alone. That direction is
-/// the safe one: a doubled impact is a mix we did not want, a wrongly dropped one
-/// is a sound the player never gets back.
+/// A play with no position is left alone: a doubled impact is a mix we did not
+/// want, a wrongly dropped one is a sound the player never gets back.
 [[nodiscard]] bool ShouldDrop(const ImpactSoundData& data) {
     if (!g_suppressed.load(std::memory_order_relaxed)) {
         return false;
@@ -199,11 +180,9 @@ void ReadCharacteristics(RE::BGSSoundDescriptorForm* form, VanillaSoundInfo& out
     return VanillaGateCovers(data.position->x, data.position->y, data.position->z);
 }
 
-/// Said once, the first time a descriptor turns out to have no name.
-///
-/// Once because this fires per collision, and a warning per contact is a log
-/// nobody reads. From the hook's own thread, so it is a plain atomic exchange
-/// rather than anything that allocates or locks.
+/// Said once, the first time a descriptor turns out to have no name - this fires
+/// per collision, and a warning per contact is a log nobody reads. From the hook's
+/// own thread, so a plain atomic exchange rather than anything that allocates.
 void WarnOnceAboutNames() {
     static std::atomic<bool> said{false};
     if (said.exchange(true, std::memory_order_relaxed)) {

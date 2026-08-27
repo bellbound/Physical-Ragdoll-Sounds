@@ -2,11 +2,9 @@
 
 // Reading a capture back in as a Feed.
 //
-// The files are QuickModMenuNG's: one CSV of events, one YAML sidecar of
-// everything the rows do not carry, and optionally a two-row _sync.csv and an
-// mp4. Research/02-Data-Dictionary.md is the column reference and says what each
-// one is worth; the loader implements its warnings rather than trusting the
-// columns:
+// The files are QuickModMenuNG's: a CSV of events, a YAML sidecar, and optionally
+// a two-row _sync.csv and an mp4. Research/02-Data-Dictionary.md is the column
+// reference; the loader implements its warnings rather than trusting the columns:
 //
 //   - sort by t_ms, never by seq. The session_stop row is written out of band
 //     with seq 0, so sorting by seq puts the last row first
@@ -17,9 +15,8 @@
 //   - read the `coverage:` map, not slot occupancy. Four slots emit a stub with
 //     no armour_type on a stripped subject
 //
-// This is a replay of the game's own capture, not a second input format. It
-// fills the same FeedEvent the live path fills, which is what keeps one backend
-// one backend.
+// A replay of the game's own capture, not a second input format: it fills the same
+// FeedEvent the live path fills.
 
 #include <filesystem>
 #include <string>
@@ -87,17 +84,12 @@ struct RecordingInfo {
     double videoOffsetMs{};
     double videoDriftMsPerSec{};
     bool hasSync{};
-    /// True when the mp4 beside the take is OBS's own output for this take, and
-    /// not a clip cut out of a longer recording.
-    ///
-    /// The distinction is the whole difference between the two sync regimes. A
-    /// cut clip's sync clocks belong to the recording it was cut from, and the
-    /// cut point is written down nowhere - so the intercept is useless against
-    /// the file on disk and the offset has to be nudged by hand. A whole output
-    /// starts where the sync track says it starts, so the intercept *is* the
-    /// offset. Read off the sidecar rather than guessed: `obs.output_path` names
-    /// a file the take owns, and `obs.external_recording` says the take merely
-    /// rode a recording somebody else had already started.
+    /// True when the mp4 beside the take is OBS's own output for this take rather
+    /// than a clip cut out of a longer recording - the whole difference between the
+    /// two sync regimes. A cut clip's sync clocks belong to the recording it came
+    /// from and the cut point is written nowhere, so the offset has to be nudged by
+    /// hand; a whole output starts where the sync track says, so the intercept *is*
+    /// the offset. Read off the sidecar rather than guessed.
     bool videoIsWholeOutput{};
 };
 

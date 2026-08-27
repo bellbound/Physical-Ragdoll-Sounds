@@ -2,41 +2,32 @@
 
 // Getting a sound file into the library, in the shape the pack wants.
 //
-// The rule is that an import never refuses. Whatever arrives is made playable
-// and then measured, and anything wrong with it comes back as a warning you can
-// read and ignore. That is deliberate: the reason to audition a file at all is
-// usually that you are not sure about it, and a gate that says no is a gate that
-// stops you finding out. The one exception is a file nothing can decode, which
-// is not a judgement - there is simply no sound there.
+// **An import never refuses.** Whatever arrives is made playable and then
+// measured, and anything wrong comes back as a warning you can read and ignore -
+// the reason to audition a file is usually that you are not sure about it, and a
+// gate that says no stops you finding out. The one exception is a file nothing can
+// decode, where there is simply no sound.
 //
-// What "the shape the pack wants" means is Slots.md §5: mono, 48 kHz, 16-bit
-// PCM. Anything else is converted on the way in rather than complained at,
-// because that conversion is exactly what `sfx.py make` would have done and the
-// game is fussier than the testbench about being handed something else.
+// "The shape the pack wants" is Slots.md §5: mono, 48 kHz, 16-bit PCM. Anything
+// else is converted rather than complained at, because that is what `sfx.py make`
+// would have done.
 //
-// The same argument goes further than the container, and since 2026-08-24 it
-// does. §5's delivery rules are mechanical - a peak of -1.5 dBFS, no DC, no head
-// silence, no click at the end - and a rule that is mechanical is a rule nobody
-// should be reading a badge about. So the import *repairs* them, silently, and
-// says nothing:
+// §5's delivery rules are mechanical - a peak of -1.5 dBFS, no DC, no head
+// silence, no click at the end - so the import *repairs* them silently:
 //
-//   - the peak is normalised to -1.5 dBFS, which is the headroom the runtime
-//     +/-3 semitone scatter needs. Files already inside the band that holds both
-//     pack targets are left exactly as they are, so adopting the built pack does
-//     not pull `imp_sub` off its own -1.0
-//   - DC is subtracted, head silence and trailing digital silence are trimmed,
-//     and a one-shot that stops dead gets `sfx.py make`'s own 6 ms cosine fade
+//   - the peak is normalised to -1.5 dBFS, the headroom the runtime's +/-3
+//     semitone scatter needs. Files already inside the band that holds both pack
+//     targets are left alone, so adopting the built pack does not pull `imp_sub`
+//     off its own -1.0
+//   - DC is subtracted, head silence and trailing digital silence are trimmed, and
+//     a one-shot that stops dead gets `sfx.py make`'s 6 ms cosine fade
 //   - a stereo source whose channels do not correlate has its left channel taken
-//     rather than the two folded, which is 03-Asset-Status.md §3.1's fix
+//     rather than the two folded (03 §3.1)
 //
-// None of it is a judgement, all of it is what `sfx.py make` does on the way to
-// the pack, and every one of them is idempotent - a repaired file repairs to
-// itself. What is left over is what a badge is *for*: the faults that need a
-// decision (a second contact, a baked tail, a seam) and the ones nothing can
-// mend (a squared-off wave, hiss inside 30 dB of the hero).
+// All of it is idempotent - a repaired file repairs to itself. What is left is
+// what a badge is *for*: faults that need a decision, and ones nothing can mend.
 //
-// ffmpeg does the container work and miniaudio does the decode. Testbench-only:
-// the game has a library of finished files and never imports anything.
+// ffmpeg does the container work and miniaudio the decode. Testbench-only.
 
 #include <filesystem>
 #include <string>
@@ -97,22 +88,17 @@ struct ImportOptions {
 [[nodiscard]] bool MeasureExisting(rds::SfxLibrary& library, const std::string& file,
                                    std::string& error);
 
-/// Convert, repair and re-measure a file already in the library, in place.
+/// Convert, repair and re-measure a file already in the library, in place - the
+/// import pass run on something that did not come through the importer. Everything
+/// MeasureExisting does plus the container conversion and the sample repairs,
+/// which is why it is its own button: a re-measure reads, this writes.
 ///
-/// The import pass, run on a file that did not come through the importer -
-/// dropped into the folder by hand, written by `sfx.py make` at another rate, or
-/// imported on a machine that had no ffmpeg at the time. Everything MeasureExisting
-/// does, plus the container conversion and the sample repairs, which is why it
-/// is a button of its own rather than part of a re-measure: a re-measure reads,
-/// and this writes.
+/// Idempotent on a file that is already right, which is what makes it safe to
+/// press on the whole library: a pack file at -1.0 dBFS is inside the leave-alone
+/// band and comes back byte-identical.
 ///
-/// Idempotent on a file that is already right, and that is not incidental - it
-/// is what makes the button safe to press on the whole library. A pack file at
-/// -1.0 dBFS is inside the leave-alone band, has no head silence to trim and no
-/// DC to subtract, so it comes back byte-identical.
-///
-/// The name, the mute and the import date survive, as they do a re-measure.
-/// False with `error` set when the file could not be read or written.
+/// The name, the mute and the import date survive. False with `error` set when the
+/// file could not be read or written.
 [[nodiscard]] bool RepairExisting(rds::SfxLibrary& library, const std::string& file,
                                   std::string& error, std::string* repairs = nullptr);
 
@@ -124,20 +110,15 @@ struct ImportOptions {
 /// The multi-select open dialog. Empty when the user cancelled.
 [[nodiscard]] std::vector<std::filesystem::path> PickAudioFiles();
 
-/// Send files to the recycle bin, as one undoable operation.
+/// Send files to the recycle bin, as one undoable operation. Here because this is
+/// the file that knows how to talk to the shell. Deleting an sfx takes its audio
+/// and sidecar together in one call, so they are one entry in the bin restored by
+/// one Ctrl+Z.
 ///
-/// The other direction from an import, and here for the same reason the import
-/// is: this is the file that knows how to talk to the shell. Deleting an sfx
-/// takes its audio and its sidecar together, so they go in one call - one
-/// entry in the bin, restored as a pair by one Ctrl+Z in Explorer.
-///
-/// The bin rather than std::filesystem::remove because the browser's delete is
-/// the one button in the window that cannot be undone from inside the app, and
-/// a sound somebody spent an evening auditioning is worth the recoverable
-/// version of that. Missing paths are skipped rather than failed - deleting a
-/// file with no sidecar is the normal case for anything dropped in by hand.
-/// False with `error` set when the shell refused; nothing is assumed about how
-/// much of the list went.
+/// The bin rather than `std::filesystem::remove`, because the browser's delete is
+/// the one button in the window that cannot be undone from inside the app. Missing
+/// paths are skipped rather than failed. False with `error` set when the shell
+/// refused; nothing is assumed about how much of the list went.
 [[nodiscard]] bool RecycleFiles(const std::vector<std::filesystem::path>& files,
                                 std::string& error);
 

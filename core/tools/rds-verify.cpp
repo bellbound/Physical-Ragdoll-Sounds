@@ -103,20 +103,17 @@ int PrintBankSummary(rds::SoundBank& bank) {
     return problems;
 }
 
-/// Write both ini files, edit one value into the file by hand, read it back, and
-/// check that the value survived and that the comments did too.
-///
-/// Nothing else exercises ConfigManager - the engine takes a struct - and the
-/// two properties that matter are exactly the ones a round trip tests: a fresh
-/// install must come out complete and self-documenting, and saving must not eat
-/// what somebody wrote in the file.
-/// The path the game now renders through, checked without a game.
+/// Write both ini files, edit one value by hand, read it back, and check that the
+/// value and the comments survived. Nothing else exercises ConfigManager, and a
+/// round trip tests the two properties that matter: a fresh install comes out
+/// complete and self-documenting, and saving does not eat what somebody wrote.
+
+/// The path the game renders through, checked without a game.
 ///
 /// The plugin mixes each composite itself and hands the engine one PCM blob, so
-/// three things have to hold that nothing else here touches: every pack file
-/// decodes, a mixed composite actually contains the layers it was given at the
-/// offsets it was given them, and the RIFF container we hand the engine reads
-/// back as what we put in. A silent failure in any of them is a silent mod.
+/// three things have to hold: every pack file decodes, a mixed composite contains
+/// the layers it was given at the offsets it was given, and the RIFF container
+/// reads back as what we put in. A silent failure in any is a silent mod.
 int CheckPcmAndMix(rds::SoundBank& bank) {
     int problems = 0;
 
@@ -221,22 +218,19 @@ int CheckPcmAndMix(rds::SoundBank& bank) {
 }
 
 
-/// The mute: that it survives the ini, that it keeps the file's variant index,
-/// and that nothing ever picks it.
+/// The mute: that it survives the ini, keeps the file's variant index, and is
+/// never picked. The index is the part worth asserting - leaving the file out of
+/// the variant list would sound right but renumber everything after it, so a cue
+/// list recorded before the mute would play different files and unmuting would not
+/// put the take back.
+
+/// The specificity ladder: a tagged file wins where it matches, is invisible where
+/// it does not, and never silences its slot.
 ///
-/// The index is the part worth asserting. A mute could be implemented by leaving
-/// the file out of the slot's variant list, and everything would still sound
-/// right - but every variant after it would renumber, so a cue list recorded
-/// before the mute would play different files after it, and unmuting would not
-/// put the take back. The whole point of the design is that it does.
-/// The specificity ladder: a tagged file wins where it matches, is invisible
-/// where it does not, and never silences its slot.
-///
-/// Worth a check of its own rather than trusting the read-through, because all
-/// three of those are easy to get individually right and collectively wrong. The
-/// third is the one that would ship: tag the only file on a slot, and a resolver
-/// that treated a condition as a filter rather than as a preference would delete
-/// that layer from most of the game without a word.
+/// Worth its own check because all three are easy to get individually right and
+/// collectively wrong. The third is the one that would ship: tag the only file on
+/// a slot, and a resolver treating a condition as a filter rather than a
+/// preference deletes that layer from most of the game without a word.
 int CheckSfxConditions(const std::string& bankDir) {
     rds::SfxLibrary library;
     library.Load(bankDir);
@@ -344,16 +338,11 @@ int CheckSfxConditions(const std::string& bankDir) {
     return ok ? 0 : 1;
 }
 
-/// The same file on one slot twice: once plain, once tagged.
-///
-/// The shape somebody reaches for the moment they like a recording - "keep it in
-/// the set, and make it *the* one on stone" - and the one that used to be
-/// impossible to say. A condition was stored against the filename, so the tag
-/// landed on both copies: the plain one vanished from the general set, the panel
-/// listed the file twice under the same heading, and there was no way to undo
-/// half of it. Everything about a condition is per placement now, and this is
-/// the check that says so - through the ini and the wire, because a placement
-/// that only exists in memory is one the game never hears.
+/// The same file on one slot twice: once plain, once tagged - "keep it in the set,
+/// and make it *the* one on stone". A condition used to be stored against the
+/// filename, so the tag landed on both copies. Everything about a condition is per
+/// placement now, and this checks it through the ini and the wire, because a
+/// placement that only exists in memory is one the game never hears.
 int CheckSfxDuplicatePlacement(const std::string& bankDir) {
     rds::SfxLibrary library;
     library.Load(bankDir);
@@ -440,18 +429,16 @@ int CheckSfxDuplicatePlacement(const std::string& bankDir) {
     return ok ? 0 : 1;
 }
 
-/// The per-file corrections: a pitch and a trim that belong to the recording
-/// rather than to the assignment, and reach Stage 5 through `ResolvedSound`.
+/// The per-file corrections: a pitch and a trim that belong to the recording rather
+/// than the assignment, reaching Stage 5 through `ResolvedSound`.
 ///
-/// Worth its own check because the corpus replay cannot see it. `main` fills its
-/// bank with `SoundBank::Load`, the by-name scan, which has no library behind it
-/// and therefore no metadata to read a correction out of - so a take that
-/// replays identically proves nothing about a feature that only exists on the
-/// assigned path the game and the testbench use.
+/// Worth its own check because the corpus replay cannot see it - `main` fills its
+/// bank with the by-name scan, which has no library behind it and no metadata to
+/// read a correction out of.
 ///
 /// Four things, and the length is the one that would ship broken: pitch here is
-/// resampling, so a corrected file plays shorter, and a renderer sizing its mix
-/// buffer off the container length would cut the tail off every corrected sound.
+/// resampling, so a corrected file plays shorter and a renderer sizing its buffer
+/// off the container length cuts the tail off every corrected sound.
 int CheckSfxCorrections(const std::string& bankDir) {
     rds::SfxLibrary library;
     library.Load(bankDir);
@@ -706,19 +693,15 @@ bool ApplyOverride(rds::AlgorithmConfig& config, std::string_view assignment) {
 
 /// How much of a make-up gain the composites would actually deliver.
 ///
-/// The question this exists to answer: the mod's audio reaches the engine as a
-/// PCM16 buffer, and `MixComposite` soft-clips that buffer with a tanh at
-/// `clipCeiling`. So "ship the slider at 0.5 and put 6 dB back in the mix" is
-/// only free if the composites are quiet enough that 6 dB more of them is still
-/// under the knee. Above it the tanh eats the difference, and what the player
-/// hears is not "the same mod, louder" but "the same mod, more compressed".
+/// `MixComposite` soft-clips its buffer with a tanh at `clipCeiling`, so "ship the
+/// slider at 0.5 and put 6 dB back in the mix" is only free if the composites are
+/// quiet enough that 6 dB more is still under the knee. Above it the tanh eats the
+/// difference and the player hears "more compressed" rather than "louder".
 ///
-/// Measured rather than reasoned about, and measured the honest way: mix every
-/// group twice, once as it ships and once with the gain added to every cue -
-/// which is exactly what raising `fMasterGainDb` does, since master is a term in
-/// `cue.gainDb` and nothing upstream reads it. The loss is the gap between the
-/// louder mix's peak and the peak it would have had if the clip were a straight
-/// line. Zero means the gain arrived intact.
+/// Measured by mixing every group twice, once as it ships and once with the gain
+/// added to every cue - which is what raising `fMasterGainDb` does. The loss is
+/// the gap between the louder mix's peak and the peak a straight-line clip would
+/// have given. Zero means the gain arrived intact.
 void CollectHeadroom(const std::vector<rds::Cue>& cues, rds::PcmCache& cache,
                      const rds::MixParams& params, const std::vector<float>& candidatesDb,
                      std::vector<std::vector<float>>& lossDbOut, std::vector<float>& peakOut) {

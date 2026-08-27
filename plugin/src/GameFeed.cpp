@@ -15,24 +15,16 @@
 namespace rds::game {
 namespace {
 
-/// Contacts under this never reach the ring at all.
-///
-/// Deliberately well under the engine's own `ingest.minImpactSpeed` of 20: this
-/// is a cost filter, not a design one. The design's floor belongs in the config
-/// where it can be tuned, and anything filtered here can never be tuned back.
+/// Cost filter only, well under the engine's tunable `ingest.minImpactSpeed`:
+/// anything dropped here can never be tuned back.
 constexpr float kMinimumImpactSpeed = 5.0f;
 
-/// How many ticks to wait before rebuilding a ragdoll whose bodies have left the
-/// world. About half a second.
-///
-/// Throttled, but not hard: a rebuild storm - and `ragdoll_rebuilt` fires six
-/// times in three seconds on a disturbed standing actor - must not leave the mod
-/// deaf (07 section 7).
+/// ~0.5s. Throttles ragdoll rebuilds without going deaf during a rebuild storm
+/// (six in three seconds on a disturbed standing actor).
 constexpr int kRebuildTicks = 16;
 
-/// How many ticks an actor may sit animated and untouched before we stop
-/// listening to it. Roughly three seconds, so a knockdown that briefly reports
-/// animated mid-tumble does not lose its listeners and have to re-attach.
+/// ~3s of animated-and-untouched before we let go. A tumble can report animated
+/// for a tick mid-fall; re-attaching costs the world write lock.
 constexpr int kIdleTicksBeforeUntrack = 90;
 
 std::chrono::steady_clock::time_point g_epoch = std::chrono::steady_clock::now();
@@ -60,30 +52,22 @@ void StoreVector(Vec3& out, const RE::hkVector4& v, float scale) {
 
 [[nodiscard]] float Norm(const Vec& a) { return std::sqrt(Dot(a, a)); }
 
-/// How fast the material of `body` is moving at the world point `point`.
-///
-/// `linearVelocity` is the velocity of the centre of mass, which is not the
-/// velocity of the surface: a limb pivoting about its shoulder has a still centre
-/// and a fast hand. The rigid-body identity `v + w x (p - com)` is the whole
-/// difference, and it is what makes a scrape distinguishable from a thud.
-///
-/// Havok units throughout; the caller scales.
+/// Surface speed at `point`, not centre-of-mass speed: `v + w x (p - com)`. A
+/// limb pivoting about its shoulder has a still centre and a fast hand, which is
+/// what separates a scrape from a thud. Havok units; the caller scales.
 [[nodiscard]] Vec PointVelocity(const RE::hkpRigidBody& body, const Vec& point) {
     const auto linear = LoadVector(body.motion.linearVelocity);
     const auto angular = LoadVector(body.motion.angularVelocity);
-    // centerOfMass1 is the current end of the swept transform - where the body is
-    // now, rather than where it was at the start of the step.
+    // centerOfMass1 is the current end of the swept transform, not the start.
     const auto centre = LoadVector(body.motion.motionState.sweptTransform.centerOfMass1);
     const Vec arm{point[0] - centre[0], point[1] - centre[1], point[2] - centre[2]};
     const auto spin = Cross(angular, arm);
     return {linear[0] + spin[0], linear[1] + spin[1], linear[2] + spin[2]};
 }
 
-/// The three-phase model the recorder used, and the reason `kGetUp` is named
-/// rather than folded into `kAnimated`: `ragdoll_end` and `knock_get_up` land on
-/// the same instant, and the frames after them carry the largest and least
-/// meaningful closing speeds in the whole dataset - a blend from simulation back
-/// to animation, not a fall.
+/// `kGetUp` is separate from `kAnimated` because the get-up blend carries the
+/// largest and least meaningful closing speeds in the dataset: it is simulation
+/// unwinding into animation, not a fall.
 [[nodiscard]] ActorPhase PhaseOf(bool ragdolled, RE::KNOCK_STATE_ENUM knock) {
     if (ragdolled) {
         return ActorPhase::kRagdoll;
@@ -95,15 +79,10 @@ void StoreVector(Vec3& out, const RE::hkVector4& v, float scale) {
 }
 
 /// Does this actor take vanilla's body impacts away from it this tick?
-///
-/// The rule is "wherever we are answering for the sound", and it is deliberately
-/// the same three-way the contact gate above uses - see VanillaGate.h. `kRagdoll`
-/// because we are playing those collisions ourselves. `kAnimated` only under
-/// animated mode, for the same reason. `kGetUp` for a different one: we play
-/// nothing there, but the blend from simulation back to animation drives the
-/// ragdoll bodies through contacts that no fall produced, and vanilla renders
-/// them as a burst of body impacts that has never sounded like anything but a
-/// bug.
+/// Rule: wherever we answer for the sound. `kRagdoll` and `kAnimated` (in
+/// animated mode) because we play those collisions; `kGetUp` because the blend
+/// back to animation drives contacts no fall produced, which vanilla renders as
+/// a burst of body impacts. See VanillaGate.h.
 [[nodiscard]] bool ClaimsVanillaImpacts(ActorPhase phase, bool animatedMode) {
     switch (phase) {
         case ActorPhase::kRagdoll:
@@ -116,15 +95,8 @@ void StoreVector(Vec3& out, const RE::hkVector4& v, float scale) {
     }
 }
 
-/// Which armour slot covers a body site.
-///
-/// An axis of timbre only, never of physics (07 section 11) - armour changes what
-/// a limb sounds like hitting stone, not how hard it hits. Vanilla agrees: its
-/// footstep sets have armour-weight variants and its impact sets do not use
-/// armour as a physics term anywhere.
-///
-/// Skyrim's body slot covers the torso and the legs together, which is why thighs
-/// and calves fall back to it rather than having anything of their own.
+/// Which armour slot covers a body site. Timbre only, never physics (07 s11).
+/// Skyrim's body slot covers torso and legs together, so thighs fall back to it.
 [[nodiscard]] RE::BGSBipedObjectForm::BipedObjectSlot SlotForSite(LimbSite site) {
     using Slot = RE::BGSBipedObjectForm::BipedObjectSlot;
     switch (site) {
@@ -150,20 +122,14 @@ void StoreVector(Vec3& out, const RE::hkVector4& v, float scale) {
 
 /// What is on a site, resolved through the slot that covers it.
 ///
-/// A site with nothing in its own slot falls back to the body piece rather than
-/// reporting bare: a cuirass with no separate gauntlets still means the forearm
-/// is not bare skin, and reading it as bare would pick the wrong timbre for the
-/// most common case in the game. `Armor:bInheritFromBody` turns that off, for
-/// the case it gets wrong - heavy boots on an otherwise naked body, where the
-/// rest should read naked.
+/// Empty slots fall back to the body piece (a cuirass with no gauntlets still
+/// means the forearm is not bare); `Armor:bInheritFromBody` turns that off for
+/// the case it gets wrong, heavy boots on an otherwise naked body.
 ///
-/// The nameless-and-weightless test is the other half, and it is the one that
-/// decides whether `armor_bare` ever fires on a modded body at all. TNG's skin
-/// is a real TESObjectARMO occupying five slots, so without it a stripped
-/// subject reads as *clothed on five sites*. The recording loader has always
-/// applied this rule - it is the data dictionary's, in `CoverageFrom` - and the
-/// live path did not, which meant a take replayed in the testbench and the same
-/// body in the game disagreed about what it was wearing.
+/// The nameless-and-weightless test decides whether `armor_bare` ever fires on a
+/// modded body: TNG's skin is a real TESObjectARMO on five slots, so without it
+/// a stripped subject reads as clothed. Mirrors `CoverageFrom` in the recording
+/// loader, which the live path used to disagree with.
 [[nodiscard]] Coverage CoverageForSite(RE::Actor& actor, LimbSite site,
                                        const ArmorConfig& armor) {
     using Slot = RE::BGSBipedObjectForm::BipedObjectSlot;
@@ -200,13 +166,9 @@ void SetText(char (&out)[24], std::string_view text) {
     out[count] = '\0';
 }
 
-/// A state row, pushed through the same ring as the contacts.
-///
-/// It goes through the ring rather than straight into the drain so it keeps its
-/// place in time against the contacts around it. That matters at both ends of a
-/// knockdown: `ragdoll_start` arriving after the first contact would put the
-/// phase machine a tick behind the fall, and `ragdoll_end` arriving early would
-/// close the event while its settle was still playing.
+/// A state row. Through the ring rather than straight to the drain so it keeps
+/// its place in time against the contacts either side: an out-of-order
+/// `ragdoll_start` puts the phase machine a tick behind the fall.
 void PushState(ContactRing& ring, ActorId actor, std::string_view state) {
     FeedEvent event{};
     event.timeMs = NowMs();
@@ -216,23 +178,17 @@ void PushState(ContactRing& ring, ActorId actor, std::string_view state) {
     ring.Push(event);
 }
 
-/// One `kLimbSample` per ragdoll limb: where it is and how fast it is going.
+/// One `kLimbSample` per ragdoll limb: the only measurement of where the body
+/// actually is. Everything else is a collision, and collisions are dense exactly
+/// when a fall is busy - so air time inferred from the gaps between them peaks
+/// at `ragdoll_start` and vanishes during the landing it exists to find.
 ///
-/// This is the only measurement of where the body actually *is*. Everything
-/// else the engine gets is a collision, and collisions are dense exactly when a
-/// fall is busy and absent exactly when it is not - so air time inferred from
-/// the gaps between them is maximal at `ragdoll_start`, when the actor was
-/// standing on the floor a frame earlier, and near zero during the landing that
-/// air time exists to find.
+/// Game thread only, from PublishTick, which is why the pose is published from
+/// the tick rather than gathered in the listener.
 ///
-/// Game thread only, from PublishTick. It reads the same fields the contact
-/// callback reads, but none of the callback's restrictions apply here - which is
-/// why the pose is published from the tick rather than gathered in the listener.
-///
-/// The text is deliberately left empty. QuickModMenuNG's recorder emits a
-/// limb_sample per limb on a *state change* and stamps it with that state; those
-/// two snapshots are a launch pose, not a signal, and `rds::pose::IsTickSample`
-/// tells the two apart on exactly this field.
+/// The text is left empty on purpose: the recorder stamps its state-change
+/// samples with that state, and `rds::pose::IsTickSample` tells the two apart on
+/// exactly this field.
 void PushLimbSamples(ContactRing& ring, const RagdollView& ragdoll, ActorId actor,
                      ActorPhase phase) {
     const float scale = RE::bhkWorld::GetWorldScaleInverse();
@@ -270,14 +226,12 @@ void ResetClock() { g_epoch = std::chrono::steady_clock::now(); }
 // -- the contact listener ----------------------------------------------------
 
 /// One per ragdoll limb, so the callback knows which limb it is without a lookup.
-/// Holds a reference to its body, so the body cannot be freed while a listener is
-/// still registered on it.
+/// Holds a reference to its body so it cannot be freed while still registered.
 class LimbListener final : public RE::hkpContactListener {
 public:
-    /// `pub` outlives every listener it owns - Tracked is heap-allocated and
-    /// never moved - so the raw pointer is safe. It carries the two things only
-    /// the game thread can work out: whether the actor is ragdolling, and what
-    /// the land under them is made of.
+    /// `pub` outlives every listener it owns (Tracked is heap-allocated and never
+    /// moved). It carries the two things only the game thread can work out:
+    /// whether the actor is ragdolling, and what the land under them is.
     LimbListener(RE::hkRefPtr<RE::hkpRigidBody> body, ContactRing* ring,
                  const ActorPublication* pub, ActorId actorId, std::uint16_t limbIndex)
         : m_body(std::move(body)),
@@ -292,11 +246,8 @@ public:
     LimbListener& operator=(const LimbListener&) = delete;
 
     /// Registers on the body and asks Havok for every step's contact points.
-    ///
-    /// `contactPointCallbackDelay` is how many steps Havok waits between contact
-    /// point callbacks for an entity; Skyrim leaves it high because nothing in the
-    /// base game wants them. The previous value is kept so the body is handed back
-    /// exactly as it was found.
+    /// `contactPointCallbackDelay` is the step gap between callbacks; Skyrim
+    /// leaves it high. Saved so the body is handed back as it was found.
     void Attach() {
         if (m_attached || !m_body) {
             return;
@@ -321,15 +272,11 @@ public:
             return;
         }
 
-        // THE GATE. One relaxed load, and the only reason the mod does not play
-        // impacts while NPCs walk around: the ragdoll bodies are there and
-        // colliding the whole time an actor is animated.
-        //
-        // `GameIntegration:bAnimatedMode` opens it deliberately, and is a second
-        // relaxed load off the same publication rather than a look at the config:
-        // this is a Havok worker thread inside the solver and it may not take a
-        // lock. An actor with no publication at all is still refused, because
-        // there is then nothing that says the gate was ever opened.
+        // THE GATE. The only reason the mod stays quiet while NPCs walk around:
+        // the ragdoll bodies are there and colliding the whole time.
+        // `bAnimatedMode` opens it, read as a second relaxed load off the same
+        // publication rather than from the config - this is a Havok worker thread
+        // inside the solver and may not take a lock. No publication, no gate.
         const auto phase = m_pub != nullptr
                                ? static_cast<ActorPhase>(m_pub->phase.load(std::memory_order_relaxed))
                                : ActorPhase::kUnknown;
@@ -338,8 +285,7 @@ public:
             return;
         }
 
-        // Havok's sign convention: negative separating velocity is closing. A
-        // positive one is two bodies coming apart, which is not an impact.
+        // Havok's sign convention: negative separating velocity is closing.
         const float scale = RE::bhkWorld::GetWorldScaleInverse();
         const float closing = -*event.separatingVelocity * scale;
         if (!(closing >= kMinimumImpactSpeed)) {
@@ -366,8 +312,7 @@ public:
 
 private:
     /// Everything the callback needs off our own body. False when the event is
-    /// not about the body this listener belongs to, which should not happen but
-    /// costs one compare to be sure of.
+    /// not about this listener's body - shouldn't happen, costs one compare.
     bool Fill(FeedEvent& record, RE::hkpRigidBody* const (&bodies)[2],
               std::uint32_t& otherIndex) const {
         auto* self = m_body.get();
@@ -389,9 +334,8 @@ private:
         record.mass = self->motion.GetMass();
         record.bodySpeed = self->motion.linearVelocity.Length3() * scale;
         record.angularSpeed = self->motion.angularVelocity.Length3();
-        // The body's own bounding radius: the only size the callback can reach
-        // without walking a shape hierarchy, and enough to tell a hand from a
-        // torso when the bone name is not one we recognise.
+        // The only size reachable without walking a shape hierarchy, and enough
+        // to tell a hand from a torso when the bone name is unrecognised.
         record.limbRadius = self->motion.motionState.objectRadius * scale;
         StoreVector(record.velocity, self->motion.linearVelocity, scale);
         record.otherBody = reinterpret_cast<std::uint64_t>(other);
@@ -404,20 +348,16 @@ private:
         return true;
     }
 
-    /// Split the relative motion at the contact into "into the surface" and
-    /// "along it".
+    /// Split the relative motion at the contact into normal and tangential.
     ///
     /// Both bodies contribute: a limb landing on a moving limb slides by the
-    /// difference, not by its own speed. `normalSpeed` is our own arithmetic for
-    /// the quantity Havok reports as `separatingVelocity`, written out beside it
-    /// so the two can be compared - a disagreement is a solver blow-up detected
-    /// on the arithmetic rather than on a threshold (07 section 2).
+    /// difference. `normalSpeed` duplicates Havok's `separatingVelocity` by our
+    /// own arithmetic so the two can be compared - a disagreement is a solver
+    /// blow-up caught without a threshold (07 s2).
     ///
-    /// The relative velocity is ALWAYS body[0] minus body[1], never "us minus
-    /// them". The contact normal belongs to the pair and its direction is fixed by
-    /// that ordering, not by which of the two listeners Havok happened to call -
-    /// so subtracting in listener order flips the sign on exactly those contacts
-    /// where our limb was body[1]. That was 23.3 % of the recorder's first run.
+    /// ALWAYS body[0] minus body[1], never "us minus them": the normal's
+    /// direction is fixed by that ordering, not by which listener Havok called,
+    /// so subtracting in listener order flips the sign on 23.3% of contacts.
     static void Decompose(FeedEvent& record, const RE::hkpContactPointEvent& event, float scale) {
         const auto* first = event.bodies[0];
         const auto* second = event.bodies[1];
@@ -439,13 +379,10 @@ private:
         record.tangentSpeed = Norm(tangent) * scale;
     }
 
-    /// The surface material, and where it came from.
-    ///
-    /// The contact's own shape answers for everything built out of geometry.
-    /// Terrain does not - `hkpBvTreeShape` returns nothing for any shape key - so
-    /// the land record sampled under the actor by the tick stands in, and the
-    /// event says which of the two it was rather than letting a sampled answer
-    /// pass for a measured one (07 section 8).
+    /// The surface material, and where it came from. The contact's own shape
+    /// answers for geometry; terrain does not (`hkpBvTreeShape` returns nothing
+    /// for any shape key), so the land record sampled by the tick stands in and
+    /// the event records which of the two it was (07 s8).
     void Materialise(FeedEvent& record, const RE::hkpContactPointEvent& event,
                      std::uint32_t otherIndex) const {
         record.otherMaterial = MaterialOf(event, otherIndex);
@@ -475,9 +412,8 @@ private:
         if (bhk == nullptr) {
             return 0;
         }
-        // The shape key picks the leaf out of a compound shape, which is what a
-        // terrain or mesh collider is - without it every rock in a mesh reads as
-        // the same material.
+        // The shape key picks the leaf out of a compound shape; without it every
+        // rock in a mesh reads as the same material.
         auto key = RE::HK_INVALID_SHAPE_KEY;
         if (const auto* keys = event.GetShapeKeys(otherIndex)) {
             key = keys[0];
@@ -513,11 +449,9 @@ void GameFeed::SetCullRadius(float units) { m_cullRadius = std::max(1.0f, units)
 
 void GameFeed::SetGameIntegration(const GameIntegrationConfig& game) {
     m_animatedMode = game.animatedMode;
-    // The rustle is built out of the pose and the air time is measured from it,
-    // so an animated actor is only worth sampling when one of those two is on.
-    // The slide is not in the list: it opens off graze contacts, and where there
-    // is no pose the motion axis falls back exactly as it does on a take
-    // recorded before the sidecar existed.
+    // Rustle and air time are both built off the pose, so an animated actor is
+    // only worth sampling when one of them is on. The slide is not in the list:
+    // it opens off graze contacts and falls back cleanly without a pose.
     m_animatedPose = game.animatedMode && (game.animatedRustle || game.animatedAirTime);
 }
 
@@ -553,8 +487,8 @@ void GameFeed::Detach(Tracked& tracked) {
             listener->Detach();
         }
     } else {
-        // The world went away under us. Still detach: removing a listener only
-        // touches the entity's own array, and we hold a reference to every body.
+        // World gone. Still detach: that only touches the entity's own array,
+        // and we hold a reference to every body.
         for (auto& listener : tracked.listeners) {
             listener->Detach();
         }
@@ -574,16 +508,15 @@ void GameFeed::BuildProfile(Tracked& tracked, RE::Actor& actor) {
 
     profile.limbs.clear();
     profile.limbs.reserve(tracked.ragdoll.limbs.size());
-    // Once per profile, not once per limb: Algorithm() hands back a copy on
-    // purpose, so that the caller cannot be reading a config that is being
-    // reloaded under it, and eighteen of those per knockdown is a real cost for
-    // two booleans.
+    // Once per profile, not per limb: Algorithm() copies (so the caller cannot
+    // read a config mid-reload), and eighteen copies per knockdown for two
+    // booleans is a real cost.
     const ArmorConfig armor = ConfigManager::Get().Algorithm().armor;
     for (const RagdollBody& body : tracked.ragdoll.limbs) {
         LimbInfo limb;
         limb.boneName = body.name;
-        // Resolved from the NAME, never from the index: 18 bodies in a fixed
-        // order is the vanilla humanoid skeleton and nothing else.
+        // From the NAME, never the index: 18 bodies in a fixed order is the
+        // vanilla humanoid skeleton and nothing else.
         limb.site = SiteFromBoneName(body.name);
         limb.chain = ChainFromBoneName(body.name);
         limb.coverage = CoverageForSite(actor, limb.site, armor);
@@ -604,22 +537,22 @@ bool GameFeed::ShouldTrack(RE::Actor& actor, float distanceSq) const {
     if (!actor.Is3DLoaded()) {
         return false;
     }
-    // Animated mode wants everybody inside the radius, on their feet or not -
-    // there is no knockdown to wait for when the knockdown is not the point.
+    // Animated mode wants everybody inside the radius, on their feet or not.
     if (m_animatedMode) {
         return true;
     }
-    // Knocked covers the lead-in states as well as the ragdoll itself, which is
-    // what gets the listeners on in time: attaching only once IsInRagdollState is
-    // true would miss a knockdown's first contacts.
+    // Knocked covers the lead-in states, so the listeners are on in time -
+    // waiting for IsInRagdollState would miss a knockdown's first contacts.
+    // The dead come in by the first term: IsInRagdollState stays true for a
+    // corpse, whose knock state has usually gone back to normal by then.
     auto* state = actor.AsActorState();
     const auto knock = state != nullptr ? state->GetKnockState() : RE::KNOCK_STATE_ENUM::kNormal;
     return actor.IsInRagdollState() || knock != RE::KNOCK_STATE_ENUM::kNormal;
 }
 
 void GameFeed::RefreshListener() {
-    // The camera, not the body. The recorder deliberately used the body's facing
-    // to keep head tracking out of its rows; a live mod wants the ears.
+    // The camera, not the body: the recorder kept head tracking out of its rows,
+    // a live mod wants the ears.
     auto* camera = RE::PlayerCamera::GetSingleton();
     if (camera != nullptr && camera->cameraRoot) {
         const auto& world = camera->cameraRoot->world;
@@ -632,8 +565,8 @@ void GameFeed::RefreshListener() {
         const float angle = player->GetAngleZ();
         m_listener.facing = {std::sin(angle), std::cos(angle), 0.0f};
     }
-    // Non-zero or the engine treats the listener as absent and pins every actor
-    // to the Full tier forever.
+    // Non-zero, or the engine reads the listener as absent and pins every actor
+    // to the Full tier.
     m_listener.timeMs = NowMs();
 }
 
@@ -644,15 +577,12 @@ void GameFeed::PublishTick(float frameTimeSec) {
 
     std::lock_guard lock{m_mutex};
 
-    // Refilled from scratch every tick, because a claim is a statement about
-    // this tick and an actor can leave the set by getting up, by walking out of
-    // the radius or by having their 3D taken away. Empty until the commit below.
+    // Refilled from scratch each tick: a claim is a statement about this tick,
+    // and an actor can leave the set by getting up, walking out or losing its 3D.
     BeginVanillaGate();
 
-    // Both hands, once. HIGGS is asked twice a tick rather than twice per tracked
-    // actor, and it answers 0 for an empty hand, for a grabbed crate, and for
-    // every call at all outside VR - so the comparison below is the same two
-    // integers whatever the runtime is.
+    // Both hands, once a tick rather than twice per tracked actor. 0 for an empty
+    // hand, a grabbed crate, or any call outside VR.
     const std::uint32_t heldLeft = higgs::HeldActorId(true);
     const std::uint32_t heldRight = higgs::HeldActorId(false);
 
@@ -696,16 +626,25 @@ void GameFeed::PublishTick(float frameTimeSec) {
         Tracked& ref = *tracked;
         m_actors.emplace(id, std::move(tracked));
         Attach(ref, id);
-        spdlog::info("feed: tracking {:08X} {} ({} limbs)", id,
+        spdlog::info("feed: tracking {:08X} {} ({} limbs){}", id,
                      ref.pub.profile.name.empty() ? "?" : ref.pub.profile.name,
-                     ref.pub.profile.limbs.size());
+                     ref.pub.profile.limbs.size(), actor->IsDead() ? ", dead" : "");
     };
 
     consider(RE::PlayerCharacter::GetSingleton());
     if (auto* processLists = RE::ProcessLists::GetSingleton()) {
-        for (auto& handle : processLists->highActorHandles) {
-            if (auto actor = handle.get()) {
-                consider(actor.get());
+        // Every process list, not just the high one: the process manager demotes
+        // an actor out of high once it has no AI left to run, which is exactly
+        // what a settled corpse is. ShouldTrack discards whatever the other three
+        // add that is out of earshot or has no 3D.
+        for (auto* list : {&processLists->highActorHandles,
+                           &processLists->middleHighActorHandles,
+                           &processLists->middleLowActorHandles,
+                           &processLists->lowActorHandles}) {
+            for (auto& handle : *list) {
+                if (auto actor = handle.get()) {
+                    consider(actor.get());
+                }
             }
         }
     }
@@ -739,23 +678,20 @@ void GameFeed::PublishTick(float frameTimeSec) {
         const bool ragdolled = actor->IsInRagdollState();
         const ActorPhase phase = PhaseOf(ragdolled, knock);
 
-        // Phase first: the callback reads this and everything else in the tick is
+        // Phase first: the callback reads it, and the rest of the tick is
         // downstream of it being right.
         tracked.pub.phase.store(static_cast<std::uint8_t>(phase), std::memory_order_relaxed);
         tracked.pub.hearAnimated.store(m_animatedMode, std::memory_order_relaxed);
 
-        // And the same answer to the impact manager, which cannot ask an actor
-        // anything: where we are answering for the sound, vanilla's body impacts
-        // are dropped, and nowhere else.
+        // The same answer to the impact manager, which cannot ask an actor
+        // anything: vanilla's body impacts drop only where we answer for them.
         if (ClaimsVanillaImpacts(phase, m_animatedMode)) {
             AddVanillaGate(position.x, position.y, position.z);
         }
 
         // The engine opens a knockdown on ragdoll_start and closes it on
-        // ragdoll_end or knock_get_up. Without these it would acquire the actor on
-        // the first contact and never let go: the crash state would linger, the
-        // phase machine would never reach Rest, and the one summary line per
-        // knockdown would never be written.
+        // ragdoll_end or knock_get_up. Without these it acquires the actor on the
+        // first contact and never lets go: the phase machine never reaches Rest.
         if (phase != tracked.lastPhase) {
             if (phase == ActorPhase::kRagdoll) {
                 PushState(m_ring, it->first, "ragdoll_start");
@@ -767,15 +703,11 @@ void GameFeed::PublishTick(float frameTimeSec) {
             tracked.lastPhase = phase;
         }
 
-        // Whether the player has this body in their hands, on the same terms as
-        // the phase: game thread only, published on the edge, and through the
-        // ring so it keeps its place in time against the contacts either side of
-        // it. `AccumDamage:bRequireHeld` is the one rule that reads it.
-        //
-        // The `ragdoll_start` above clears `held` rather than leaving it, because
-        // that transition hands the engine a *fresh* runtime for this actor with
-        // the flag cleared - so a body already in the player's hands when it went
-        // limp has to be reported held again or it never would be.
+        // Whether the player has this body in hand, on the same terms as the
+        // phase: game thread, published on the edge, through the ring.
+        // `AccumDamage:bRequireHeld` is the one rule that reads it. `ragdoll_start`
+        // clears the flag because it hands the engine a fresh runtime, so a body
+        // already held when it went limp must be reported held again.
         const bool held = (heldLeft != 0 && it->first == heldLeft) ||
                           (heldRight != 0 && it->first == heldRight);
         if (held != tracked.held) {
@@ -783,27 +715,24 @@ void GameFeed::PublishTick(float frameTimeSec) {
             tracked.held = held;
         }
 
-        // The pose, on the same terms and for the same reason: game-thread only,
-        // and the engine cannot measure a fall without it. Skipped while the
-        // actor is on its feet, so a village of walking NPCs costs nothing -
-        // unless animated mode has something that wants it, which is the price
-        // of a rustle or an air time on a body that never fell over.
+        // The pose, same terms: game thread only, and the engine cannot measure a
+        // fall without it. Skipped while the actor is on its feet, so a village of
+        // walking NPCs costs nothing unless animated mode wants it.
         if (m_bodySampleEveryNTicks > 0 &&
             (phase != ActorPhase::kAnimated || m_animatedPose) &&
             m_tick % static_cast<std::uint64_t>(m_bodySampleEveryNTicks) == 0) {
             PushLimbSamples(m_ring, tracked.ragdoll, it->first, phase);
         }
 
-        // Game-thread only, which is the whole reason it is published rather than
-        // read in the callback.
+        // Game thread only, hence published rather than read in the callback.
         if (auto* tes = RE::TES::GetSingleton()) {
             const auto material = tes->GetLandMaterialType(actor->GetPosition());
             tracked.pub.material.store(static_cast<std::uint32_t>(material),
                                        std::memory_order_relaxed);
         }
 
-        // The ragdoll is rebuilt on cell change, on 3D reload, and repeatedly on a
-        // disturbed standing actor. Re-capture rather than going deaf.
+        // Rebuilt on cell change, 3D reload, and repeatedly on a disturbed
+        // standing actor. Re-capture rather than go deaf.
         if (!BodiesLive(tracked.ragdoll)) {
             if (--tracked.rebuildCountdown <= 0) {
                 tracked.rebuildCountdown = kRebuildTicks;
@@ -825,12 +754,8 @@ void GameFeed::PublishTick(float frameTimeSec) {
         }
 
         // Stop listening once they are back on their feet and have stayed there.
-        // Not immediately: a tumble can report animated for a tick in the middle,
-        // and re-attaching costs the world write lock.
-        //
-        // Animated mode never lets go on these grounds - being on their feet is
-        // the case it exists to hear - so an actor is untracked there only by
-        // leaving the cull radius or losing their 3D, both handled above.
+        // Animated mode never lets go here - on their feet is the case it exists
+        // to hear - so it untracks only on cull radius or lost 3D, both above.
         if (phase == ActorPhase::kAnimated && !m_animatedMode) {
             if (++tracked.idleTicks > kIdleTicksBeforeUntrack) {
                 Detach(tracked);
@@ -857,8 +782,7 @@ bool GameFeed::Drain(TimeMs untilMs, std::vector<FeedEvent>& out) {
         return true;
     }
 
-    // Self-collision identity is resolved here rather than in the callback: it
-    // means walking the limb table, and the callback may not.
+    // Resolved here rather than in the callback: it walks the limb table.
     {
         std::lock_guard lock{m_mutex};
         for (FeedEvent& event : m_scratch) {
@@ -879,9 +803,8 @@ bool GameFeed::Drain(TimeMs untilMs, std::vector<FeedEvent>& out) {
         }
     }
 
-    // The ring is already in publication order, which for a single solver step is
-    // time order. Sorted anyway, because several worker threads publish into it
-    // and their interleaving is not ordered by timestamp.
+    // Publication order is time order within one solver step, but several worker
+    // threads publish into the ring and their interleaving is not.
     std::ranges::stable_sort(
         m_scratch, [](const FeedEvent& a, const FeedEvent& b) { return a.timeMs < b.timeMs; });
 
@@ -942,8 +865,7 @@ RE::NiAVObject* GameFeed::BoneNode(ActorId actor, std::int32_t limbIndex) const 
     if (root == nullptr) {
         return nullptr;
     }
-    // The ragdoll body's own name is the bone it was authored on, so it is also
-    // the name of the node in the actor's 3D.
+    // A ragdoll body's name is the bone it was authored on, so it names the node.
     return root->GetObjectByName(RE::BSFixedString(limbs[limbIndex].boneName.c_str()));
 }
 
@@ -953,10 +875,10 @@ void GameFeed::Clear() {
         Detach(*tracked);
     }
     m_actors.clear();
-    // Nobody is tracked, so nobody is claiming - and a load screen is exactly
-    // where a stale claim would sit over a spot the player later walks past.
+    // Nobody tracked, nobody claiming - a load screen is exactly where a stale
+    // claim would sit over a spot the player later walks past.
     ClearVanillaGate();
-    // Safe now: every producer has been detached above.
+    // Safe now: every producer was detached above.
     m_ring.Reset();
     m_scratch.clear();
 }

@@ -2,14 +2,13 @@
 
 // The testbench's half of the devbench link.
 //
-// The testbench listens and the game connects - see rds/Link.h for why round
-// that way. One socket thread owns the connection; the UI thread reads a
-// snapshot and appends to a send queue, and never blocks on either.
+// The testbench listens and the game connects - see rds/Link.h for why. One socket
+// thread owns the connection; the UI thread reads a snapshot and appends to a send
+// queue, and never blocks on either.
 //
-// The whole point is that a config is one object with one definition
-// (ConfigSchema.h) and a contact is one struct with one definition (Feed.h), so
-// what the game runs is what the sliders say and what the testbench replays is
-// what the game consumed - byte for byte, off the same drain.
+// The point is that a config is one object with one definition and a contact one
+// struct with one definition, so what the game runs is what the sliders say and
+// what the testbench replays is what the game consumed, byte for byte.
 
 #include <atomic>
 #include <chrono>
@@ -114,21 +113,17 @@ public:
 
     // ── the game's clock, read from here ─────────────────────────────────────
 
-    /// What the game's session clock reads right now, on this side of the
-    /// socket. False when no heartbeat has arrived on this connection.
+    /// What the game's session clock reads right now, on this side of the socket.
+    /// False when no heartbeat has arrived on this connection.
     ///
-    /// This is the clock every event is stamped on, so it is the clock anything
-    /// lined up against a take has to be expressed in - the video, in practice.
-    /// Both ends stamp off `steady_clock` on the same machine, so the two run at
-    /// the same rate and only the epoch differs; the heartbeat carries the game's
-    /// reading once a second and the difference is that epoch.
+    /// The clock every event is stamped on, so it is what anything lined up against
+    /// a take has to be expressed in. Both ends stamp off `steady_clock` on the
+    /// same machine, so only the epoch differs and the heartbeat carries it.
     ///
-    /// The difference is taken as the *smallest* any heartbeat has shown rather
-    /// than the newest. A packet can only ever arrive late - queue, poll, socket -
-    /// so every sample is the true epoch plus a positive delay, and the minimum
-    /// over a take's worth of them is the sample that was least delayed. With a
-    /// 1 Hz heartbeat, a 20 ms read poll at each end and loopback in between,
-    /// that lands within a few milliseconds, which is inside a video frame.
+    /// The difference is the *smallest* any heartbeat has shown, not the newest: a
+    /// packet can only arrive late, so every sample is the true epoch plus a
+    /// positive delay and the minimum is the least delayed one. At 1 Hz over
+    /// loopback that lands within a few milliseconds - inside a video frame.
     [[nodiscard]] bool GameClock(double& sessionMs) const;
 
 private:

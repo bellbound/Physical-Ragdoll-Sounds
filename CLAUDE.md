@@ -83,6 +83,7 @@ work is done and the locks are gone, deploy the halves that actually changed:
 |---|---|
 | `plugin\`, `core\` | `pwsh -File ..\..\build-skse-mods.ps1 -Mod Physical-Ragoll-Sounds` |
 | `assets\sfx\` (the pack or the library) | `pwsh -File deploy-pack.ps1` |
+| the tuning - a `tune.py set` you want kept | `python tools\deploy-config.py` |
 | `testbench\` only | nothing to deploy - relink and it is done |
 
 NO need to ask the user for permission to deploy the mod
@@ -90,6 +91,20 @@ NO need to ask the user for permission to deploy the mod
 `core\` is in the first row on purpose: it is a static lib linked into the game
 DLL, so an engine change is a DLL change even when no file under `plugin\` was
 touched.
+
+The tuning row is the one that is easy to forget, because nothing looks broken
+without it: `tune.py` patches the *running testbench*, and a connected game
+picks that up over the devbench socket on the same frame - so the tuning is
+audible in game long before any file holds it. Launch without the testbench and
+the game reads `RagdollSounds_Algorithm.ini`, which is whatever was last
+written there. Run `deploy-config.py` at the end of a session that is worth
+keeping. It splits the config into the two inis the plugin actually reads (the
+per-class `[Surface.<name>]` blocks live in a separate file, and
+`MigrateSurfaces` will not rescue them from the wrong one), writes the release
+overlay and the repo's pristine set as well, and clears the MO2 `overwrite\`
+pair that would otherwise shadow all of it. It does not touch
+`RagdollSounds.ini` - that one is diagnostics, and the shipping copy has
+`bEnableDevbench = 0` on purpose.
 
 Build scripts need **pwsh 7**, not `powershell.exe` - the Windows PowerShell 5
 here has no `Get-FileHash` and the build dies mid-script while still reporting

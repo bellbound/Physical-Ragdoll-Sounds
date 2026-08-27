@@ -3,17 +3,15 @@
 // The queue between the Havok solver and the game thread.
 //
 // A bounded multi-producer, single-consumer ring, Vyukov's algorithm. Each slot
-// carries a sequence stamp rather than a ready flag, and that is the whole point:
-// an overflowing producer fails its claim outright instead of burning a position.
-// A flag-per-slot ring gets this wrong - the dropped position stays un-published
-// forever and the consumer stops dead at it, so one overflow costs the rest of
-// the session rather than one event.
+// carries a sequence stamp rather than a ready flag, which is the whole point: an
+// overflowing producer fails its claim outright instead of burning a position. A
+// flag-per-slot ring leaves the dropped position un-published forever and the
+// consumer stops dead at it, so one overflow costs the session.
 //
 // Producers are Havok worker threads inside the solver, so pushing is lock-free
 // and bounded: one relaxed load, one CAS, one release store, no allocation.
 //
-// Lifted from skse/QuickModMenuNG/src/debug/ImpactRecorder.cpp, which already
-// solved this once against the same solver.
+// Lifted from skse/QuickModMenuNG/src/debug/ImpactRecorder.cpp.
 
 #include <array>
 #include <atomic>
@@ -25,8 +23,7 @@
 namespace rds::game {
 
 /// 8192 events. A knockdown produces a few hundred contacts, so this is a wide
-/// margin against a battlefield rather than a tuned number - and the drop
-/// counter says when the margin was wrong.
+/// margin rather than a tuned number, and the drop counter says when it was wrong.
 inline constexpr std::size_t kRingCapacity = 8192;
 static_assert((kRingCapacity & (kRingCapacity - 1)) == 0, "the mask needs a power of two");
 
@@ -34,7 +31,7 @@ class ContactRing {
 public:
     ContactRing() { Reset(); }
 
-    /// Never blocks: the alternative is stalling the physics step. A full ring
+    /// Never blocks - the alternative is stalling the physics step. A full ring
     /// counts the event as dropped and throws it away.
     void Push(const FeedEvent& event) {
         auto position = m_write.load(std::memory_order_relaxed);

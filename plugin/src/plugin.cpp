@@ -2,9 +2,7 @@
 //
 // Everything interesting is in core/. This file is the wiring: read the config,
 // open the log, build the engine, hand it a feed and a sink, and tick it once a
-// frame. The three game-facing pieces it wires up are deliberately stubbed until
-// the testbench has tuned the algorithm - see GameFeed.h, GameRenderer.h and
-// VanillaSuppression.h for what each one will do and why.
+// frame. See GameFeed.h, GameRenderer.h and VanillaSuppression.h.
 
 #include <spdlog/spdlog.h>
 
@@ -66,23 +64,20 @@ Mod& Get() {
     return mod;
 }
 
-/// Where the vanilla impact hook puts what it saw.
+/// Where the vanilla impact hook puts what it saw. A free function because the
+/// hook takes a plain function pointer - it runs on the impact manager's thread,
+/// where a std::function would be an indirect call through a heap object nobody
+/// owns.
 ///
-/// A free function rather than a lambda because the hook takes a plain function
-/// pointer: it runs on the impact manager's thread and a std::function there
-/// would be an indirect call through a heap object nobody owns.
-///
-/// It goes on the contact ring, so a vanilla row is drained in time order beside
-/// the contacts it belongs with and reaches the testbench through the tap that is
-/// already there. The engine ignores the kind (Engine.cpp's Ingest), which is
-/// what keeps this a recording and not an input.
+/// It goes on the contact ring, so a vanilla row drains in time order beside the
+/// contacts it belongs with. The engine ignores the kind, which is what keeps this
+/// a recording and not an input.
 void PushVanillaSound(const rds::FeedEvent& event) { Get().feed.PushEvent(event); }
 
-/// The engine's clock lives in GameFeed.h - milliseconds since the session
-/// opened, monotonic, the same clock a recording's t_ms is. It has to be one
-/// definition rather than one per file: a contact's timestamp is stamped in the
-/// Havok callback and a cue's is stamped here, and the two are subtracted from
-/// each other to place the sub layer.
+/// The engine's clock lives in GameFeed.h - monotonic ms since the session opened,
+/// the same clock a recording's t_ms is. One definition, because a contact's
+/// timestamp is stamped in the Havok callback and a cue's here, and the two are
+/// subtracted to place the sub layer.
 using rds::game::NowMs;
 
 /// Rebuild the sound bank from whatever the library path and the sfx table
@@ -100,10 +95,9 @@ void ReloadBank(Mod& mod) {
     mod.engine.SetSoundBank(&mod.bank);
 }
 
-/// Anything the testbench pushed since the last frame, applied here on the game
-/// thread. Nothing in this function may run on the socket thread: reloading the
-/// bank races the audio path, and swapping the engine's config mid-tick would
-/// tear one.
+/// Anything the testbench pushed since the last frame, applied on the game thread.
+/// Nothing here may run on the socket thread: reloading the bank races the audio
+/// path, and swapping the engine's config mid-tick would tear one.
 void ApplyDevbench(Mod& mod) {
     rds::game::DevLink::Pending pending;
     if (!mod.link.Take(pending)) {
@@ -135,18 +129,14 @@ void ApplyDevbench(Mod& mod) {
         config.PushSfxOverride(pending.sfxTable);
     }
     if (pending.audioMode) {
-        // The A/B switch. Vanilla's body impacts come back and ours stop, or the
-        // other way round - both halves together, because either one on its own
-        // is a comparison against silence.
+        // The A/B switch: vanilla's body impacts come back and ours stop, or the
+        // other way round - both halves together, since either alone is a
+        // comparison against silence.
         //
-        // Going back to ours re-reads the ini rather than assuming suppression:
-        // an install that deliberately runs with vanilla underneath ours must be
-        // left the way it was, not "fixed" by having used the switch once.
-        //
-        // Through the hook when it is installed, which is a flag rather than a
-        // form edit - so the switch no longer has to put anything back, and the
-        // vanilla track is recorded either way. Nulling is still driven the old
-        // way on a runtime where the hook could not be placed.
+        // Going back to ours re-reads the ini rather than assuming suppression: an
+        // install that deliberately runs with vanilla underneath must be left as it
+        // was. Through the hook where it is installed, which is a flag rather than
+        // a form edit; nulling is still driven the old way where it could not be.
         if (rds::game::VanillaImpactHookInstalled()) {
             rds::game::SetVanillaImpactsSuppressed(!pending.useVanillaAudio);
             mod.renderer.SetMuted(pending.useVanillaAudio);
@@ -220,13 +210,12 @@ void OnFrame() {
 
     // The publisher half of the phase gate: only the game thread may ask an actor
     // whether it is ragdolling, and the contact callback runs on a Havok worker
-    // (07 §1). This is where that answer is written down.
+    // (07 §1).
     //
-    // The three benchmark scopes below bound the mod's whole per-frame cost, in
-    // the three pieces it comes in. ApplyDevbench and PublishDevbenchStatus sit
-    // deliberately outside them: they are a development link that is off in
-    // every shipping install, and timing them would report a cost no player
-    // pays.
+    // The three benchmark scopes below bound the mod's whole per-frame cost.
+    // ApplyDevbench and PublishDevbenchStatus sit outside them: they are a
+    // development link, off in every shipping install, and timing them would report
+    // a cost no player pays.
     {
         rds::game::BenchScope scope{mod.bench, rds::game::Benchmark::Span::kFeed};
         mod.feed.PublishTick(frameSeconds);
@@ -243,10 +232,9 @@ void OnFrame() {
 
     PublishDevbenchStatus(mod, now);
 
-    // After the engine, because a cue emitted this frame with a zero offset is
-    // due this frame. The ears go over first so the renderer's placement line can
-    // say how far our audio ended up from them - the feed has just refreshed them
-    // from the VR camera root, which is where the game's own listener sits.
+    // After the engine, because a cue emitted this frame with a zero offset is due
+    // this frame. The ears go over first so the placement line can say how far our
+    // audio ended up from them.
     mod.renderer.SetListener(mod.feed.Listener().position);
     {
         rds::game::BenchScope scope{mod.bench, rds::game::Benchmark::Span::kRender};
@@ -254,23 +242,18 @@ void OnFrame() {
     }
 
     // One line when the last tracked actor lets go. The engine writes its own
-    // per-knockdown summary from Release; this is the half it cannot see - how
-    // many engine voices the cues actually cost, and whether the ring had to
-    // throw anything away.
-    //
-    // The two voice numbers are worth having side by side: the engine's cap
-    // counts cues, and one composite is now one voice, so the real cost sits well
-    // under what the config budgets.
+    // per-knockdown summary from Release; this is the half it cannot see - how many
+    // engine voices the cues cost, and whether the ring threw anything away.
     const std::size_t tracked = mod.engine.TrackedActors();
 
-    // EndFrame before OnTracking, and the order is load-bearing. OnTracking is
-    // what opens and closes sampling, so calling it first would fold a frame of
-    // zeros into the spans on the frame a knockdown starts, and would close
-    // sampling before the last frame of one had been banked.
-    // What the frame was carrying, for the benchmark's slow-frame lines. Three
-    // getters and a pair of counters, all of them reads the frame has already
-    // paid for elsewhere - and `Sampling()` is false in every shipping install,
-    // so this is a bool test and a return in the normal case.
+    // EndFrame before OnTracking, and the order is load-bearing: OnTracking opens
+    // and closes sampling, so calling it first would fold a frame of zeros into the
+    // spans on the frame a knockdown starts, and close sampling before the last
+    // frame of one had been banked.
+    //
+    // What the frame was carrying, for the benchmark's slow-frame lines. All reads
+    // the frame has already paid for, and `Sampling()` is false in every shipping
+    // install.
     rds::game::FrameLoad load{};
     if (mod.bench.Sampling()) {
         std::uint64_t benchCuesIn = 0;
@@ -297,10 +280,9 @@ void OnFrame() {
                                                 "raise kRingCapacity", dropped)
                                   : std::string{});
         if (liveVoices != 0) {
-            // Nothing is tracked, so nothing can be playing on our account. A
-            // non-zero count here is a voice booked and never given back. It no
-            // longer silences anything, now that nothing is capped against it,
-            // but it is still a bug and this line is where it shows.
+            // Nothing is tracked, so nothing can be playing on our account: a
+            // non-zero count is a voice booked and never given back. It silences
+            // nothing now that nothing is capped against it, but it is still a bug.
             spdlog::warn("idle: {} voice(s) are still booked with no actor tracked - something was "
                          "taken and not given back", liveVoices);
         }
@@ -312,21 +294,19 @@ void OnDataLoaded() {
     Mod& mod = Get();
     const auto& general = rds::ConfigManager::Get().General();
 
-    // One trampoline for every hook this DLL writes. Allocated here rather than
-    // inside either of them because SKSE::AllocTrampoline *releases* the block it
-    // already held: a second caller frees the branch the first one is running
-    // through, and the crash lands a frame later somewhere else entirely.
+    // One trampoline for every hook this DLL writes. Here rather than inside either
+    // of them, because SKSE::AllocTrampoline *releases* the block it already held:
+    // a second caller frees the branch the first is running through.
     SKSE::AllocTrampoline(1 << 6);
 
-    // The set of records the body impact sets reach. Wanted whether or not
-    // anything is suppressed - it is the hook's filter, and without it every
-    // impact in the game would look like ours.
+    // The set of records the body impact sets reach. Wanted whether or not anything
+    // is suppressed: it is the hook's filter, and without it every impact in the
+    // game would look like ours.
     rds::game::BuildBodyImpactIndex();
 
     // How wide a downed actor's claim on vanilla's body impacts is. Read here
-    // rather than per play: the gate is asked on the impact manager's thread and
-    // the config lives behind a mutex, which is the same reason the feed
-    // publishes the phase instead of looking it up.
+    // rather than per play: the gate is asked on the impact manager's thread and the
+    // config lives behind a mutex.
     rds::game::SetVanillaGateRadius(general.suppression.suppressionRadius);
 
     const bool suppress = general.suppression.suppressVanillaBodyImpacts;
@@ -395,10 +375,9 @@ void OnDataLoaded() {
     // first, which is the one thing it is measuring. See Benchmark.h.
     mod.bench.Configure(general.benchmark);
 
-    // The testbench link, and the tee that feeds it. Both behind bEnableDevbench:
-    // with the flag off the engine reads the feed directly and nothing here
-    // opens a socket, so a shipping install pays a branch a frame and nothing
-    // else. See DevLink.h.
+    // The testbench link and the tee that feeds it, both behind bEnableDevbench:
+    // with the flag off the engine reads the feed directly and nothing opens a
+    // socket. See DevLink.h.
     mod.engineFeed = &mod.feed;
     if (general.devbench.enabled) {
         mod.link.Start(general.devbench);
@@ -406,9 +385,8 @@ void OnDataLoaded() {
         mod.engineFeed = mod.tap.get();
     }
 
-    // The frame hook, and not SKSE::GetTaskInterface: SKSE's drain loop keeps
-    // popping until the queue is empty, so a task added from inside a task runs in
-    // the same frame and a tick that queues the next tick would never give the
+    // The frame hook, and not SKSE::GetTaskInterface: SKSE's drain loop pops until
+    // the queue is empty, so a tick that queued the next tick would never give the
     // frame back. See FrameHook.h.
     if (!rds::game::FrameHook::Install(&OnFrame)) {
         spdlog::error("the frame hook could not be installed; the engine will never be ticked and "
@@ -453,10 +431,9 @@ void MessageHandler(SKSE::MessagingInterface::Message* message) {
 SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     SKSE::Init(skse);
 
-    // Config first, log second. rds::log::Setup keeps the logger it already has,
-    // so opening a default one here and reopening it below silently threw away
-    // EnableLogRotation and MaxLogFiles - the log always ran on the defaults and
-    // the ini appeared to do nothing.
+    // Config first, log second. rds::log::Setup keeps the logger it already has, so
+    // opening a default one here and reopening it below silently threw away
+    // EnableLogRotation and MaxLogFiles.
     auto& config = rds::ConfigManager::Get();
     config.Initialize(kDataDirectory);
     config.Load();

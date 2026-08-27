@@ -2,24 +2,18 @@
 
 // The pose sidecar: every ragdoll limb, every tick.
 //
-// The impacts CSV is a *sparse* record - one row per collision - and it is meant
-// to stay readable in a spreadsheet and diffable in git. Pose is the opposite
-// shape: eighteen limbs at sixty hertz, dense, uninteresting to read by eye, and
-// ten times the row count. Putting it in the CSV would cost the one property
-// that file has.
+// The impacts CSV is a *sparse* record meant to stay readable in a spreadsheet and
+// diffable in git. Pose is the opposite: eighteen limbs at sixty hertz, ten times
+// the row count, uninteresting by eye. So it lives beside the take as
+// `<stem>_pose.bin`, found by stem like `<stem>.yaml` and `<stem>.mp4` are.
 //
-// So it lives beside the take as `<stem>_pose.bin`, found by stem exactly like
-// `<stem>.yaml`, `<stem>_sync.csv` and `<stem>.mp4` already are.
-//
-// This is an *encoding*, not a second input format. Read() hands back the same
-// `kLimbSample` FeedEvents the live path pushes through the ring, so by the time
-// the engine sees anything the two are indistinguishable - which is what keeps
-// one backend one backend, and what makes tuning offline mean something about
-// the game.
+// An *encoding*, not a second input format: Read() hands back the same
+// `kLimbSample` FeedEvents the live path pushes through the ring, so the engine
+// cannot tell them apart.
 //
 // Frame-oriented rather than record-oriented, because that is how it is written
-// and how it is consumed, and because it amortises the timestamp and the actor
-// id over eighteen limbs: 516 bytes per frame per actor against 792.
+// and consumed, and because it amortises the timestamp and actor id over eighteen
+// limbs: 516 bytes per frame per actor against 792.
 
 #include <cstdint>
 #include <filesystem>
@@ -80,17 +74,15 @@ struct LimbRecord {
 
 /// What v2 added, written immediately after each `LimbRecord`.
 ///
-/// A trailing extension rather than two more fields inside `LimbRecord`, and
-/// that is the whole reason both versions can be read by one build: `limbStride`
-/// is read from the header and any bytes past what the reader understands are
-/// skipped, so a v1 file - every take recorded so far - loads with these two
-/// left at zero rather than being refused or misparsed.
+/// A trailing extension rather than two more fields inside `LimbRecord`, which is
+/// what lets one build read both versions: `limbStride` comes from the header and
+/// bytes past what the reader understands are skipped, so a v1 file loads with
+/// these two at zero rather than being refused.
 ///
-/// They exist because the garment layer's rotation term had nothing to read.
-/// `angularSpeed` is published on every live limb sample and always has been;
-/// the sidecar simply never stored it, so the term measured 0 on the whole
-/// corpus while being live in the game - a testbench that cannot reproduce what
-/// the game does, which is the one thing the seam rule forbids.
+/// They exist because the garment's rotation term had nothing to read:
+/// `angularSpeed` is published on every live limb sample but the sidecar never
+/// stored it, so the term measured 0 on the whole corpus while being live in the
+/// game - the one thing the seam rule forbids.
 struct LimbRecordExt {
     float angularSpeed{};  ///< rad/s
     float radius{};        ///< objectRadius, units. Turns radians into surface speed
@@ -119,15 +111,12 @@ inline constexpr std::uint32_t kLimbStrideV1 = sizeof(LimbRecord);
 }
 
 /// Write every per-tick sample in `events` whose time falls inside [loMs, hiMs].
-///
-/// Rows are grouped into frames by (timeMs, actorId) over the sorted stream,
-/// which is how they arrive: one tick publishes one contiguous run per actor.
-/// Times are re-based against `originMs`, so a slice shares its CSV's clock -
-/// that is what lets a `_cut_N` take carry pose data without a second slicer.
+/// Rows are grouped into frames by (timeMs, actorId) over the sorted stream, which
+/// is how they arrive. Times are re-based against `originMs`, so a slice shares its
+/// CSV's clock and a `_cut_N` take carries pose data without a second slicer.
 ///
 /// Writing no frames is not an error and leaves no file behind: a take captured
-/// with sampling off should look like a take with no pose data, not like a
-/// corrupt one.
+/// with sampling off should look like one with no pose data, not a corrupt one.
 [[nodiscard]] bool Write(const std::filesystem::path& file, const std::vector<FeedEvent>& events,
                          double originMs, double loMs, double hiMs, std::size_t& framesOut,
                          std::string& error);

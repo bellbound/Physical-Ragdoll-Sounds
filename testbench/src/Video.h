@@ -2,26 +2,22 @@
 
 // The take's video, and everything done to a video file.
 //
-// Two clocks have to be reconciled. `video_time_ms = t_ms + offset`, and the
-// offset is fitted through the *low-rtt* rows of the take's _sync.csv rather
-// than taken from the first row, because over a long take the game's clock and
-// OBS's drift apart. On top of that the mp4s are cuts of a longer OBS recording
-// and their cut point is recorded nowhere (05 section 9), so the fit gets us
-// the drift and a persisted per-take nudge gets us the cut.
+// Two clocks have to be reconciled: `video_time_ms = t_ms + offset`, with the
+// offset fitted through the *low-rtt* rows of the take's _sync.csv rather than
+// taken from the first row, because the two clocks drift over a long take. The
+// mp4s are also cuts of a longer OBS recording whose cut point is recorded nowhere
+// (05 §9), so the fit gets the drift and a persisted per-take nudge gets the cut.
 //
 // ── two ways to get a frame ──────────────────────────────────────────────────
 //
 // **Frame cache** is the shipping path: ffmpeg decodes the whole clip to jpgs
-// once, and scrubbing is a file read. It is fast, it survives a restart, and it
-// is why the mp4 can then be deleted - a 200 MB take becomes 8 MB of frames that
-// are all the timeline can show anyway.
+// once and scrubbing is a file read. Fast, survives a restart, and why the mp4 can
+// then be deleted - a 200 MB take becomes 8 MB of frames.
 //
-// **Direct** is the experimental one behind Options -> Enable Video Sync. It
-// keeps the mp4 and pulls single frames out of it with ffmpeg on demand. The
-// point is that nothing is ever pre-decoded, so a take recorded thirty seconds
-// ago is scrubbable immediately and the video stays the source of truth. The
-// cost is a seek per frame, which is tens of milliseconds - so it decodes on a
-// worker and shows the last frame it had until the new one lands, and it falls
+// **Direct** is experimental, behind Options -> Enable Video Sync: it keeps the
+// mp4 and pulls single frames out with ffmpeg on demand, so a take recorded thirty
+// seconds ago is scrubbable immediately. The cost is a seek per frame, so it
+// decodes on a worker, shows the last frame until the new one lands, and falls
 // back to the frame cache whenever a clip has one.
 
 #include <atomic>

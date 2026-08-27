@@ -8,14 +8,11 @@
 
 /// Drives OBS Studio's built-in WebSocket server (obs-websocket 5.x) over
 /// loopback, so the testbench can start a video take, stop it, and be told where
-/// OBS wrote the file.
+/// OBS wrote the file. A port of QuickModMenuNG's Obs.h/.cpp - see the top of
+/// Obs.cpp for what was replaced.
 ///
-/// A port of QuickModMenuNG's Obs.h/.cpp - see the top of Obs.cpp for exactly
-/// what was replaced and why it is a copy rather than a shared file.
-///
-/// Every call here returns immediately. The socket lives on threads of its own
-/// and the UI reads a snapshot; callbacks are handed back on the UI thread by
-/// Pump(), which Draw() calls once a frame.
+/// Every call returns immediately: the socket lives on threads of its own and the
+/// UI reads a snapshot, with callbacks handed back by Pump() once a frame.
 namespace tb::obs {
 
 /// Whether OBS can pause this recording. There is no query for it — OBS greys

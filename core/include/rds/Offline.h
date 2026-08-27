@@ -1,16 +1,12 @@
 #pragma once
 
-// The testbench's entire view of the backend.
+// The testbench's entire view of the backend: hand it a recording and a config,
+// get back the cue list the engine would have produced in the game. Deterministic
+// for a given seed, which is what makes an A/B honest.
 //
-// Hand it a recording and a config, get back the cue list the engine would have
-// produced in the game. Deterministic for a given seed, which is what makes an
-// A/B between two configs honest - it compares the configs, not two dice rolls.
-//
-// This is also why the testbench can apply a config change without restarting
-// playback: it runs the whole recording again in a millisecond, mixes the new
-// cue list, and swaps the buffer at the current play position. "Call the backend
-// twice with different configs and swap playback source" is one function called
-// twice.
+// It is also why a config change needs no restart: the testbench runs the whole
+// recording again in a millisecond, mixes the new cue list, and swaps the buffer
+// at the current play position.
 
 #include <cstdint>
 #include <string>
@@ -25,15 +21,11 @@
 namespace rds {
 
 /// The measured body at one tick, read straight off the engine's own state.
+/// Sampled rather than recomputed: every one of these is an input to a rule, so a
+/// timeline that worked them out for itself could disagree with the engine and
+/// would be answering a different question.
 ///
-/// Sampled rather than recomputed, and that is the whole point of it. Every
-/// one of these numbers is an input to a rule - the free-fall gate reads
-/// `verticalAccel`, the air-time rules read `airborne` - so a timeline that
-/// worked them out for itself could disagree with the engine and would then be
-/// answering a different question from the one being asked of it.
-///
-/// Only the offline runner fills these. The game drives Engine directly and
-/// never allocates a row.
+/// Only the offline runner fills these; the game drives Engine directly.
 struct BodySample {
     TimeMs timeMs{};
     ActorId actorId{};

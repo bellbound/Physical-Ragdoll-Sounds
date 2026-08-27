@@ -2,18 +2,14 @@
 
 // Writing takes, and everything else that edits the files a take is made of.
 //
-// The testbench used to be read-only over Research/NewRecordings: QuickModMenuNG
-// wrote the takes and this program replayed them. With the devbench link it also
-// *makes* them - from a live game, and from a stretch of one it already has - so
-// it needs to write the same two files QuickModMenuNG writes, and read back
-// identically. That is why the CSV column list here is the recorder's own and
-// the sidecar carries the keys Recording.cpp actually looks up: a take this
-// program wrote must be indistinguishable from one the game wrote, or a
-// verification run over the folder means nothing.
+// The testbench used to be read-only over Research/NewRecordings; with the devbench
+// link it also *makes* takes, so it writes the same two files QuickModMenuNG
+// writes and reads them back identically. The CSV column list here is the
+// recorder's own and the sidecar carries the keys Recording.cpp looks up: a take
+// this program wrote must be indistinguishable from one the game wrote.
 //
-// Everything here is blocking and file-system-bound. Called from the UI thread,
-// which is a stall of a few milliseconds for a write and a few seconds for
-// anything that runs ffmpeg - see the notes on each.
+// Everything here is blocking and file-system-bound, called from the UI thread - a
+// few milliseconds for a write, a few seconds for anything that runs ffmpeg.
 
 #include <cstdint>
 #include <filesystem>
@@ -96,27 +92,23 @@ struct TakeWindow {
 // lining a take up with its video
 // ═════════════════════════════════════════════════════════════════════════════
 //
-// Sync works differently here than it did for the takes in Research/, and the
-// difference is worth stating because it is what makes the numbers mean opposite
-// things.
+// Sync works differently here than for the takes in Research/, and the difference
+// makes the numbers mean opposite things.
 //
-// QuickModMenuNG recorded inside the game against an OBS recording that was
-// usually already running and was cut down to a clip afterwards. Its sync rows
-// pair the take's clock with *that* recording's clock, the cut point was written
-// down nowhere, and so the fitted intercept is useless against the mp4 on disk -
-// hence the hand-measured per-take nudges in framecache/video-offsets.ini.
+// QuickModMenuNG recorded against an OBS recording that was usually already
+// running and cut down afterwards. Its sync rows pair the take's clock with *that*
+// recording's, the cut point was written nowhere, and the fitted intercept is
+// useless against the mp4 on disk - hence the hand-measured per-take nudges in
+// framecache/video-offsets.ini.
 //
-// A devbench take owns its recording: this program tells OBS to start, tells it
-// to stop, and the file that comes out is the take's whole video with nothing cut
-// off either end. So the intercept is the answer outright - there is nothing left
-// to nudge - and the sidecar says so by naming an `obs.output_path` and not
-// claiming `external_recording`.
+// A devbench take owns its recording: this program starts and stops OBS, and the
+// file that comes out is the whole video with nothing cut off. So the intercept is
+// the answer outright, and the sidecar says so by naming an `obs.output_path`.
 //
-// What has to be crossed instead is a process boundary. The events are stamped on
-// the game's session clock and OBS answers on its own, and nothing in this program
-// is on either - so a row is (the game's clock, read through GameLink::GameClock,
-// at the midpoint of the round trip to OBS) against (what OBS said its output
-// duration was). The rtt column says how much each row is worth, exactly as before.
+// What has to be crossed instead is a process boundary: the events are stamped on
+// the game's session clock and OBS answers on its own, so a row is (the game's
+// clock at the midpoint of the round trip) against (OBS's reported output
+// duration). The rtt column says how much each row is worth.
 
 /// One row of the sync track, before it is rebased onto a take's own clock.
 struct SyncSample {

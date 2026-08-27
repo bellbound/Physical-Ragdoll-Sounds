@@ -1,15 +1,11 @@
 #pragma once
 
-// One description of every parameter, and everything else reads it.
-//
-// The ini reader, the ini writer, the defaults, the clamping, the "which values
-// differ from default" log line, and the testbench's whole slider panel are all
-// walks over the same table. That is the design's manifest idea applied to the
-// config: tuning is sliders rather than ini edits, and the sliders exist because
+// One description of every parameter, and everything else reads it: the ini reader
+// and writer, the defaults, the clamping, the delta log line and the testbench's
+// whole slider panel are all walks over the same table. The sliders exist because
 // the parameter was declared, not because somebody also wrote UI for it.
 //
-// Adding a parameter is two lines: the field in Config.h, and its RDS_PARAM row
-// in ConfigSchema.cpp.
+// Adding a parameter is two lines: the field in Config.h and its RDS_PARAM row.
 
 #include <cstddef>
 #include <cstdint>
@@ -79,28 +75,23 @@ struct ParamDesc {
     /// row. Set through `Pairs()`.
     bool pairWithNext{};
 
-    /// A rule is drawn above this row, because it opens a feature of its own
-    /// inside a group that holds several: the second `bEnabled` in a drawer and
-    /// everything under it, a block that answers a different question from the
-    /// block above. The group header says what the drawer is; the rule says
-    /// where one thing inside it stops and the next begins.
+    /// A rule is drawn above this row, because it opens a feature of its own inside
+    /// a group that holds several. The group header says what the drawer is; the
+    /// rule says where one thing inside it stops and the next begins.
     ///
-    /// Never set on the right-hand half of a pair - there is no line to break
-    /// there - and the panel drops it on the first row a group draws, so a
-    /// group the filter has thinned out never opens with a rule under its
-    /// header. Set by the RDS_HRULE / RDS_HPAIR rows in ConfigSchema.cpp.
+    /// Never on the right-hand half of a pair, and the panel drops it on the first
+    /// row a group draws, so a thinned-out group never opens with a rule under its
+    /// header. Set by RDS_HRULE / RDS_HPAIR.
     bool ruleBefore{};
 
-    /// The name before *that* one, for a row that has moved twice.
+    /// The name before *that* one, for a row that has moved twice. The slide keys
+    /// were `[Phase]`, then `[Motion]`, and are `[Slide]` today; with one legacy
+    /// slot the second move would have cost everybody the tuning from before the
+    /// first. `Renamed()` chains and pushes the older name in here.
     ///
-    /// The slide keys were `[Phase]`, then `[Motion]`, and are `[Slide]` today.
-    /// With one legacy slot the second move would quietly have cost everybody
-    /// the tuning from before the first, which is most of the saved configs in
-    /// the testbench. `Renamed()` chains and pushes the older name in here.
-    ///
-    /// Last in the struct on purpose: the RDS_PAIRS and RDS_HRULE macros
-    /// initialise by position up to `ruleBefore`, so anything added before that
-    /// point silently shifts nine hundred rows one field to the right.
+    /// Last in the struct on purpose: RDS_PAIRS and RDS_HRULE initialise by
+    /// position up to `ruleBefore`, so anything added before that point silently
+    /// shifts nine hundred rows one field to the right.
     std::string_view legacySection2;
     std::string_view legacyKey2;
 };

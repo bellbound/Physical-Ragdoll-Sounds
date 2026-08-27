@@ -94,14 +94,10 @@ ImU32 ReasonColour(rds::CueReason r) {
     return IM_COL32(200, 200, 200, 255);
 }
 
-/// The material a surface skin named, or 0 for anything that is not one.
-///
-/// Kept apart from the bar colour rather than folded into it, because a
-/// surface skin is drawn as two things: the layer, which is grey like every
-/// other skin, and the floor it identified, which is the only part that
-/// differs between them. One colour could say either but not both, and the
-/// question a timeline gets asked is "did this take land on wood", which is
-/// about a handful of caps in a lane of grey and not about hue at all.
+/// The material a surface skin named, or 0 for anything that is not one. Kept
+/// apart from the bar colour, because a skin is drawn as two things - the layer,
+/// grey like every other skin, and the floor it identified - and one colour could
+/// say either but not both.
 ImU32 SurfaceCapColour(rds::SlotId slot) {
     switch (slot) {
         case rds::SlotId::kSurfWood:  return IM_COL32(158, 110, 62, 255);
@@ -111,13 +107,10 @@ ImU32 SurfaceCapColour(rds::SlotId slot) {
     }
 }
 
-/// Why a cue is playing a file named after some other slot, or nothing at all
-/// when it is playing its own.
-///
-/// The surface-coloured scrapes are declared with nothing recorded behind them
-/// and resolve to the grind they are a variant of, which is what makes dropping
-/// a wav in the only thing needed to colour a floor. Left unexplained, the cue
-/// table reads as a slot playing somebody else's sound by mistake.
+/// Why a cue is playing a file named after some other slot, or nothing when it is
+/// playing its own. The surface-coloured scrapes are declared with nothing
+/// recorded and resolve to the grind they are a variant of; left unexplained, the
+/// cue table reads as a slot playing somebody else's sound by mistake.
 std::string FallbackNote(rds::SlotId asked, const CueSound& snd) {
     if (!snd.fellBack) {
         return {};
@@ -128,13 +121,9 @@ std::string FallbackNote(rds::SlotId asked, const CueSound& snd) {
 }
 
 /// The bar colour, by slot where the reason lumps several together.
-///
 /// `kImpactComposite` covers three layers that are the whole argument of the
-/// design - a light transient, the body, and the late sub that is supposed to
-/// be carrying the weight - and drawing them in one orange made the composite
-/// unreadable exactly where it matters: whether the sub is louder than the
-/// transient is a claim you should be able to check by looking. So the three
-/// share a hue and separate by lightness, top to bottom of the stack.
+/// design, and drawing them in one orange made the composite unreadable exactly
+/// where it matters. The three share a hue and separate by lightness.
 ImU32 CueColour(rds::SlotId slot, rds::CueReason reason) {
     switch (slot) {
         case rds::SlotId::kImpTransient: return IM_COL32(255, 210, 145, 255);
@@ -172,24 +161,20 @@ void Tip(std::string_view text) {
     }
 }
 
-/// The explanatory half of a hover, in the same wrap and the same grey as `Tip`.
-///
-/// The timeline's marks are drawn straight into the draw list, so they are not
-/// ImGui items and `Tip` cannot see them - their tooltips are opened by hand
-/// against a hit test. This is what keeps the two kinds of tooltip looking like
-/// one thing: the numbers go above it in the caller's own format, and the
-/// sentence explaining what the mark *is* comes through here.
+/// The explanatory half of a hover, in the same wrap and grey as `Tip`. The
+/// timeline's marks are drawn straight into the draw list, so they are not ImGui
+/// items and `Tip` cannot see them - their tooltips are opened by hand against a
+/// hit test, and this keeps the two kinds looking like one thing.
+
 /// The mouse wheel over a combo, as a step through its list.
 ///
-/// ImGui has no such thing: a combo is a button that opens a popup, and the
-/// wheel over it scrolls whatever window it is sitting in. That is exactly
-/// wrong for the two pickers here - the whole of an A/B is "the one above this,
-/// then the one below it", and doing that through a popup is three clicks a
-/// comparison.
+/// ImGui has no such thing: a combo is a button that opens a popup, and the wheel
+/// over it scrolls the window it sits in. That is wrong for the two pickers here -
+/// an A/B is "the one above this, then the one below it", and doing that through a
+/// popup is three clicks a comparison.
 ///
-/// SetItemKeyOwner is what stops the panel scrolling underneath at the same
-/// time: it hands the wheel to this widget for the frame, which is the
-/// documented way to take it off the window under an item.
+/// SetItemKeyOwner stops the panel scrolling underneath: it hands the wheel to
+/// this widget for the frame.
 [[nodiscard]] int ComboWheel() {
     if (!ImGui::IsItemHovered()) return 0;
     ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);
@@ -212,13 +197,10 @@ void TipBody(std::string_view text) {
     ImGui::PopStyleColor();
 }
 
-/// Where a row's number sits against the rest of the ones on screen.
-///
-/// Both listings carry a column that is the reason a row is interesting - how
-/// hard the limb hit, how loud the cue came out - and reading it means reading
-/// it against its neighbours. The scale is the visible set rather than a fixed
-/// one because "hard" is a property of the take, and of the region when a
-/// region is selected: a stumble and a fall down a staircase do not share a
+/// Where a row's number sits against the rest of the ones on screen. Reading the
+/// column that makes a row interesting means reading it against its neighbours,
+/// and the scale is the visible set rather than a fixed one because "hard" is a
+/// property of the take: a stumble and a fall down a staircase do not share a
 /// loudest hit.
 struct Spread {
     double lo{};
@@ -237,13 +219,10 @@ struct Spread {
         return s;
     }
 
-    /// -1 at the smallest value, 0 at the median, +1 at the largest.
-    ///
-    /// Each half is scaled by its own reach rather than both halves by one
-    /// lo..hi range. That puts the median on exactly neutral whichever way the
-    /// distribution leans, and it stops one enormous hit from washing every
-    /// ordinary one green: the outlier eats the top of its own half and leaves
-    /// the bottom half to be read on its own terms.
+    /// -1 at the smallest value, 0 at the median, +1 at the largest. Each half is
+    /// scaled by its own reach rather than both by one lo..hi range, which puts the
+    /// median on neutral whichever way the distribution leans and stops one
+    /// enormous hit washing every ordinary one green.
     [[nodiscard]] double At(double value) const {
         if (value > mid) return hi > mid ? (value - mid) / (hi - mid) : 0.0;
         if (value < mid) return lo < mid ? -(mid - value) / (mid - lo) : 0.0;
@@ -251,15 +230,13 @@ struct Spread {
     }
 };
 
-/// The row wash for a `Spread::At` reading: muted green at the bottom, red at
-/// the top, and nothing at all through the middle, so an average row keeps the
-/// striping it has always had.
+/// The row wash for a `Spread::At` reading: muted green at the bottom, red at the
+/// top, nothing through the middle, so an average row keeps its striping.
 ///
-/// Alpha carries the strength and the hue only says which end. That is what
-/// lets this sit under the playhead highlight rather than fight it, and it is
-/// why a table of near-identical numbers stays quiet instead of splitting
-/// itself into a red half and a green one. Returns a transparent 0 for the
-/// flat middle so the caller can skip the call into ImGui entirely.
+/// Alpha carries the strength and the hue only says which end, which is what lets
+/// this sit under the playhead highlight rather than fight it, and why a table of
+/// near-identical numbers stays quiet. Transparent 0 for the flat middle, so the
+/// caller can skip the ImGui call.
 [[nodiscard]] ImU32 IntensityTint(double t) {
     const double magnitude = std::clamp(std::fabs(t), 0.0, 1.0);
     if (magnitude < 0.05) return 0;
@@ -323,13 +300,10 @@ bool App::Init(const Paths& paths) {
 
     if (!m_takes.empty()) SelectRecording(0);
 
-    // Start on the most recently written config rather than on defaults. The
-    // last one saved is nearly always the one being worked on, and starting
-    // from defaults meant loading it by hand at every launch - and hearing the
-    // first take through the wrong settings until you remembered to.
-    //
-    // By write time, not by name: the names carry a date but they are also
-    // hand-edited, and the file system knows which was touched last.
+    // Start on the most recently written config rather than defaults: the last one
+    // saved is nearly always the one being worked on, and starting from defaults
+    // meant hearing the first take through the wrong settings. By write time, not
+    // by name - the names carry a date but are also hand-edited.
     if (!m_configFiles.empty()) {
         int newest = 0;
         fs::file_time_type best{};
@@ -495,18 +469,14 @@ void App::ScanConfigs() {
     for (const fs::directory_entry& e : fs::directory_iterator(m_paths.configs, ec))
         if (e.path().extension() == ".ini") m_configFiles.push_back(e.path());
 
-    // Newest first, by when the file was created rather than by its name.
+    // Newest first, by when the file was created rather than by its name. The
+    // names sort nearly right and then stop - `config_24_08_10` lands between 1
+    // and 2, and a folder spanning a month is in day-of-month order - and none of
+    // that is the order the work happened in, which is the only order this list is
+    // read in.
     //
-    // The names sort nearly right and then stop: `config_24_08_10` lands
-    // between 1 and 2, a config named after what it was trying sorts under its
-    // first letter, and the day part means a folder that spans a month is in
-    // day-of-month order. None of that is the order the work happened in, which
-    // is the only order this list is ever read in - the one you want is nearly
-    // always the one you saved last, and the one under it is what it came from.
-    //
-    // Created, not written: a save writes a new file, so creation time is when
-    // that config came into being, and a file touched by a hand edit afterwards
-    // keeps its place in the lineage rather than jumping to the top.
+    // Created, not written: a save writes a new file, so a file touched by a hand
+    // edit afterwards keeps its place in the lineage rather than jumping to the top.
     std::ranges::sort(m_configFiles, [](const fs::path& a, const fs::path& b) {
         const std::uint64_t at = FileCreatedTicks(a);
         const std::uint64_t bt = FileCreatedTicks(b);
@@ -614,12 +584,9 @@ void App::SelectRecordingByName(const std::string& match) {
 void App::StepRecording(int delta) {
     if (m_takes.empty()) return;
     const int n = static_cast<int>(m_takes.size());
-    // Skip whatever the recording manager has switched off. A folder collects
-    // dozens of takes and most of them are one bad shove; walking past them
-    // every time is what the checkbox exists to stop.
-    //
-    // Bounded by n so a folder with everything disabled steps once and stops
-    // rather than spinning.
+    // Skip whatever the recording manager has switched off - a folder collects
+    // dozens of takes and most are one bad shove. Bounded by n so a folder with
+    // everything disabled steps once and stops rather than spinning.
     for (int step = 1; step <= n; ++step) {
         const int candidate = ((m_take + delta * step) % n + n) % n;
         if (m_takeFlags.Enabled(m_takes[static_cast<std::size_t>(candidate)].stem)) {
@@ -908,10 +875,9 @@ bool App::SyncSfxAudition() {
 // ══════════════════════════════════════════════════════════════════════════════
 // undo of the unsaved edits
 //
-// Tuning by ear means moving a slider until it is wrong and then wanting the
-// last value back, which is a value nobody wrote down. One step is one gesture:
-// the config is snapshotted when a widget first moves and the step is pushed
-// when the widget is released, so a drag is one entry rather than one per frame.
+// Tuning by ear means moving a slider until it is wrong and wanting the last value
+// back, which nobody wrote down. One step is one gesture: snapshot when a widget
+// first moves, push when it is released, so a drag is one entry.
 // ══════════════════════════════════════════════════════════════════════════════
 
 namespace {
@@ -1115,32 +1081,24 @@ void App::Draw() {
     m_hoverSlot = m_hoverSlotPending;
     m_hoverSlotPending = -1;
 
-    // The clip's length only exists once ffmpeg has finished, so the first
-    // guess at the cut point can only be made here.
+    // The clip's length only exists once ffmpeg has finished, so the first guess at
+    // the cut point can only be made here.
     //
     // QuickModMenuNG cuts each take out of the continuous OBS recording with
-    // kClipPadMs = 2000 either side (CaptureBatch.cpp), so in theory this is a
-    // flat 2000 on every take. In practice it is not: the cut uses `-ss` before
-    // `-i`, which seeks to the preceding keyframe, and OBS writes one about
-    // every 2 s - so each clip carries up to one extra keyframe interval of
-    // lead-in, quantised differently per take. Measured, the real offsets run
-    // 3044-3683. The clip *length* is unaffected, which is why this hid.
+    // kClipPadMs = 2000 either side, so in theory this is a flat 2000. In practice
+    // the cut uses `-ss` before `-i`, which seeks to the preceding keyframe, and
+    // OBS writes one about every 2 s - so each clip carries up to one extra
+    // keyframe interval of lead-in, quantised differently per take. Measured, the
+    // real offsets run 3044-3683; the clip *length* is unaffected, which is why
+    // this hid. So the intended value is the fallback and
+    // framecache/video-offsets.ini wins over it.
     //
-    // So: the intended value is the fallback, and framecache/video-offsets.ini
-    // carries the measured per-take numbers that actually line up. Anything in
-    // that file wins over this.
-    //
-    // All of which assumes the take *is* a cut clip. A devbench take is not: this
-    // program drove the recording, so the mp4 is OBS's whole output and its
-    // sidecar says as much (RecordingInfo::videoIsWholeOutput). There the sync
-    // track's intercept is the offset outright, and a pad that was never applied
-    // would be two seconds of pure invention.
-    //
-    // Vayne_impacts_log_2 is the same case arrived at the other way: 103 s of
-    // uncut OBS output carrying seventeen knockdowns, from before anything wrote
-    // that down. A clip is longer than its take by twice the pad and an uncut
-    // recording is not, so the video being no longer than the take still stands
-    // as the tell for a take that says nothing about itself.
+    // All of which assumes the take *is* a cut clip. A devbench take is not - this
+    // program drove the recording, so the mp4 is OBS's whole output and its sidecar
+    // says as much - and there the sync track's intercept is the offset outright.
+    // Vayne_impacts_log_2 is the same case from before anything wrote that down:
+    // a clip is longer than its take by twice the pad and an uncut recording is
+    // not, so the video being no longer than the take is still the tell.
     constexpr double kClipPadMs = 2000.0;
     if (!m_videoOffsetKnown && m_video.HasVideo() && m_video.Ready() && m_video.FrameCount() > 0 &&
         m_take >= 0) {
@@ -1252,13 +1210,10 @@ void App::Draw() {
     }
 
     if (m_browser.TakeLibraryChanged()) {
-        // New files in the library. If nothing is assigned yet this is the
-        // adopt, and the names it just brought in are the assignment - so seed
-        // from them rather than leaving a full library and an empty panel.
-        //
-        // Never after a deletion: an empty table there is one somebody just
-        // emptied, and seeding it would put back from filenames exactly what
-        // they were taking off.
+        // New files in the library. With nothing assigned yet this is the adopt and
+        // the names it brought in are the assignment, so seed from them rather than
+        // leaving a full library and an empty panel. Never after a deletion: an
+        // empty table there is one somebody just emptied.
         if (m_sfx.Empty() && deleted.empty()) {
             m_sfx.SeedFromNames(m_library);
             m_sfxSaved = rds::SfxAssignments{};  // seeded is not saved
@@ -1538,12 +1493,10 @@ void App::DrawLeft(float width) {
 }
 
 bool App::WindowIsRegion() const {
-    // Mid-drag the answer is whatever it was when the drag began. The region
-    // itself follows the mouse so you can see the selection grow, but nothing
-    // that *scales* anything is allowed to move until the button comes up:
-    // rescaling per frame moved the timeline out from under the cursor, and
-    // dragging inside an existing region would first snap the view back out to
-    // the whole take - the opposite of narrowing down.
+    // Mid-drag the answer is whatever it was when the drag began. The region follows
+    // the mouse so the selection can be seen growing, but nothing that *scales*
+    // moves until the button comes up: rescaling per frame moved the timeline out
+    // from under the cursor.
     if (m_regionDragging) return m_frozenIsRegion;
     return m_player.HasRegion();
 }
@@ -1942,14 +1895,12 @@ void App::DrawCuesTable() {
 void App::DrawVideo(float height) {
     ImGui::BeginChild("video", ImVec2(0, height), ImGuiChildFlags_Borders);
 
-    // An unbuilt take - an mp4 with no frame cache behind it - gets a header
-    // saying so and the button that fixes it. What it does *not* get is a
-    // different clock. Direct mode seeks index/30 s into the mp4 and the cache
-    // is that same mp4 decoded at 30 fps from zero, so the two index the same
-    // timeline and a nudge measured through one is a nudge measured through the
-    // other. Previewing unbuilt takes at raw take time threw the whole per-take
-    // offset away - 3044-3683 ms on the clipped takes - and left the nudge
-    // slider visibly doing nothing while every export still applied it.
+    // An unbuilt take gets a header saying so and the button that fixes it. What it
+    // does *not* get is a different clock: direct mode seeks index/30 s into the
+    // mp4 and the cache is that same mp4 decoded at 30 fps from zero, so a nudge
+    // measured through one is a nudge measured through the other. Previewing at raw
+    // take time threw the per-take offset away and left the nudge slider visibly
+    // doing nothing while every export still applied it.
     if (m_video.Unbuilt()) {
         ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.45f, 1.0f), "unbuilt take - one seek per frame");
         Tip("The picture is pulled straight out of the mp4, a frame at a time, so scrubbing\n"
@@ -2118,18 +2069,15 @@ void App::DrawTransport() {
 
 // ── the cue window ────────────────────────────────────────────────────────
 //
-// Two switches on one measurement: where this take's cues actually are.
+// Two switches on one measurement: where this take's cues actually are. A take
+// starts when the ragdoll does and ends whenever the capture was stopped, and the
+// interesting part is a second and a half in the middle - so silence at either end
+// is paid for on every "move a slider, listen again" pass.
 //
-// A take is a recording of a fall, not a piece of music. It starts when the
-// ragdoll does and ends whenever the capture was stopped, and the interesting
-// part is a second and a half somewhere in the middle. Tuning is a loop of
-// "move a slider, listen again", so silence at either end is paid for on every
-// pass over it.
-//
-// Both switches keep a pad on either side of every cue. Landing exactly on the
-// first sample of a cue is worse than useless: an impact with no run-up does
-// not read as an impact, and the sub arrives 65 ms after the transient, so a
-// cut that lands mid-stack takes the weight off the very thing being judged.
+// Both keep a pad either side of every cue. Landing exactly on a cue's first
+// sample is worse than useless: an impact with no run-up does not read as one, and
+// the sub arrives 65 ms after the transient, so a cut that lands mid-stack takes
+// the weight off the thing being judged.
 
 namespace {
 /// Silence kept either side of a cue. Enough to hear one coming and to let the
@@ -2213,9 +2161,8 @@ void App::UpdateCueWindow() {
 // ── the benchmark ────────────────────────────────────────────────────────────
 //
 // Under the transport because it is a transport control: it stops playback and
-// then replays the same take the scrub bar is sitting in, which is the same
-// thing the Play button does with a different clock. Its answer belongs where
-// the thing it measured is.
+// replays the take the scrub bar is sitting in, which is what Play does with a
+// different clock.
 
 void App::DrawSimulateRow() {
     // Every take in the corpus was recorded on one floor wearing one thing, and
@@ -2231,19 +2178,25 @@ void App::DrawSimulateRow() {
 
     ImGui::SameLine();
     ImGui::SetNextItemWidth(150.0f);
-    const char* kSurfaces[] = {"soft", "wood", "stone", "metal", "water", "body"};
+    // Every class, from the enum rather than from a list written out here. The
+    // list used to stop at `body` - the first six - so the seven classes added
+    // after it were unreachable from the row that exists to reach them: dirt
+    // could not be auditioned at all, and a `surfaceAs` set to one of them read
+    // off the end of the array for its label.
     int surfaceIndex = m_pretend.surfaceAs == rds::SurfaceClass::kCount
                            ? -1
                            : static_cast<int>(m_pretend.surfaceAs);
-    const char* surfaceLabel = surfaceIndex < 0 ? "as recorded" : kSurfaces[surfaceIndex];
-    if (ImGui::BeginCombo("##pretendSurface", surfaceLabel)) {
+    const std::string_view surfaceName =
+        surfaceIndex < 0 ? std::string_view{"as recorded"} : rds::ToString(m_pretend.surfaceAs);
+    if (ImGui::BeginCombo("##pretendSurface", std::string(surfaceName).c_str())) {
         if (ImGui::Selectable("as recorded", surfaceIndex < 0)) {
             m_pretend.surfaceAs = rds::SurfaceClass::kCount;
             MarkPretendDirty();
         }
-        for (int i = 0; i < IM_ARRAYSIZE(kSurfaces); ++i) {
-            if (ImGui::Selectable(kSurfaces[i], surfaceIndex == i)) {
-                m_pretend.surfaceAs = static_cast<rds::SurfaceClass>(i);
+        for (int i = 0; i < static_cast<int>(rds::SurfaceClass::kCount); ++i) {
+            const auto surface = static_cast<rds::SurfaceClass>(i);
+            if (ImGui::Selectable(std::string(rds::ToString(surface)).c_str(), surfaceIndex == i)) {
+                m_pretend.surfaceAs = surface;
                 MarkPretendDirty();
             }
         }
@@ -2429,11 +2382,10 @@ void App::DrawTimeline(float height) {
 
     // ── the view ─────────────────────────────────────────────────────────────
     //
-    // Free state, not something derived from the loop region. The wheel zooms it
-    // and the middle button pans it, and the region only ever moves it at one
-    // moment: the frame playback starts. Deriving it from the region every frame
-    // is what made it impossible to look anywhere else - you would zoom out, and
-    // the next frame would put it straight back.
+    // Free state, not derived from the loop region. The wheel zooms and the middle
+    // button pans; the region moves it only on the frame playback starts. Derived
+    // per frame it was impossible to look anywhere else - zoom out, and the next
+    // frame put it straight back.
     if (!m_viewValid || m_viewSpanMs <= 0.0) {
         m_viewStartMs = 0.0;
         m_viewSpanMs = dur;
@@ -2558,19 +2510,15 @@ void App::DrawTimeline(float height) {
 
     // ── the loop envelopes ───────────────────────────────────────────────────
     //
-    // A loop is not an event, and drawing it as a row of bars was the lane
-    // telling a small lie about the biggest thing in a slide. What the engine
-    // actually emits is a start, a handful of updates whenever the level moves
-    // more than 0.75 dB, and a stop - and as bars those read as five unrelated
-    // impacts with a gap in the middle. What they *are* is one voice fading in,
-    // tracking the slide, and fading out: a ramp. So it is drawn as one.
+    // A loop is not an event. What the engine emits is a start, updates whenever
+    // the level moves more than 0.75 dB, and a stop - which as bars read as five
+    // unrelated impacts with a gap in the middle, where what they *are* is one
+    // voice fading in, tracking the slide and fading out.
     //
-    // Underneath everything else and translucent, because the one-shots riding
-    // on top of a slide are the thing being tuned and the envelope is the
-    // context they are being read against. The top edge is drawn straight
-    // between updates rather than as a staircase: the voice does step, but the
-    // steps are a 0.75 dB quantisation of a level that is genuinely continuous,
-    // and the shape is the honest half of that.
+    // Underneath everything else and translucent, because the one-shots riding on
+    // a slide are what is being tuned. The top edge is drawn straight between
+    // updates rather than as a staircase: the steps are a 0.75 dB quantisation of a
+    // continuous level, and the shape is the honest half.
     {
         struct LoopRun {
             std::uint32_t voice{};
@@ -2649,17 +2597,14 @@ void App::DrawTimeline(float height) {
 
     // ── what the foot lanes are, for the hover ───────────────────────────────
     //
-    // Every mark along the bottom of the cue lane is three pixels tall and
-    // carries no label, and the four of them are between them the only things on
-    // this timeline that cannot be looked up in a table afterwards: a burst is a
-    // property of the rhythm, a hero window and a flight are properties of the
-    // actor rather than of any cue, and how a slide ended is written nowhere
-    // else at all. The legend above says what the colours mean; it cannot say
-    // what *this* mark is. So each span is recorded as it is drawn.
+    // Every mark along the bottom of the cue lane is three pixels tall with no
+    // label, and between them they are the only things here that cannot be looked
+    // up in a table afterwards: a burst is a property of the rhythm, a hero window
+    // and a flight of the actor, and how a slide ended is written nowhere else. The
+    // legend says what the colours mean and cannot say what *this* mark is.
     //
-    // Geometry and a tag rather than a formatted string: this runs for every
-    // span of every take on every frame and at most one of them is ever hovered,
-    // so the words are built at the point of asking.
+    // Geometry and a tag rather than a formatted string: this runs for every span
+    // of every take every frame and at most one is ever hovered.
     struct LaneSpan {
         enum class Kind : std::uint8_t { kBurst, kHero, kFlight, kSlide };
         Kind kind{};
@@ -2704,19 +2649,16 @@ void App::DrawTimeline(float height) {
 
     // ── the garment ──────────────────────────────────────────────────────────
     //
-    // Drawn as a curve and not as a span, because a loop is not an event - the
-    // same reason the cue lane draws the grind's ramp rather than a row of bars.
-    // Under everything else, because it is a bed and reads as one.
+    // A curve and not a span, because a loop is not an event. Under everything
+    // else, because it is a bed.
     //
-    // Two lines, and the second is the point: the filled area is the smoothed
-    // level the voice actually plays, and the thin line over it is the raw
-    // per-tick measurement. **The gap between them is the attack and the
-    // release**, which is the only way to set those two by eye - watch the raw
-    // drive spike on a stair tread and the fill decay into the next one.
+    // Two lines, and the second is the point: the filled area is the smoothed level
+    // the voice plays and the thin line over it the raw per-tick measurement.
+    // **The gap between them is the attack and the release**, which is the only way
+    // to set those two by eye.
     //
-    // Skipped entirely when nothing moved, so a take recorded before the layer
-    // existed - or one with the feature off, which is the default - gets no ink
-    // rather than a flat line along the bottom asserting silence.
+    // Skipped entirely when nothing moved, so a take from before the layer existed
+    // gets no ink rather than a flat line asserting silence.
     {
         float peak = 0.0f;
         for (const rds::BodySample& b : s.result.body) {
@@ -2747,11 +2689,10 @@ void App::DrawTimeline(float height) {
                             1.0f);
                 dl->AddLine(ImVec2(xa, Y(a.rustleDriveRaw)), ImVec2(xb, Y(b.rustleDriveRaw)), kRaw,
                             1.0f);
-                // The damage rule's violence window, in a colder colour so it
-                // does not read as a third opinion about the garment. It is the
-                // same measurement averaged instead of enveloped, and averaged
-                // only over the ticks with no collision in them - so where it
-                // sits *below* a tall raw spike, that gap is the impact being
+                // The damage rule's violence window, in a colder colour so it does
+                // not read as a third opinion about the garment. The same
+                // measurement averaged rather than enveloped, over contact-free
+                // ticks only - so a gap under a tall raw spike is the impact being
                 // deliberately excluded from its own context.
                 dl->AddLine(ImVec2(xa, Y(a.motionViolence)), ImVec2(xb, Y(b.motionViolence)),
                             kViolence, 1.0f);
@@ -2761,19 +2702,16 @@ void App::DrawTimeline(float height) {
 
     // ── the state lanes ────────────────────────────────────────────────
     //
-    // Two stripes along the foot of the cue lane, above the burst brackets:
-    // when the mix was in a hero moment, and when the body was off the ground.
+    // Two stripes along the foot of the cue lane: when the mix was in a hero
+    // moment, and when the body was off the ground.
     //
-    // Both are read off the sampled engine state rather than inferred from the
-    // cues, because neither can be inferred from the cues. A hero window is a
-    // decision about the actor and not a property of any one of them - the
-    // loudest cue in a take is regularly not inside one - and flight is a
-    // measurement that leaves no cue at all. They are also the two things the
-    // Stage 2 rewrite turns on, so being able to see where they actually land
-    // is most of being able to say whether it worked.
+    // Both read off the sampled engine state, because neither can be inferred from
+    // the cues - a hero window is a decision about the actor (the loudest cue in a
+    // take is regularly not inside one) and flight leaves no cue at all. They are
+    // also the two things the Stage 2 rewrite turns on.
     //
-    // End caps on every span, because the question is where one starts and
-    // stops and a plain bar reads as shading rather than as an interval.
+    // End caps on every span, because the question is where one starts and stops
+    // and a plain bar reads as shading rather than an interval.
     {
         // One drawing routine, two lanes: what differs between them is which
         // field opens a span, and that belongs in the loop rather than in a
@@ -2846,15 +2784,13 @@ void App::DrawTimeline(float height) {
             [](const rds::BodySample&) { return 0u; });
 
         // Slide in teal, and its own loop for one reason: how a slide *ended* is
-        // most of what there is to know about it, and the generic lane above can
-        // only draw a span. A slide leaves the state three ways - the body came
-        // to rest, the body left the ground, or something stopped it - and they
-        // sound nothing like each other. A lane that drew only the bar would be
-        // showing the least interesting half.
+        // most of what there is to know about it, and the generic lane can only
+        // draw a span. A slide leaves the state three ways and they sound nothing
+        // like each other.
         //
-        // The exit is read off the first sample *after* the span, because that
-        // is where it is written: `LeaveSlide` sets it on the same tick the
-        // motion state changes, so no sample inside the span can carry it.
+        // The exit is read off the first sample *after* the span, because that is
+        // where it is written: `LeaveSlide` sets it on the tick the motion state
+        // changes, so no sample inside the span carries it.
         {
             const float bottom = cueBot - 12.0f;
             const float top = bottom - 3.0f;
@@ -2943,11 +2879,9 @@ void App::DrawTimeline(float height) {
         }
         if (c.compressCutDb < 0.0f) {
             // Where the bar would have reached, and a hairline down to where it
-            // actually does. Height is gain everywhere else on this lane, so a
-            // held cue is drawn at a height that is not its own and the lane
-            // would quietly lie about the top of the range; the gap is the
-            // compression, which is the one thing a number in a table cannot
-            // show you across a whole take at once.
+            // does. Height is gain everywhere else on this lane, so without it a
+            // held cue is drawn at a height that is not its own; the gap is the
+            // compression, which a number in a table cannot show across a take.
             const float top = cueBot - h;
             const float ghost = cueBot - BarHeight(c.gainDb - c.compressCutDb) * (cueH - 6.0f);
             const int alpha = highlighting && !lit ? 55 : 200;
@@ -3035,10 +2969,10 @@ void App::DrawTimeline(float height) {
 
     // ── the foot lanes ───────────────────────────────────────────────────────
     //
-    // They answer first inside their own sixteen pixels. A short cue bar can
-    // reach down here and lose its hover to a lane, which is the right way round
-    // to lose it: a cue has a table row, an export line and a click that selects
-    // it, and a lane mark has none of those - the hover is its only route.
+    // They answer first inside their own sixteen pixels. A short cue bar can reach
+    // down here and lose its hover to a lane, which is the right way round: a cue
+    // has a table row, an export line and a click, and a lane mark has only the
+    // hover.
     const LaneSpan* laneHit = nullptr;
     if (inspecting && mouse.y < traceTop) {
         for (const LaneSpan& span : laneSpans) {
@@ -3137,13 +3071,10 @@ void App::DrawTimeline(float height) {
         ImGui::EndTooltip();
     }
 
-    // What the cursor is over.
-    //
-    // A cue is a bar two pixels wide and cannot carry a label, so "what is that
-    // one" has to be a hover. It answers with the same three things the cue
-    // table's row does - the level, the file it resolved to, and whether the
-    // ceiling held it - because the lane and the table disagreeing about one cue
-    // is worse than neither of them saying anything.
+    // What the cursor is over. A cue is a bar two pixels wide and cannot carry a
+    // label, so "what is that one" has to be a hover - answering with the same
+    // three things the cue table's row does, because the lane and the table
+    // disagreeing about one cue is worse than neither saying anything.
     if (laneHit == nullptr && inspecting && mouse.y < traceTop) {
         int nearest = -1;
         double nearestDx = 1e18;
@@ -3205,11 +3136,9 @@ void App::DrawTimeline(float height) {
 
     // ── the trace lane ───────────────────────────────────────────────────────
     //
-    // Every red tick here is a contact the engine decided not to play, and the
-    // whole point of the lane is that they outnumber the green ones ten to one.
-    // Which rule dropped which one is the question the lane raises and cannot
-    // answer on its own, so it answers it here rather than sending you to the
-    // export for a line you are already looking at.
+    // Every red tick is a contact the engine decided not to play, and the point of
+    // the lane is that they outnumber the green ones ten to one. Which rule dropped
+    // which is answered here rather than in the export.
     if (inspecting && m_showTrace && mouse.y >= traceTop && mouse.y < contactTop &&
         !s.result.trace.empty()) {
         const rds::TraceRecord* best = nullptr;
@@ -3248,10 +3177,9 @@ void App::DrawTimeline(float height) {
 
     // ── the contacts lane ────────────────────────────────────────────────────
     //
-    // Upstream of everything: what the feed carried, before ingest had an
-    // opinion about any of it. Reading a gap in the cue lane means knowing
-    // whether there was nothing there or nothing survived, and those are the
-    // two different answers this lane and the one above it give.
+    // Upstream of everything: what the feed carried, before ingest had an opinion.
+    // Reading a gap in the cue lane means knowing whether there was nothing there
+    // or nothing survived, which is what this lane and the one above separate.
     if (inspecting && m_showContacts && m_recording && mouse.y >= contactTop &&
         mouse.y < stripTop) {
         const rds::FeedEvent* best = nullptr;
@@ -3464,13 +3392,10 @@ void App::DrawTimeline(float height) {
             m_player.SetLoopRegion(lo, hi);
         } else {
             m_regionDragging = false;
-            // A press and release in one spot is a click, not a zero-width
-            // region: it clears. The strip is where you go to change the
-            // region, so it is also where you go to stop having one - but only
-            // when the press was drawing a new one. Tapping an edge or the
-            // middle of a region you already have is a gesture that changed its
-            // mind, and losing the region for it would be the opposite of what
-            // grabbing it was for.
+            // A press and release in one spot is a click, not a zero-width region:
+            // it clears. But only when the press was drawing a new one - tapping an
+            // edge or the middle of a region you already have is a gesture that
+            // changed its mind, and losing the region for it would be backwards.
             const bool click = m_regionDragKind == RegionDrag::kNew && (hi - lo) <= 20.0;
             // Put the pre-drag region back first, so SetRegion records the step
             // against what was there before the gesture rather than against the
@@ -3502,13 +3427,9 @@ void App::DrawTimeline(float height) {
 // ── the measured body ────────────────────────────────────────────────────
 //
 // Under the timeline rather than in the stats panel, because it is read while
-// looking at the timeline: a cue is selected, and the question is what the body
-// was doing when it fired. In the stats panel that is a glance away and a
-// number that has to be held in the head on the way back.
-//
-// It follows the playhead, which is also the selection - clicking a cue on the
-// timeline or in the table seeks to it - so "the selected frame" and "where the
-// playhead is" are one place and need only one readout.
+// looking at the timeline: a cue is selected and the question is what the body was
+// doing when it fired. It follows the playhead, which is also the selection, so
+// "the selected frame" and "where the playhead is" need one readout.
 
 void App::DrawBodyReadout(const ConfigSide& side) {
     if (side.result.body.empty()) {
@@ -3692,13 +3613,10 @@ void App::DrawStats() {
         ImGui::EndTooltip();
     }
 
-    // What is actually sounding in this window, by slot.
-    //
-    // This replaced a breakdown of everything the arbitrator threw away. Both are
-    // true, but only one answers the question being asked in front of the video:
-    // "there were four thuds there and I heard one" is about which slots fired,
-    // not about which rule dropped what - and the drop counts are still in the
-    // export, where reading them slowly is the point.
+    // What is actually sounding in this window, by slot. It replaced a breakdown of
+    // everything the arbitrator threw away: "there were four thuds there and I
+    // heard one" is about which slots fired, not which rule dropped what, and the
+    // drop counts are still in the export.
     double lo = 0.0;
     double hi = 0.0;
     WindowMs(lo, hi);
@@ -4105,12 +4023,10 @@ void App::DrawParams(int side) {
         }
         if (!groupVisible) continue;
 
-        // A rule where one feature inside the group ends and the next begins.
-        // Only once the group has drawn something, because the filter and the
-        // diff toggle can both take away everything above it, and a rule under
-        // a header separates the header from nothing. `!pairOpen` is a guard
-        // against a schema slip rather than a case: there is no line to break
-        // halfway along a two-column row.
+        // A rule where one feature inside the group ends and the next begins. Only
+        // once the group has drawn something, because the filter and the diff
+        // toggle can both take away everything above it. `!pairOpen` guards against
+        // a schema slip rather than a case.
         if (p.ruleBefore && groupDrew && !pairOpen) {
             ImGui::Spacing();
             ImGui::Separator();

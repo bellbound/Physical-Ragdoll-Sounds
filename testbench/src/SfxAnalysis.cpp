@@ -254,14 +254,11 @@ struct Event {
 
 // ── slot targets ─────────────────────────────────────────────────────────────
 //
-// The measurable half of Slots.md §3, which is `tools/sfx.py`'s SPEC. It is
-// copied rather than shared because sfx.py is the authoring tool and this is
-// the app: the one place both read is Slots.md, and that is prose. If a number
-// here disagrees with §3, §3 is right.
+// The measurable half of Slots.md §3, which is `tools/sfx.py`'s SPEC. Copied
+// rather than shared, because the one place both read is Slots.md and that is
+// prose. If a number here disagrees with §3, §3 is right.
 //
-// Only used for suggestion and for sorting candidates. Nothing here rejects
-// anything - a file that meets none of a slot's targets can still be assigned
-// to it, and sometimes should be.
+// Only used for suggestion and sorting. Nothing here rejects anything.
 
 struct SlotTarget {
     rds::SlotId slot;
@@ -304,15 +301,15 @@ constexpr SlotTarget kTargets[] = {
     {rds::SlotId::kScrapeLimbWood, 0, 0, 0, 0, kNone, 8, -1, -1, 2.0f, 8.0f, 25, 120},
     {rds::SlotId::kScrapeLimbStone, 0, 0, 0, 0, kNone, 8, -1, -1, 2.0f, 8.0f, 25, 120},
     {rds::SlotId::kScrapeGrain, 40, 400, 300, 6000, kNone, kNone, 6, 40, 0, 0, 0, 0},
-    // The bed, and the one loop in the set held to the *opposite* of the grinds'
-    // tilt window. A grind is judged for having a low shelf at all - +5 to +19 -
-    // and this is judged for having almost nothing else: over +20, with a
-    // centroid down where the references put the loudest band of a slide. Its
-    // steadiness band is the whoosh's rather than a grind's, because the one
+    // The bed, and the one loop held to the *opposite* of the grinds' tilt window:
+    // a grind is judged for having a low shelf at all (+5 to +19), this for having
+    // almost nothing else (over +20, centroid down where the references put the
+    // loudest band of a slide).
+    //
+    // Its steadiness band is the whoosh's rather than a grind's, because the one
     // thing it must not have is features - a bump in a bed becomes a pulse the
-    // moment the file loops, and there is no grit here to hide it. No grain
-    // range: counting grit peaks in a layer whose whole definition is having
-    // none would fail every correct file.
+    // moment the file loops. No grain range: counting grit peaks in a layer defined
+    // by having none would fail every correct file.
     {rds::SlotId::kScrapeLoopRumble, 0, 0, 20, 1200, 20, kNone, -1, -1, 0.5f, 6.0f, 0, 0},
     {rds::SlotId::kAirWhoosh, 0, 0, 50, 2000, kNone, kNone, -1, -1, 0.5f, 6.0f, 0, 0},
     {rds::SlotId::kHeadImpact, 20, 300, 400, 3500, 2, kNone, 4, 14, 0, 0, 0, 0},
@@ -371,17 +368,15 @@ void MeasureSfx(std::span<const float> mono, int sampleRate, rds::SfxEntry& entr
 
     // ── flat tops ────────────────────────────────────────────────────────────
     //
-    // Clipping, measured as clipping rather than as a peak reading. A peak over
-    // -0.2 dBFS is a *headroom* fault and the import pass normalises it away;
-    // what it cannot touch is a wave whose top is already gone, and that is what
-    // this counts: runs of samples sitting at the file's own maximum.
+    // Clipping measured as clipping rather than as a peak reading. A peak over
+    // -0.2 dBFS is a *headroom* fault the import pass normalises away; a wave whose
+    // top is already gone is not, and that is what this counts.
     //
-    // Against the maximum, not against full scale, so the measurement survives
-    // the normalise - a plateau is still a plateau 1.5 dB down. Five samples at
-    // 48 kHz (104 us) with 0.02% tolerance is the shortest run that a bass note
-    // cannot produce on its own: a 100 Hz sine falls 0.05% off its crest in that
-    // time, and anything slower than about 50 Hz is the one blind spot, which
-    // `imp_sub`'s decaying sweep only reaches on its single loudest crest.
+    // Against the file's own maximum rather than full scale, so it survives the
+    // normalise. Five samples at 48 kHz (104 us) with 0.02% tolerance is the
+    // shortest run a bass note cannot produce alone: a 100 Hz sine falls 0.05% off
+    // its crest in that time, and the blind spot is under ~50 Hz, which
+    // `imp_sub`'s sweep only reaches on its single loudest crest.
     if (peak > 0.05f) {
         const float ceiling = peak * 0.9998f;
         std::size_t run = 0;
@@ -456,24 +451,19 @@ void MeasureSfx(std::span<const float> mono, int sampleRate, rds::SfxEntry& entr
             };
             entry.seamDb = std::fabs(Db(rms(mono.first(k))) - Db(rms(mono.last(k))));
 
-            // How much of the file is *doing something*: the fraction of hops
-            // inside the same 40 dB live window `steady` is measured over.
+            // How much of the file is *doing something*: the fraction of hops inside
+            // the same 40 dB live window `steady` is measured over.
             //
-            // This is the discriminator, and it took two wrong ones to find it.
-            // The first asked how far the loudest moment stuck out of the
-            // median - which reads as "a texture has no single moment" and is
-            // true of cloth and wind, but not of a scrape: scrape_loop_01
-            // carries 24 grains a second and its loudest grain sits well clear
-            // of the bed. The second used a 20 dB window, which a grainy drag
-            // falls out of between grains. Both called the shipped scrape an
-            // event, handed it a 1.2 s "lead-in" from FindEvent walking back to
-            // that grain, and warned at it for a fault it does not have.
+            // Two wrong discriminators came first. "How far the loudest moment
+            // sticks out of the median" is true of cloth and wind but not of a
+            // scrape - scrape_loop_01 carries 24 grains a second and its loudest
+            // sits well clear of the bed. A 20 dB window is one a grainy drag falls
+            // out of between grains. Both called the shipped scrape an event and
+            // warned at it for a fault it does not have.
             //
-            // Duty cycle does not care how spiky a texture is, only whether it
-            // keeps going. A one-shot is one moment and then decay - the pack's
-            // own composites are 40 dB down inside 200 ms - so it scores low
-            // however smooth it is, and a grainy drag scores ~1.0 however
-            // jagged it is. Which is the actual question.
+            // Duty cycle does not care how spiky a texture is, only whether it keeps
+            // going: a one-shot is one moment and then decay, a grainy drag scores
+            // ~1.0 however jagged it is.
             const float duty = static_cast<float>(live.size()) / static_cast<float>(e.db.size());
 
             entry.loops = entry.durationMs >= 700.0f && entry.seamDb <= 6.0f &&
@@ -492,16 +482,12 @@ void MeasureSfx(std::span<const float> mono, int sampleRate, rds::SfxEntry& entr
         segment = mono.subspan(ev.start, ev.end - ev.start);
         entry.usableMs = 1000.0f * static_cast<float>(segment.size()) / static_cast<float>(sampleRate);
 
-        // Lead-in is measured against an **absolute** floor, not against where
-        // the event was found.
-        //
-        // 03-Asset-Status.md §6 records this as one of two thresholds that were
-        // wrong on their first run, and it is wrong the same way here: a
-        // relative measure walks back from the peak to peak-35 dB, so anything
-        // specified to start softly - settle_rest by design, and both gore_wet
-        // files in practice - reads as hundreds of milliseconds of lead-in it
-        // does not have. What the rule is actually about is head *silence*
-        // becoming latency, and silence is an absolute quantity.
+        // Lead-in is measured against an **absolute** floor, not against where the
+        // event was found. A relative measure walks back from the peak to peak-35
+        // dB, so anything specified to start softly - settle_rest by design, both
+        // gore_wet files in practice - reads as hundreds of milliseconds of lead-in
+        // it does not have. The rule is about head *silence* becoming latency, and
+        // silence is an absolute quantity (03 §6).
         constexpr float kSilenceFloorDb = -60.0f;
         const Envelope head = EnvelopeDb(mono, sampleRate);
         std::size_t quietHops = 0;
@@ -525,20 +511,16 @@ void MeasureSfx(std::span<const float> mono, int sampleRate, rds::SfxEntry& entr
 
         // ── the noise floor, sfx.py's `snr` ──────────────────────────────────
         //
-        // The quietest 50 ms in front of the attack, against the peak. Measured
-        // in the pre-roll rather than in the tail because the tail is the sound
-        // decaying into the floor and there is no line between the two; the room
-        // tone before the hit is the floor on its own. Nothing to measure it in
-        // leaves 99, which reads as "not known" and never trips the gate - a
-        // file trimmed to its attack has no floor to measure, and inventing one
-        // out of its decay would fail every short dry one-shot in the pack.
+        // The quietest 50 ms in front of the attack, against the peak. In the
+        // pre-roll rather than the tail, because the tail is the sound decaying
+        // into the floor with no line between the two. Nothing to measure in leaves
+        // 99, which reads as "not known" and never trips the gate.
         //
         // The attack is found here rather than taken from FindEvent, which walks
-        // back to peak-35 dB: on the one file this measurement exists for - the
-        // one whose hiss sits inside 30 dB of the hit - that walk goes all the
-        // way to sample 0 and hands back no pre-roll at all. The first hop
-        // within 12 dB of the peak cannot do that, and 20 ms in front of it
-        // keeps the foot of the rise out of the measurement.
+        // back to peak-35 dB: on the one file this measurement exists for that walk
+        // goes to sample 0 and hands back no pre-roll. The first hop within 12 dB
+        // of the peak cannot do that, and 20 ms in front keeps the foot of the rise
+        // out of the measurement.
         std::size_t before = 0;
         {
             const Envelope head = PeakEnvelopeDb(mono, sampleRate, 2.0f);
@@ -698,19 +680,16 @@ void JudgeSfx(rds::SfxEntry& entry) {
     }
     entry.warnings = std::move(kept);
 
-    // Two kinds, and what separates them is not severity - it is whether there
-    // is anything to do about it.
+    // Two kinds, separated not by severity but by whether there is anything to do
+    // about it.
     //
-    // Everything `warn` reports has a fix, and the fix is the same one twice:
-    // the repair pass, which runs on every import and is one click on a row for
-    // anything that arrived another way. So a `warn` badge on a file that came
-    // through the importer means the repair could not reach it - a length, a
-    // seam, a second contact - not that nobody has pressed the button.
+    // Everything `warn` reports has a fix, and it is the repair pass - which runs
+    // on every import and is one click otherwise. So a `warn` badge on an imported
+    // file means the repair could not reach it, not that nobody pressed the button.
     //
-    // `dead` is the other list: a wave whose top is already gone, hiss 29 dB
-    // under the hero, two channels that are different takes. Processing does
-    // not recover any of them and the answer is another file. They are still
-    // assignable, because the library never refuses.
+    // `dead` is the other list: a wave whose top is already gone, hiss 29 dB under
+    // the hero, two channels from different takes. Processing recovers none of
+    // them. Still assignable, because the library never refuses.
     const auto warn = [&entry](std::string code, std::string detail) {
         entry.warnings.push_back({std::move(code), std::move(detail), false, false});
     };

@@ -37,16 +37,14 @@ namespace {
             0, {}, {}, true                                                                   \
     }
 
-/// The same row again, with a rule drawn above it: it opens a feature of its
-/// own inside a group that holds several - the second `bEnabled` in a drawer
-/// and everything under it, a block of trims that answers a different question
-/// from the block above. The header says what the drawer is; the rule says
-/// where one thing inside it stops and the next begins.
+/// The same row again, with a rule drawn above it: it opens a feature of its own
+/// inside a group that holds several. The header says what the drawer is; the rule
+/// says where one thing inside it stops and the next begins.
 ///
-/// Named to the same width as RDS_PARAM for the reason RDS_PAIRS is: marking a
-/// row is retyping nine characters, and nothing below it moves. Never put one
-/// on the right-hand half of a pair - there is no line to break there - which
-/// is what RDS_HPAIR is for: a rule above a row that also opens a pair.
+/// Named to the same width as RDS_PARAM, so marking a row is retyping nine
+/// characters and nothing below it moves. Never on the right-hand half of a pair -
+/// there is no line to break there; RDS_HPAIR is a rule above a row that also
+/// opens a pair.
 #define RDS_HRULE(ROOT, SECTION, KEY, TYPE, MEMBER, MINV, MAXV, STEP, GROUP, LABEL, TOOLTIP)  \
     ParamDesc {                                                                               \
         SECTION, KEY, ParamType::TYPE, offsetof(ROOT, MEMBER),                                \
@@ -66,15 +64,13 @@ namespace {
 /// the numeric columns carry the buffer size instead of a min and a max.
 #define RDS_PARAM_STR(ROOT, SECTION, KEY, MEMBER, GROUP, LABEL, TOOLTIP)                        ParamDesc {                                                                                     SECTION, KEY, ParamType::kString, offsetof(ROOT, MEMBER), 0, 0, 0, 0, GROUP, LABEL,             TOOLTIP, {}, sizeof(ROOT{}.MEMBER)                                                  }
 
-/// Where this row used to live, so an ini written before it moved still loads.
-/// A wrapper rather than a twelfth macro argument, because a handful of rows in
-/// nine hundred have ever moved: `Renamed(RDS_PARAM(...), "HeadImpact", "fLeadClearMs")`.
+/// Where this row used to live, so an ini written before it moved still loads. A
+/// wrapper rather than a twelfth macro argument, because a handful of rows in nine
+/// hundred have ever moved.
 ///
-/// Chains, innermost first, for a row that has moved twice: the name it had
-/// before this call is pushed into the second slot rather than being overwritten,
-/// so `Renamed(Renamed(row, "Phase", ...), "Motion", ...)` reads in the order the
-/// moves happened and both old files still load. Two deep is all there is room
-/// for, which is one more than anything has needed.
+/// Chains innermost first for a row that has moved twice: the previous name is
+/// pushed into the second slot rather than overwritten, so both old files still
+/// load. Two deep is all there is room for, one more than anything has needed.
 [[nodiscard]] constexpr ParamDesc Renamed(ParamDesc p, std::string_view section,
                                           std::string_view key) {
     p.legacySection2 = p.legacySection;
@@ -1246,24 +1242,19 @@ const ParamDesc kAlgorithmParams[] = {
 
     // -- Stage 3: Damage ------------------------------------------------------
     //
-    // Three parts, two tiers each, and the same twenty-two rows every time. It
-    // replaces [CrunchGore] and the head's own damage block, which were two
-    // differently-shaped rules for one sound sharing a single budget - so
-    // whichever of them reached a contact first decided which layer you heard.
+    // Three parts, two tiers each, the same twenty-two rows every time. It replaces
+    // [CrunchGore] and the head's own damage block, two differently-shaped rules
+    // for one sound sharing a single budget - so whichever reached a contact first
+    // decided which layer you heard. Both shapes survive as tunings.
     //
-    // Both shapes survive as tunings. A tier whose two chances are 1 is the
-    // head's old deterministic rule exactly; one whose chance at threshold is
-    // 0.15 is the old body ramp exactly. Nothing was lost by having one rule.
+    // The head's damage keys were under [HeadImpact] and are renamed in from there.
+    // fHeadCrunchCapFrac cannot be: the head's crunch ramp used to end at
+    // fGoreAtFrac implicitly and a rename maps one old key to one new, so it is a
+    // separate number now and takes its default.
     //
-    // What moved: the head's damage keys were under [HeadImpact] and are renamed
-    // in from there, so an existing ini still loads. fHeadCrunchCapFrac is the
-    // one that cannot be: the head's crunch ramp used to end at fGoreAtFrac
-    // implicitly, and a rename maps one old key to one new key. It is a separate
-    // number now and it takes its default.
-    //
-    // The body's own old keys have no honest target - a probability gate with
-    // hysteresis is not a two-ended ramp - so [CrunchGore] is simply gone and its
-    // lines in an old ini are ignored with a debug note, like any unknown key.
+    // The body's old keys have no honest target - a probability gate with
+    // hysteresis is not a two-ended ramp - so [CrunchGore] is gone and its lines in
+    // an old ini are ignored with a debug note.
     Renamed(RDS_PARAM(AlgorithmConfig, "Damage", "bEnabled", kBool,
                       strategies.damage.enabled, 0, 1, 1, "Damage", "Damage enabled",
                       "The master switch for crunch and gore on every part of the body. This is most of "
@@ -1745,14 +1736,12 @@ const ParamDesc kAlgorithmParams[] = {
 
     // -- The slide, end to end ------------------------------------------------
     //
-    // One section and one drawer, because a slide is one thing. It used to be
-    // two: when a slide starts and stops lived under [Motion] with the rest of
-    // the motion axis, and what one sounds like lived under [ScrapeLoop], so
-    // answering "why is the grind doing that" meant two panels and knowing which
-    // half owned which number.
+    // One section and one drawer, because a slide is one thing. It used to be two -
+    // when a slide starts and stops under [Motion], what one sounds like under
+    // [ScrapeLoop] - so "why is the grind doing that" meant two panels.
     //
-    // The split inside it is still the design's: the state is physics, the
-    // voicing is design. What moved is only where you turn the knobs.
+    // The split inside it is still the design's: the state is physics, the voicing
+    // is design. Only where you turn the knobs moved.
     RDS_PARAM(AlgorithmConfig, "Slide", "bEnabled", kBool, strategies.scrape.enabled, 0, 1, 1,
               "Slide and scrape", "Scrape enabled",
               "The grinding loops for a body dragging along a surface, and the catches riding on "
@@ -2071,11 +2060,10 @@ const ParamDesc kAlgorithmParams[] = {
     // -- the entry scuff ------------------------------------------------------
     //
     // Three sliders left this block rather than being defaulted off:
-    // `fGrainCatchRatio`, `fGrainMinGapMs` and `fGrainProbability` were a
-    // threshold, a rate limit and a dice roll for a *stream* of catches, and none
-    // of the three means anything for one grain per grind. Dropped without a
-    // `Renamed`, so an ini tuned for the old layer does not carry a value into a
-    // feature it was never about.
+    // `fGrainCatchRatio`, `fGrainMinGapMs` and `fGrainProbability` were a threshold,
+    // a rate limit and a dice roll for a *stream* of catches, and none means
+    // anything for one grain per grind. Dropped without a `Renamed`, so an old ini
+    // does not carry a value into a feature it was never about.
     RDS_HRULE(AlgorithmConfig, "Slide", "bGrainEnabled", kBool, strategies.scrape.grainEnabled, 0,
               1, 1, "Slide and scrape", "Entry scuff",
               "Play a short scrape grain the moment a grind starts - the scuff of the limb "
@@ -2778,16 +2766,13 @@ const ParamDesc kAlgorithmParams[] = {
 // ── the surfaces list ────────────────────────────────────────────────────────
 //
 // Thirteen classes x eight fields, generated rather than typed out. Every other
-// row in this file is a literal because every other row is a decision; these
-// hundred and four are the same eight decisions repeated, and a hand-written
-// table of them would be a hundred and four chances to paste `kIce` into
-// `kGlass`'s offset.
+// row here is a literal because every other row is a decision; these hundred and
+// four are the same eight decisions repeated, and typing them out would be a
+// hundred and four chances to paste `kIce` into `kGlass`'s offset.
 //
-// They are ordinary ParamDesc rows in every other respect, which is the point:
-// the ini reader, the writer, the clamp, the delta log, the slider panel, the
-// remote patcher and the export all walk `AlgorithmParams()` and none of them
-// needs to know these were not typed. What makes them *a list* rather than a
-// section is only that `SurfaceFileParams` filters them by `opened`.
+// Ordinary ParamDesc rows in every other respect, which is the point: everything
+// walks `AlgorithmParams()` and none of it needs to know these were not typed.
+// What makes them *a list* is only that `SurfaceFileParams` filters by `opened`.
 
 /// Backing store for the section and group names, which ParamDesc holds as
 /// views. A function-local static built once and never touched again, so the

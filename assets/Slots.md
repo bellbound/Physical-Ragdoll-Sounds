@@ -58,7 +58,7 @@ much each file matters, not a spec. `—` means it was not counted, not that it 
 | `surf_metal` | surface | — | — | Iron, steel, chain, pots. **Ships empty, falls back to `surf_stone`** | A short clang with **no pitched ring** — the clank, not the bell. Stone is the half of metal that already reads at impact; this adds the rest |
 | `surf_ice` | surface | — | — | Ice, frozen lakes, ice form. **Ships empty, falls back to `surf_stone`** | Stone, but colder and brighter, with a hairline crack in the tail. Hard and short; the crack is what separates it from flagstone |
 | `surf_glass` | surface | — | — | Glass, glass stairs. **Ships empty, falls back to `surf_stone`** | Brittle and thin. Nearly nothing at a brush and a shatter at speed — the **widest intensity ramp of any surface**, which is the point of it having a block |
-| `surf_dirt` | surface | — | — | Dirt and mud. **Ships empty, falls back to `surf_soft`** | Packed earth: duller and shorter than soft, with no grain riding on top. Absorbent, no tail |
+| `surf_dirt` | surface | 3 | — | Dirt and mud | Packed earth is **grain, not weight**. *Brighter* than `surf_soft` and far deader: the reference contact measures **−9.3 dB tilt at a 5010 Hz centroid, −20 dB in 26 ms** — nearer `surf_stone` than the cushion it used to fall back to. The 250–500 Hz body and the 2–8 kHz grit sit within 5 dB of each other, with a notch at 1 kHz where a box or a plate would ring. Almost no sub: the weight is `imp_sub`'s job. **This row used to read "duller and shorter than soft, with no grain riding on top", which is backwards** — built to that brief dirt gets *less* earthy, and the reference itself fails `surf_soft`'s `tilt ≥ +3` |
 | `surf_gravel` | surface | — | — | Gravel. **Ships empty, falls back to `surf_soft`** | Soft underneath with loose stones scattering over it. The rattle is the whole difference from dirt |
 | `surf_snow` | surface | — | — | Snow, snow stairs. **Ships empty, falls back to `surf_soft`** | A compressing squeak with the top end rolled off. The most absorbent surface in the set |
 | `surf_water` | surface | — | — | Open water. **Ships empty, falls back to `surf_soft`** | The displacement of a body arriving, not the splash grain. **Turn `bOnTaps` off for this one** — a splash on nine of every ten contacts is absurd |
@@ -114,6 +114,7 @@ What `sfx.py eval` enforces. `As built` is what the shipped files actually measu
 | `imp_body` | 150–250 ms | 15–200 ms | 800–4200 Hz | **≥ +4 dB** (bass-led) | 120 Hz | 0–5 | 2166–3425 Hz / 16–32 ms |
 | `imp_sub` | 250–400 ms | 15–120 ms | 20–400 Hz | — | **none** | — | 156–184 Hz / 48 ms |
 | `surf_soft` | 150–250 ms | 15–200 ms | 300–3200 Hz | **≥ +3 dB** | 120 Hz | — | 674–2475 Hz / 16–26 ms |
+| `surf_dirt` | 150–250 ms | 10–60 ms | 3000–7000 Hz | **≤ −5 dB** (bright) | 120 Hz | — | 4437–5132 Hz / 14–32 ms |
 | `armor_bare` | 80–200 ms | 10–150 ms | 300–3000 Hz | — | 120 Hz | — | no reference yet |
 | `armor_cloth` | 100–250 ms | 15–200 ms | 300–4000 Hz | — | 120 Hz | — | no reference yet |
 | `armor_light` | 100–250 ms | 15–250 ms | 800–6000 Hz | — | 150 Hz | — | no reference yet |

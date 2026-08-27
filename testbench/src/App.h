@@ -80,13 +80,11 @@ struct SfxEdit {
 
 /// Which file a cue is actually playing.
 ///
-/// A cue carries a slot and a variant index, and neither of those is the answer
-/// to "what am I hearing": the variant is a position in a list the assignment
-/// panel re-orders, the slot may be pinned to one file for the session, and a
-/// slot with nothing assigned plays its declared fallback's files, and one with
-/// no fallback either does not sound at all. Resolving all four in one place
-/// means the timeline, the cue table and the export cannot give three different
-/// answers.
+/// Neither the slot nor the variant answers "what am I hearing": the variant is a
+/// position in a list the assignment panel re-orders, the slot may be pinned for
+/// the session, and a slot with nothing assigned plays its fallback's files or
+/// nothing at all. Resolved in one place so the timeline, the cue table and the
+/// export cannot give three different answers.
 struct CueSound {
     std::string label;  ///< what to show: the library name, or "(no recording)"
     std::string file;   ///< the library filename, empty when nothing sounds
@@ -140,12 +138,9 @@ struct ConfigSide {
 
     // ── the config this one is being read against ────────────────────────────
     //
-    // A second named config, loaded but never played and never edited. It
-    // exists so the panel can say which parameters this side actually moved:
-    // "config_22_08_17 with the ramp pulled in" is a sentence about two files,
-    // and until this was here the only way to get it was two windows and a
-    // scroll. Not a third side - nothing renders it, nothing saves it, and
-    // switching it costs no re-run.
+    // A second named config, loaded but never played and never edited, so the
+    // panel can say which parameters this side moved. Not a third side - nothing
+    // renders it, nothing saves it, and switching it costs no re-run.
     std::string compareName;  ///< empty means no comparison is running
     rds::AlgorithmConfig compareCfg{};
 
@@ -290,18 +285,16 @@ private:
 
     // ── the switches that are not config ─────────────────────────────────────
     //
-    // The limiter, the trace, the two auto-scrolls, snap-on-play, save-as-
-    // iteration, push-to-game, the video mode, split, auto-loop. None of them
-    // change what the mod does - they change what this program shows and how it
-    // behaves while you work - and every one of them was back at its compiled-in
-    // default at the next launch. The first minute of every session was putting
-    // them back, and the one that mattered was the limiter: it is on by default
-    // and it is the one thing the game cannot do, so a session that forgot to
-    // turn it off was a session spent listening to a mix Skyrim will never play.
+    // The limiter, the trace, the auto-scrolls, snap-on-play, save-as-iteration,
+    // push-to-game, the video mode, split, auto-loop. None change what the mod
+    // does, and every one used to be back at its compiled-in default at the next
+    // launch. The limiter is the one that mattered: on by default and the one
+    // thing the game cannot do, so forgetting to turn it off was a session spent
+    // listening to a mix Skyrim will never play.
     //
-    // Kept out of the algorithm inis on purpose. A config is something you A/B,
-    // save under a dated name and ship; these are properties of this machine, and
-    // a diff between two configs must never contain one.
+    // Kept out of the algorithm inis: a config is something you A/B, save under a
+    // dated name and ship, and a diff between two configs must never contain one
+    // of these.
 
     /// The persisted switches, as (ini key, member). One list, walked by both
     /// the load and the save, so remembering a new checkbox is one line here
@@ -510,14 +503,12 @@ private:
     void DrawRight(int side, float height, bool split);
 
 public:
-    /// Read a whole testbench config: the algorithm rows, then which surfaces
-    /// the file has blocks for, then those blocks, then Resolve.
+    /// Read a whole testbench config: the algorithm rows, which surfaces the file
+    /// has blocks for, those blocks, then Resolve.
     ///
-    /// Public, with the writer's half below, because a testbench config is one
-    /// file where the game keeps two - so anything that reads or writes one has
-    /// to splice the surfaces list in the same way, and Export and Control both
-    /// do. Two spellings of "which rows belong in this file" is how the export
-    /// would quietly start disagreeing with the file it claims to be a copy of.
+    /// Public, with the writer below, because a testbench config is one file where
+    /// the game keeps two - so anything reading or writing one has to splice the
+    /// surfaces list the same way, and Export and Control both do.
     static void LoadAlgorithmFile(const std::filesystem::path& file, rds::AlgorithmConfig& cfg);
 
     /// The rows a testbench config is written from: everything, plus the
@@ -570,19 +561,14 @@ private:
     float m_sfxPreviewGainDb{0.0f};
     std::vector<SfxEdit> m_sfxUndo;
     std::vector<SfxEdit> m_sfxRedo;
-    /// One slot's pin: a file every cue for the slot plays, whatever the
-    /// shuffle bag would have said.
+    /// One slot's pin: a file every cue for the slot plays, whatever the shuffle
+    /// bag would have said.
     ///
-    /// Held here rather than only in the bank because ApplySfx rebuilds the bank
-    /// whenever anything about an assignment changes, and held as a filename
-    /// because a variant index is a position in a list that the same edit can
-    /// renumber. Never saved and never pushed over the link: a pin is a way to
-    /// listen, not a decision about the pack, and it lasts exactly as long as
-    /// the process.
-    ///
-    /// Muting used to live here too and does not any more - a mute is a decision
-    /// about the pack, so it is in `m_sfx` beside the file list and saves with
-    /// it.
+    /// Held here rather than only in the bank, because ApplySfx rebuilds the bank
+    /// whenever an assignment changes; held as a filename, because a variant index
+    /// is a position in a list the same edit can renumber. Never saved and never
+    /// pushed over the link - a pin is a way to listen, not a decision about the
+    /// pack. (A mute is, so it lives in `m_sfx` and saves with the file list.)
     struct SlotSession {
         std::string forced;
     };
@@ -600,13 +586,10 @@ private:
     int m_auditionSlot{-1};
     std::string m_auditionFile;
     /// The condition the file about to be chosen in the library will land with.
-    ///
-    /// `+ variant` asks what the new one is for and then opens the picker, so
-    /// the answer is given a window and a frame before the file it belongs to
-    /// arrives - which is why this is state rather than an argument. -1 when
-    /// the picker was opened by `+ add` or `change`, both of which mean a plain
-    /// variant and both of which clear it on the way past, so a popover that
-    /// was opened and abandoned cannot tag the next file somebody assigns.
+    /// `+ variant` asks what the new one is for and then opens the picker, so the
+    /// answer arrives a window and a frame before the file does - which is why
+    /// this is state rather than an argument. -1 for `+ add` and `change`, both of
+    /// which clear it on the way past.
     int m_pendingConditionSlot{-1};
     rds::VariantCondition m_pendingCondition{};
     char m_sfxFilter[64]{};
@@ -668,40 +651,32 @@ private:
     /// the bit I selected" is unambiguous, so that is the only time it happens.
     bool m_zoomRegion{true};
 
-    /// Play from just before the first cue to just after the last one.
-    ///
-    /// Most takes are mostly silence - the ragdoll starts when the recording
-    /// does and the body lies still long after the last sound - and listening
-    /// to a mix change means hearing the change, not waiting for it. A drawn
-    /// region still wins, being the more specific answer to the same question.
+    /// Play from just before the first cue to just after the last. Most takes are
+    /// mostly silence, and listening to a mix change means hearing the change, not
+    /// waiting for it. A drawn region still wins.
+
     /// Which slots this take has produced a cue for, since it was loaded.
     ///
-    /// Sticky, and that is the point. The sfx panel sorts the slots this take
-    /// uses above the ones it does not, and asking the live cue list which
-    /// those are made the list rearrange itself under the cursor: muting a
-    /// slot removes its cues, so the widget just clicked would drop below the
-    /// "not in this take" divider and the next click landed on its neighbour.
+    /// Sticky, and that is the point: the sfx panel sorts the slots a take uses
+    /// above the ones it does not, and asking the live cue list made the list
+    /// rearrange under the cursor - muting a slot removed its cues, so the widget
+    /// just clicked dropped below the divider and the next click landed on its
+    /// neighbour.
     ///
-    /// A muted slot is still in the take - the cues were chosen and paid for
-    /// and then silenced at render, which is the whole reason a mute is an
-    /// honest A/B. So presence is remembered per take rather than recomputed
-    /// per frame, and it is cleared when a different take is loaded, where it
-    /// would be a claim about the wrong recording.
+    /// A muted slot is still in the take: its cues were chosen and paid for and
+    /// then silenced at render. Cleared when a different take is loaded.
     std::array<bool, static_cast<std::size_t>(rds::SlotId::kCount)> m_slotSeen{};
 
     /// Slots kept off the timeline, by index. Set from each slot's `timeline`
-    /// checkbox in the sfx panel and remembered between launches.
+    /// checkbox and remembered between launches.
     ///
-    /// Hidden rather than shown, so the zero value is the honest one: a fresh
-    /// install, a deleted prefs file and a slot added after this was written all
-    /// mean "draw it", and none of them need an entry to say so.
+    /// Hidden rather than shown, so zero is the honest default: a fresh install, a
+    /// deleted prefs file and a newly added slot all mean "draw it".
     ///
-    /// A drawing switch and nothing else. Unlike a mute, which silences a layer
-    /// the arbitrator still chose and paid for, this does not reach the engine
-    /// at all - the cue list, the table, the export and the sound are identical
-    /// with a slot hidden. It exists because the lane is 150 pixels tall and a
-    /// take with a long slide spends most of them on scrape envelopes that are
-    /// drawn over the impacts they are the context for.
+    /// A drawing switch and nothing else - the cue list, the table, the export and
+    /// the sound are identical with a slot hidden. It exists because the lane is
+    /// 150 pixels tall and a take with a long slide spends most of them on scrape
+    /// envelopes drawn over the impacts they are context for.
     std::array<bool, static_cast<std::size_t>(rds::SlotId::kCount)> m_slotHidden{};
 
     bool m_limitToCues{};
@@ -785,14 +760,10 @@ private:
     /// while the other keeps up with the video.
     bool m_followImpacts{true};
     bool m_followCues{true};
-    /// Drop limb-on-limb contacts from the impacts table.
-    ///
-    /// A ragdoll hits itself constantly - an arm against a thigh, a shin against
-    /// the other shin - and those rows are the great majority of a fall while
-    /// being almost none of what anybody is listening for. On by default: the
-    /// question the table is nearly always being asked is "what did this body
-    /// hit the world with", and reading that off a list where four rows in five
-    /// are the body hitting itself is the reason the box exists.
+    /// Drop limb-on-limb contacts from the impacts table. A ragdoll hits itself
+    /// constantly, and those rows are most of a fall while being almost none of
+    /// what anybody is listening for. On by default: the table is nearly always
+    /// being asked what the body hit the *world* with.
     bool m_hideSelfImpacts{true};
     /// Mirrors Player::Loop(). The transport owns the flag, but the preference
     /// file needs somewhere to land before the player exists.
@@ -854,14 +825,12 @@ private:
     /// click on the switch re-renders instead of being noticed only by the game.
     bool m_vanillaAudioApplied{};
 
-    /// On, the connected game puts vanilla's own body impacts back and plays
-    /// nothing of ours, and a take plays its recorded vanilla track instead of
-    /// our mix - the A/B switch for judging the mix against what it replaces,
-    /// inside one session rather than across two launches.
+    /// On, the connected game puts vanilla's body impacts back and plays nothing of
+    /// ours, and a take plays its recorded vanilla track instead of our mix - the
+    /// A/B switch, inside one session rather than across two launches.
     ///
-    /// Deliberately not remembered between launches: it is a thing done for the
-    /// length of a comparison, and a testbench that started with the mod muted
-    /// would be a morning spent wondering why the game went quiet.
+    /// Not remembered between launches: a testbench that started with the mod
+    /// muted would be a morning spent wondering why the game went quiet.
     bool m_useVanillaAudio{};
     /// Whether the game has been told the above since it connected. Its own flag
     /// rather than m_pushedValid's, because the switch travels even when the

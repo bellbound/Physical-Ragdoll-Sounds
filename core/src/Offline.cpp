@@ -123,16 +123,14 @@ void Check(VerifyReport& report, std::string name, bool passed, std::string deta
 
 /// Whether two cues are the same cue.
 ///
-/// Field by field, and deliberately not `memcmp`. `Cue` has three bytes of
-/// padding after `collapsed` and one after `moment`; the engine zeroes them when
-/// it builds a cue, and the copy into the collector's vector does not carry them
-/// across - so a byte comparison was reading whatever the allocator last had
-/// there and calling the engine non-deterministic two takes out of nine, at
-/// random, on runs that produced identical cue lists.
+/// Field by field, and deliberately not `memcmp`: `Cue` has padding after
+/// `collapsed` and after `moment` that the copy into the collector's vector does
+/// not carry across, so a byte comparison read whatever the allocator last had
+/// there and called the engine non-deterministic on runs that produced identical
+/// cue lists.
 ///
-/// A field this forgets is a field the check stops testing, which is the cost of
-/// doing it this way. It is the smaller cost: the alternative reports a failure
-/// that is not there, and a check that cries wolf is one nobody reads.
+/// The cost is that a field this forgets is a field the check stops testing. It is
+/// the smaller cost: the alternative cries wolf.
 [[nodiscard]] bool SameCue(const Cue& a, const Cue& b) {
     return a.timeMs == b.timeMs && a.op == b.op && a.slot == b.slot && a.variant == b.variant &&
            a.gainDb == b.gainDb && a.pitch == b.pitch && a.fadeMs == b.fadeMs &&
@@ -180,15 +178,28 @@ CoverageSite CoverageSiteFor(LimbSite site) {
 
 std::uint32_t RepresentativeMaterial(SurfaceClass surface) {
     // One well-known MATT id per class, chosen as the plainest member of each -
-    // "Wood" rather than "Book", "Stone" rather than "BoulderLarge" - so a
-    // pretend reads as the class itself and not as an odd corner of it.
+    // "Wood" rather than "Book" - so a pretend reads as the class itself.
+    //
+    // Every class has a row and every id round-trips: `SurfaceFromMaterial` on what
+    // is returned gives back the class asked for. Both halves used to be broken -
+    // the list stopped at the first six, so seven classes returned 0 and answered
+    // kSoft, and soft's own id was `Dirt`, so pretend-dirt gave soft and
+    // pretend-soft gave dirt. Both were invisible while dirt fell back to soft
+    // anyway.
     switch (surface) {
-        case SurfaceClass::kWood:  return 500811281u;   // Wood
-        case SurfaceClass::kStone: return 3741512247u;  // Stone
-        case SurfaceClass::kMetal: return 1288358971u;  // MetalSolid
-        case SurfaceClass::kWater: return 1024582599u;  // Water
-        case SurfaceClass::kBody:  return 591247106u;   // Skin
-        case SurfaceClass::kSoft:  return 3106094762u;  // Dirt
+        case SurfaceClass::kSoft:        return 1286705471u;  // Carpet
+        case SurfaceClass::kWood:        return 500811281u;   // Wood
+        case SurfaceClass::kStone:       return 3741512247u;  // Stone
+        case SurfaceClass::kMetal:       return 1288358971u;  // MetalSolid
+        case SurfaceClass::kWater:       return 1024582599u;  // Water
+        case SurfaceClass::kBody:        return 591247106u;   // Skin
+        case SurfaceClass::kDirt:        return 3106094762u;  // Dirt
+        case SurfaceClass::kGravel:      return 428587608u;   // Gravel
+        case SurfaceClass::kSnow:        return 398949039u;   // Snow
+        case SurfaceClass::kIce:         return 873356572u;   // Ice
+        case SurfaceClass::kGlass:       return 3739830338u;  // Glass
+        case SurfaceClass::kWaterPuddle: return 3764646153u;  // WaterPuddle
+        case SurfaceClass::kBone:        return 3049421844u;  // Bone
         case SurfaceClass::kCount: break;
     }
     return 0;
@@ -199,14 +210,12 @@ namespace {
 /// A feed that lies about the floor and the wardrobe, so a take recorded in one
 /// cell wearing one thing can be auditioned as any of the others.
 ///
-/// A wrapper rather than a flag inside the engine. The engine has no idea it is
-/// being lied to, which is what keeps the pretend honest: the surface goes in as
-/// a MATERIAL_ID and runs the same `SurfaceFromMaterial` the game does, and the
-/// coverage goes in through the profile the same way a real ragdoll's does.
+/// A wrapper rather than a flag inside the engine, which has no idea it is being
+/// lied to: the surface goes in as a MATERIAL_ID through the same
+/// `SurfaceFromMaterial` the game runs, and the coverage through the profile.
 ///
-/// It does not touch the recording. `RunOffline` is called twice per edit - once
-/// per A/B side - and a rewrite of the take would make the second call see a
-/// take the first had already altered.
+/// It does not touch the recording - `RunOffline` is called twice per edit, and a
+/// rewrite would make the second call see a take the first had altered.
 class PretendFeed final : public IFeed {
 public:
     PretendFeed(IFeed& inner, const OfflineOptions& options)
@@ -430,14 +439,11 @@ VerifyReport Verify(Recording& recording, const AlgorithmConfig& config, SoundBa
 
     // ── 3. no two impact onsets closer than the configured rate cap ──────────
     {
-        // The cap has a documented exception - an onset well above the one
-        // before it opens its own event rather than being folded into it
-        // (arb.rateCapOverrideDb) - so gaps alone would report a violation every
-        // time that exception fired. The engine counts the exceptions it granted
-        // rather than the verifier re-deriving them, because the level the
-        // arbitrator judged is the *proposed* stack's and layers can still be
-        // lost to the mix's voice floor afterwards, so the cue list no longer
-        // shows it.
+        // The cap has a documented exception (`arb.rateCapOverrideDb`), so gaps
+        // alone would report a violation every time it fired. The engine counts the
+        // exceptions it granted rather than the verifier re-deriving them: the
+        // level the arbitrator judged is the *proposed* stack's, and layers can
+        // still be lost to the voice floor afterwards.
         std::vector<TimeMs> onsets;
         for (const Cue& cue : run.cues) {
             if (IsOnset(cue)) {
@@ -608,13 +614,11 @@ VerifyReport Verify(Recording& recording, const AlgorithmConfig& config, SoundBa
 
     // ── 7. the moment axis fired sanely ───────────────────────────────────
     //
-    // The hero count guards the floor. A test that is too willing spends the
-    // moment on the first thing that touches - a 44.7 u/s thigh scuff, in the
-    // case that motivated the check - and a moment that resets the burst budget
-    // every time it opens stops being a budget at all. Zero heroes is
-    // legitimate (a gentle slump crosses nothing and the design says so), but a
-    // take with many is a floor set too low, and a hero moment that resets the
-    // burst budget every time it opens stops being a budget.
+    // The hero count guards the floor. A test that is too willing spends the moment
+    // on the first thing that touches - a 44.7 u/s thigh scuff, in the case that
+    // motivated the check - and a moment that resets the burst budget every time it
+    // opens stops being a budget. Zero heroes is legitimate; many is a floor set
+    // too low.
     {
         // Per knockdown rather than per take: the long recordings are several
         // knockdowns and are entitled to a hero apiece.
