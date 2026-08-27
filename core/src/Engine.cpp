@@ -297,6 +297,16 @@ struct ActorRuntime {
     /// judged the way it always was.
     ActorPhase phase{ActorPhase::kUnknown};
 
+    /// Whether the game says this actor is fighting or being fought, off the same
+    /// events as `phase` and stamped the same way. Meaningless while they are
+    /// down, which is exactly what `ModeFor` says about it.
+    bool inCombat{};
+
+    /// Which of the three tuning columns this actor is read through, recomputed
+    /// from the two above every time either is stamped. Held rather than derived
+    /// at each read so one tick cannot resolve two ways.
+    ActorMode mode{ActorMode::kRagdoll};
+
     /// Whether the player has this body in their hands, off the last
     /// `held_start`/`held_stop` row. Stamped like `phase`, never inferred: only
     /// the game thread can ask HIGGS, and only in VR is there anything to ask.
@@ -1560,7 +1570,7 @@ private:
     /// the second. Both halves rise only on contact-free ticks, so this cannot
     /// contain the collision it is about to judge.
     [[nodiscard]] static float Violence(const StrategyContext& ctx, const Contact& contact) {
-        const DamageViolenceConfig& viol = ctx.cfg.strategies.damage.violence;
+        const DamageViolenceConfig& viol = ctx.cfg.strategies.ragdollDamage.violence;
         if (!viol.enabled) {
             return 0.0f;
         }
@@ -1598,7 +1608,7 @@ private:
         if (!tier.enabled) {
             return;
         }
-        const DamageViolenceConfig& viol = ctx.cfg.strategies.damage.violence;
+        const DamageViolenceConfig& viol = ctx.cfg.strategies.ragdollDamage.violence;
 
         // A violent fall lowers the bar. It moves the **gate** and never the ramp,
         // as the air-time head rule does, so lowering the bar is not also a way of
@@ -1613,6 +1623,10 @@ private:
             return;
         }
         const DamageConfig& dmg = ctx.cfg.strategies.damage;
+        // Ragdoll-only, and read through the actor's column anyway: a shared row
+        // holds the same value in all three (see MirrorSharedRows), so this says
+        // where the parameter lives rather than which column to look in.
+        const RagdollDamageConfig& rag = ctx.cfg.strategies.ragdollDamage;
         auto& ledger = ctx.actor.damage[static_cast<std::size_t>(site)][tierIndex];
 
         // Budget and spacing, relaxed past the obliterate point rather than waived:
@@ -1629,12 +1643,12 @@ private:
                 ? static_cast<int>(std::lround(violence * static_cast<float>(viol.budgetBonus)))
                 : 0;
         const int budget =
-            tier.budget + (obliterate ? dmg.obliterateBudgetBonus : 0) + violenceBudget;
+            tier.budget + (obliterate ? rag.obliterateBudgetBonus : 0) + violenceBudget;
         if (ledger.count >= budget) {
             return;
         }
         float spacingMs =
-            tier.spacingMs * (obliterate ? std::max(0.0f, dmg.obliterateSpacingScale) : 1.0f);
+            tier.spacingMs * (obliterate ? std::max(0.0f, rag.obliterateSpacingScale) : 1.0f);
         if (violence > 0.0f) {
             spacingMs *= Lerp(1.0f, std::max(0.0f, viol.spacingScale), violence);
         }
@@ -2178,35 +2192,6 @@ private:
     }
 };
 
-/// The airborne anticipation rise, and nothing else. The cloth bed that used to
-/// sit under every ragdoll went with its slot: `bFoleyCloth = 0` in all
-/// thirty-eight saved configs.
-class MotionFoleyStrategy final : public IStrategy {
-public:
-    [[nodiscard]] const char* Name() const override { return "MotionFoley"; }
-
-    void ProposeTick(const StrategyContext& ctx, ProposalList& out) override {
-        const MotionFoleyConfig& foley = ctx.cfg.strategies.foley;
-        ActorRuntime& actor = ctx.actor;
-
-        // Skipped for your own ragdoll: you are the one moving and the view tells
-        // you.
-        const bool wantsRise = foley.enabled && foley.airborneRise && actor.haveBodyPoint &&
-                               actor.state.airborne &&
-                               actor.state.tier == DistanceTier::kFull &&
-                               !(actor.isPlayer && ctx.cfg.player.skipAirborneWhoosh);
-        if (wantsRise) {
-            EmitLoopProposal(ctx, out, actor.riseRunning, actor.riseVoice, actor.riseLastDb,
-                             actor.riseAnchor, SlotId::kAirWhoosh, foley.airborneRiseGainDb, 1.0f,
-                             CueReason::kAirborneRise, 150.0f, BodyAnchor(actor),
-                             ActorClassCoverage(ctx));
-        } else if (actor.riseRunning) {
-            StopLoopProposal(ctx, out, actor.riseRunning, actor.riseVoice, SlotId::kAirWhoosh,
-                             CueReason::kAirborneRise, 200.0f);
-        }
-    }
-};
-
 /// Damage from being worked on, rather than from one bad landing.
 ///
 /// A separate strategy and not a fifth tier: the tiers judge *this contact*, this
@@ -2361,6 +2346,8 @@ public:
         const RustleConfig& rustle = ctx.cfg.strategies.rustle;
         ActorRuntime& actor = ctx.actor;
 
+        AirborneRise(ctx, out, rustle);
+
         const float drive = actor.state.rustleDrive;
 
         // Every reason there might be nothing to play, in one test - and every
@@ -2413,6 +2400,39 @@ public:
     }
 
 private:
+    /// The airborne anticipation rise: MotionFoley's last layer, moved here when
+    /// that strategy was retired.
+    ///
+    /// It sits inside the garment rather than beside it because it answers the one
+    /// question the garment already asks - what a body that is not touching
+    /// anything is doing - and because a whole stage-3 object for a loop and a stop
+    /// was most of a strategy's cost for none of its independence. It is still its
+    /// own slot, its own voice and its own enable, so nothing about what is heard
+    /// has changed.
+    ///
+    /// Independent of the rustle's own `bEnabled`: they are two layers, and an
+    /// install with no `cloth_rustle` recorded still has an `air_whoosh`.
+    static void AirborneRise(const StrategyContext& ctx, ProposalList& out,
+                             const RustleConfig& rustle) {
+        ActorRuntime& actor = ctx.actor;
+
+        // Skipped for your own ragdoll: you are the one moving and the view tells
+        // you.
+        const bool wantsRise = rustle.airborneRise && actor.haveBodyPoint &&
+                               actor.state.airborne &&
+                               actor.state.tier == DistanceTier::kFull &&
+                               !(actor.isPlayer && ctx.cfg.player.skipAirborneWhoosh);
+        if (wantsRise) {
+            EmitLoopProposal(ctx, out, actor.riseRunning, actor.riseVoice, actor.riseLastDb,
+                             actor.riseAnchor, SlotId::kAirWhoosh, rustle.airborneRiseGainDb, 1.0f,
+                             CueReason::kAirborneRise, 150.0f, BodyAnchor(actor),
+                             ActorClassCoverage(ctx));
+        } else if (actor.riseRunning) {
+            StopLoopProposal(ctx, out, actor.riseRunning, actor.riseVoice, SlotId::kAirWhoosh,
+                             CueReason::kAirborneRise, 200.0f);
+        }
+    }
+
     /// The class the whole actor answers to. The torso's `bodyCoverage`, whatever
     /// `[Armor] iActorClassSource` says about the other actor-level cues: a
     /// garment is what the body is wearing, and the slide's coverage is
@@ -2473,6 +2493,16 @@ float EngineStats::ReductionRatio() const {
 // ═════════════════════════════════════════════════════════════════════════════
 
 struct Engine::Impl {
+    /// All three columns. Everything an actor's own contacts are judged by is read
+    /// through `For(actor)`; everything cross-actor - arbitration, the mix, the
+    /// voice pool - is read through `cfg`.
+    ConfigSet cfgs{};
+
+    /// The ragdoll column, which is also where every shared value lives (see
+    /// MirrorSharedRows). Kept as a plain member rather than a reference into the
+    /// set so the hundred and sixty reads that do not care about modes read
+    /// exactly as they always did, and so no read can be made stale by a swap of
+    /// the set behind it.
     AlgorithmConfig cfg{};
     SoundBank* bank{};
     ICueSink* sink{};
@@ -2505,7 +2535,6 @@ struct Engine::Impl {
     HeadImpactStrategy head;
     ImpactCompositeStrategy composite;
     DamageStrategy damage;
-    MotionFoleyStrategy foley;
     /// Last, and it does not matter that it is: it claims nothing, reads nothing
     /// another strategy writes, and bypasses arbitration.
     ClothRustleStrategy rustle;
@@ -2513,7 +2542,16 @@ struct Engine::Impl {
     /// limb's history. After `damage`, so a contact that breaks a bone on its own
     /// merits has already been judged on them.
     AccumDamageStrategy accum;
-    std::array<IStrategy*, 7> strategies{};
+    std::array<IStrategy*, 6> strategies{};
+
+    /// The column an actor is judged through. Every stage before arbitration goes
+    /// through here; arbitration and the mix deliberately do not, because they sort
+    /// one list of proposals from every actor into one voice pool and a rule that
+    /// varied per proposal would not be a rule.
+    [[nodiscard]] const AlgorithmConfig& For(ActorMode mode) const { return cfgs[mode]; }
+    [[nodiscard]] const AlgorithmConfig& For(const ActorRuntime& actor) const {
+        return cfgs[actor.mode];
+    }
 
     Impl() {
         drained.reserve(256);
@@ -2523,7 +2561,7 @@ struct Engine::Impl {
         acceptedSeqs.reserve(128);
         actors.reserve(8);
         liveVoices.reserve(kVoiceReserve);
-        strategies = {&scrape, &head, &composite, &damage, &accum, &foley, &rustle};
+        strategies = {&scrape, &head, &composite, &damage, &accum, &rustle};
         rng.Seed(1);
     }
 
@@ -2637,25 +2675,26 @@ struct Engine::Impl {
     /// Every loop this actor still holds, stopped for real: a cue to the sink so
     /// the renderer lets its voice go, and the budget entry given back.
     void StopActorLoops(ActorRuntime& actor, TimeMs nowMs) {
+        const AlgorithmConfig& c = For(actor);
         StopOneLoop(actor, nowMs, actor.riseRunning, actor.riseVoice, SlotId::kAirWhoosh,
                     CueReason::kAirborneRise, 200.0f);
         StopOneLoop(actor, nowMs, actor.scrapeRunning, actor.scrapeVoice, actor.scrapeSlot,
-                    CueReason::kScrape, cfg.strategies.scrape.stopFadeMs);
+                    CueReason::kScrape, c.strategies.scrape.stopFadeMs);
         StopOneLoop(actor, nowMs, actor.armorSlideRunning, actor.armorSlideVoice,
                     actor.armorSlideSlot, CueReason::kArmorSkin,
-                    cfg.strategies.scrape.stopFadeMs);
+                    c.strategies.scrape.stopFadeMs);
         // The bed, which has to be here and not only in `RumbleBed`: an NPC who
         // gets up mid-slide never reaches the route to Resting, so this sweep is
         // the only thing that would stop it. It is also the worst loop to strand -
         // pure low frequency, so it reads as the room having a hum in it.
         StopOneLoop(actor, nowMs, actor.scrapeBedRunning, actor.scrapeBedVoice,
                     SlotId::kScrapeLoopRumble, CueReason::kScrape,
-                    cfg.strategies.scrape.stopFadeMs);
+                    c.strategies.scrape.stopFadeMs);
         StopOneLoop(actor, nowMs, actor.rustleRunning, actor.rustleVoice, SlotId::kClothRustle,
-                    CueReason::kRustle, cfg.strategies.rustle.stopFadeMs);
+                    CueReason::kRustle, c.strategies.rustle.stopFadeMs);
         for (auto& loop : actor.limbLoops) {
             StopOneLoop(actor, nowMs, loop.running, loop.voice, loop.slot, CueReason::kScrape,
-                        cfg.strategies.scrape.stopFadeMs);
+                        c.strategies.scrape.stopFadeMs);
         }
     }
 
@@ -2716,8 +2755,8 @@ struct Engine::Impl {
     }
 
     [[nodiscard]] float Intensity(float impactSpeed, LimbSite site, float radius, float bodySpeed,
-                                  float angularSpeed) const {
-        const IntensityConfig& in = cfg.intensity;
+                                  float angularSpeed, ActorMode mode) const {
+        const IntensityConfig& in = For(mode).intensity;
         const float span = std::max(1.0f, in.speedRefHigh - in.speedRefLow);
         float normalised = std::max(0.0f, (impactSpeed - in.speedRefLow) / span);
 
@@ -2762,8 +2801,8 @@ struct Engine::Impl {
     };
 
     [[nodiscard]] GlanceCut Glance(LimbSite site, float impactSpeed, float tangentSpeed,
-                                   float bodySpeed) const {
-        const GlancingImpactConfig& g = cfg.glancing;
+                                   float bodySpeed, ActorMode mode) const {
+        const GlancingImpactConfig& g = For(mode).glancing;
         GlanceCut cut{};
         if (!g.enabled || bodySpeed < g.minBodySpeed) {
             return cut;
@@ -2795,16 +2834,16 @@ struct Engine::Impl {
     /// The whole range onto about 35 dB. The references span 13-17 dB across their
     /// onsets with the bed 30-36 dB under the hero hit; a naive log curve gives 60
     /// and sounds wrong at both ends.
-    [[nodiscard]] float GainFromIntensity(float intensity) const {
-        return -cfg.intensity.dynamicRangeDb * (1.0f - intensity);
+    [[nodiscard]] float GainFromIntensity(float intensity, ActorMode mode) const {
+        return -For(mode).intensity.dynamicRangeDb * (1.0f - intensity);
     }
 
     /// The Stage 5 half of the same curve - see PostIntensityConfig. Returns a
     /// *difference*: the level under the post numbers minus what
     /// GainFromIntensity already charged, which is what makes it addable at the
     /// end and neutral defaults cost exactly nothing.
-    [[nodiscard]] float PostShapeDb(float intensity) const {
-        const PostIntensityConfig& post = cfg.intensity.post;
+    [[nodiscard]] float PostShapeDb(float intensity, ActorMode mode) const {
+        const PostIntensityConfig& post = For(mode).intensity.post;
         const float raw = std::clamp(intensity, 0.0f, 1.0f);
 
         float shaped = raw;
@@ -2814,8 +2853,8 @@ struct Engine::Impl {
         }
         shaped = std::pow(std::clamp(shaped, 0.0f, 1.0f), post.curveExponent);
 
-        const float range = std::max(0.0f, cfg.intensity.dynamicRangeDb + post.extraRangeDb);
-        return -range * (1.0f - shaped) - GainFromIntensity(raw);
+        const float range = std::max(0.0f, For(mode).intensity.dynamicRangeDb + post.extraRangeDb);
+        return -range * (1.0f - shaped) - GainFromIntensity(raw, mode);
     }
 
     /// What this actor may spend right now, from both Stage 2 axes. Motion owns
@@ -3090,25 +3129,34 @@ struct Engine::Impl {
             const ActorProfile* profile = feed.Profile(event.actorId);
             ActorRuntime& actor = Acquire(event.actorId, profile);
             actor.phase = event.phase;
+            actor.inCombat = event.inCombat;
+            actor.mode = ModeFor(event.phase, event.inCombat);
+
+            // This actor's own column, and from here to the end of the contact
+            // every ingest decision is read through it. The ragdoll bodies collide
+            // the whole time a character is animated, so the floor that admits a
+            // knockdown's small taps would admit every footstep as well: this is
+            // the seam the whole mode axis exists for.
+            const AlgorithmConfig& c = For(actor);
 
             // The floor, with the slide relief 01 §5's Admit stage is for. Asked of
             // the contact's own tangent speed, never the motion state: ingest runs
             // before Stage 2, so the state here is last tick's (01 §7.4).
-            float floorSpeed = cfg.ingest.minImpactSpeed;
-            if (cfg.ingest.slideFloorFrac < 1.0f) {
-                const float from = cfg.ingest.minImpactSpeed;
+            float floorSpeed = c.ingest.minImpactSpeed;
+            if (c.ingest.slideFloorFrac < 1.0f) {
+                const float from = c.ingest.minImpactSpeed;
                 const float span =
-                    std::max(1.0f, cfg.ingest.slideFloorAtTangent - from);
+                    std::max(1.0f, c.ingest.slideFloorAtTangent - from);
                 const float ramp =
                     std::clamp((event.tangentSpeed - from) / span, 0.0f, 1.0f);
-                floorSpeed *= Lerp(1.0f, std::clamp(cfg.ingest.slideFloorFrac, 0.0f, 1.0f), ramp);
+                floorSpeed *= Lerp(1.0f, std::clamp(c.ingest.slideFloorFrac, 0.0f, 1.0f), ramp);
             }
             if (event.impactSpeed < floorSpeed) {
                 ++stats.rejectedBelowFloor;
                 ++actor.stats.rejectedBelowFloor;
                 continue;
             }
-            if (IsBlowup(event)) {
+            if (IsBlowup(event, actor.mode)) {
                 ++stats.rejectedBlowup;
                 ++actor.stats.rejectedBlowup;
                 spdlog::debug("seq {} rejected: blow-up, {:.0f} against {:.0f} u/s",
@@ -3136,7 +3184,7 @@ struct Engine::Impl {
             // Every self-collision fires twice - 624 of 624 ordered pairs had their
             // mirror in the same frame. Keeping the copy whose own body sorts first
             // is a decision each end can make alone.
-            if (cfg.ingest.dropMirroredSelfContacts && event.otherLimb >= 0 && limb != nullptr &&
+            if (c.ingest.dropMirroredSelfContacts && event.otherLimb >= 0 && limb != nullptr &&
                 limb->bodyId != 0 && event.otherBody != 0 && limb->bodyId > event.otherBody) {
                 ++stats.droppedMirror;
                 ++actor.stats.droppedMirror;
@@ -3166,26 +3214,27 @@ struct Engine::Impl {
                                                        : SurfaceFromLayer(event.otherLayer);
             contact.otherBody = event.otherBody;
             contact.selfContact = event.otherLimb >= 0;
-            contact.graze = IsGraze(cfg.ingest, event.impactSpeed, event.tangentSpeed);
+            contact.graze = IsGraze(c.ingest, event.impactSpeed, event.tangentSpeed);
             contact.intensity = Intensity(event.impactSpeed, contact.site, contact.limbRadius,
-                                          event.bodySpeed, event.angularSpeed);
+                                          event.bodySpeed, event.angularSpeed, actor.mode);
             // A landing limb that only clipped the surface can be charged on
             // intensity (which also demotes it through the composite/tap branch),
             // on level, or both - but never on how big the fall itself looks, so
             // the untouched figure is kept.
             contact.rawIntensity = contact.intensity;
             const GlanceCut glance =
-                Glance(contact.site, event.impactSpeed, event.tangentSpeed, event.bodySpeed);
+                Glance(contact.site, event.impactSpeed, event.tangentSpeed, event.bodySpeed,
+                       actor.mode);
             contact.glanceScale = glance.intensityScale;
             contact.modTrimDb += glance.trimDb;
             contact.intensity = std::clamp(contact.intensity * glance.intensityScale, 0.0f, 1.0f);
-            contact.onsetGainDb = GainFromIntensity(contact.intensity) + glance.gainDb;
+            contact.onsetGainDb = GainFromIntensity(contact.intensity, actor.mode) + glance.gainDb;
 
             // All contact points of one manifold collapse to their max, grouped by
             // (limb, other body) within the frame rather than bracketed by
             // manifold_first/manifold_last: 244 rows carry `last` with no `first`,
             // and both flags re-fire across a persisting manifold's frames.
-            if (cfg.ingest.collapseManifolds) {
+            if (c.ingest.collapseManifolds) {
                 bool merged = false;
                 for (Contact& existing : contacts) {
                     // (this body, other body) - 07 §3's x1.07 over-count. By the
@@ -3227,10 +3276,16 @@ struct Engine::Impl {
         std::size_t write = 0;
         for (std::size_t i = 0; i < contacts.size(); ++i) {
             const Contact& contact = contacts[i];
-            if (contact.selfContact && contact.impactSpeed < cfg.ingest.selfContactThreshold) {
+            // A second pass over every contact of every actor, so the column comes
+            // from the contact rather than from the loop above it. Falling back to
+            // the shared column for an actor already released is the same answer
+            // for a row that is not per mode, and the safe one for a row that is.
+            ActorRuntime* owner = Find(contact.actorId);
+            const AlgorithmConfig& c = owner != nullptr ? For(*owner) : cfg;
+            if (contact.selfContact && contact.impactSpeed < c.ingest.selfContactThreshold) {
                 ++stats.droppedSelfContact;
-                if (ActorRuntime* actor = Find(contact.actorId); actor != nullptr) {
-                    ++actor->stats.droppedSelfContact;
+                if (owner != nullptr) {
+                    ++owner->stats.droppedSelfContact;
                 }
                 continue;
             }
@@ -3247,7 +3302,8 @@ struct Engine::Impl {
     /// solver's closing speed and `normalSpeed` the same quantity recomputed from
     /// both bodies' motion state, so a row where they disagree cannot be
     /// reproduced by rigid-body arithmetic (07 §2).
-    [[nodiscard]] bool IsBlowup(const FeedEvent& event) const {
+    [[nodiscard]] bool IsBlowup(const FeedEvent& event, ActorMode mode) const {
+        const AlgorithmConfig& cfg = For(mode);
         if (event.normalSpeed != 0.0f) {
             // Magnitudes: normalSpeed comes out exactly negated on 23% of good
             // rows, so compared signed a quarter of the dataset looks broken.
@@ -3277,8 +3333,11 @@ struct Engine::Impl {
         const ActorProfile* profile = feed.Profile(event.actorId);
         ActorRuntime& actor = Acquire(event.actorId, profile);
         // The pose is the only row an actor who never collides carries, so in
-        // animated mode it is what tells the rustle which world this actor is in.
+        // animated mode it is what tells the rustle which world this actor is in -
+        // and, since the modes, which column it is judged through.
         actor.phase = event.phase;
+        actor.inCombat = event.inCombat;
+        actor.mode = ModeFor(event.phase, event.inCombat);
         const LimbInfo* limb = profile != nullptr ? profile->Limb(event.limbIndex) : nullptr;
         const float mass = NominalMass(limb != nullptr ? limb->site : LimbSite::kUnknown);
 
@@ -3333,6 +3392,18 @@ struct Engine::Impl {
             }
             return;
         }
+        if (state == "combat_start" || state == "combat_stop") {
+            // Find rather than Acquire, like a hold: entering a fight is not a
+            // reason to start tracking a body. An actor acquired later gets their
+            // combat flag off the next contact or pose row instead, both of which
+            // carry it.
+            if (ActorRuntime* actor = Find(event.actorId); actor != nullptr) {
+                actor->inCombat = state == "combat_start";
+                actor->mode = ModeFor(actor->phase, actor->inCombat);
+                spdlog::debug("actor {} {} -> {}", actor->name, state, ToString(actor->mode));
+            }
+            return;
+        }
         if (state == "held_start" || state == "held_stop") {
             // Find rather than Acquire: a hold is not a reason to open a knockdown.
             // The feed only publishes these for an actor it already tracks, and
@@ -3365,8 +3436,10 @@ struct Engine::Impl {
     /// Called from ConsumePose with the body's own acceleration, the reference the
     /// relative term subtracts, which is not stored anywhere else.
     void ConsumeRustle(ActorRuntime& actor, TimeMs nowMs, float dt, const Vec3& bodyAccel) {
-        const RustleConfig& rust = cfg.strategies.rustle;
-        const DamageViolenceConfig& viol = cfg.strategies.damage.violence;
+        const RustleConfig& rust = For(actor).strategies.rustle;
+        // Ragdoll-only, so it is read through the column that holds every shared
+        // value rather than through the actor's. See RagdollDamageConfig.
+        const DamageViolenceConfig& viol = cfg.strategies.ragdollDamage.violence;
         // **Two measurements, not one shared one.** The garment asks how much
         // *cloth* is moving and weights by what hangs on each limb; violence asks
         // how much *body* is being thrown about and weights by anatomical mass.
@@ -3999,7 +4072,8 @@ struct Engine::Impl {
             actor.contactFraction = 0.0f;
             return;
         }
-        const auto hold = static_cast<float>(std::max(0.0f, cfg.strategies.scrape.contactHoldMs));
+        const auto hold =
+            static_cast<float>(std::max(0.0f, For(actor).strategies.scrape.contactHoldMs));
         float touching = 0.0f;
         for (std::size_t i = 0; i < actor.limbCount && i < kMaxLimbs; ++i) {
             const ActorRuntime::LimbTrack& limb = actor.limbs[i];
@@ -4041,7 +4115,8 @@ struct Engine::Impl {
             actor.haveBodyAnchor = true;
         }
 
-        const auto hold = static_cast<float>(std::max(0.0f, cfg.strategies.scrape.limbHoldMs));
+        const auto hold =
+            static_cast<float>(std::max(0.0f, For(actor).strategies.scrape.limbHoldMs));
         for (std::size_t i = 0; i < kScrapeChainCount; ++i) {
             ActorRuntime::LimbLoop& loop = actor.limbLoops[i];
             loop.tickTangent = 0.0f;
@@ -4232,15 +4307,15 @@ struct Engine::Impl {
     /// A hero floor from a fraction of the loud anchor. One function so the
     /// ordinary floor and the head's relieved one cannot disagree about what a
     /// fraction means, and so the clamp at zero is written once.
-    [[nodiscard]] float HeroFloor(float frac) const {
-        return std::max(0.0f, frac * cfg.intensity.speedRefHigh);
+    [[nodiscard]] float HeroFloor(float frac, ActorMode mode) const {
+        return std::max(0.0f, frac * For(mode).intensity.speedRefHigh);
     }
 
     /// How much of the loud anchor `[HeadImpact]`'s relief takes off that floor.
     /// Negative is refused rather than passed through: a "relief" that raised the
     /// gate is the one thing the name promises it cannot do.
-    [[nodiscard]] float HeadRelief() const {
-        return std::max(0.0f, cfg.strategies.head.heroFloorReliefFrac);
+    [[nodiscard]] float HeadRelief(ActorMode mode) const {
+        return std::max(0.0f, For(mode).strategies.head.heroFloorReliefFrac);
     }
 
     /// Whether a contact earns that relief: a head, hard enough in its own right,
@@ -4250,11 +4325,12 @@ struct Engine::Impl {
     /// in head-down attitude, air time and company, so reusing it would move this
     /// rule whenever any of the three were tuned. This asks something simpler: was
     /// the skull the thing that hit.
-    [[nodiscard]] bool HeadFloorRelieved(const Contact& contact) const {
-        const HeadImpactConfig& headCfg = cfg.strategies.head;
+    [[nodiscard]] bool HeadFloorRelieved(const Contact& contact, ActorMode mode) const {
+        const AlgorithmConfig& c = For(mode);
+        const HeadImpactConfig& headCfg = c.strategies.head;
         return headCfg.enabled && headCfg.heroFloorRelief && contact.site == LimbSite::kHead &&
-               HeadRelief() > 0.0f &&
-               contact.impactSpeed >= headCfg.heroFloorReliefAtFrac * cfg.intensity.speedRefHigh;
+               HeadRelief(mode) > 0.0f &&
+               contact.impactSpeed >= headCfg.heroFloorReliefAtFrac * c.intensity.speedRefHigh;
     }
 
     /// Stage 2, axis two. What the mix is doing.
@@ -4282,7 +4358,7 @@ struct Engine::Impl {
             spdlog::debug("actor {} hero window closed at {:.0f} ms", actor.name, nowMs);
         }
 
-        const float baseFloor = HeroFloor(hero.floorFrac);
+        const float baseFloor = HeroFloor(hero.floorFrac, actor.mode);
 
         for (const Contact& contact : contacts) {
             if (contact.actorId != state.actorId || contact.selfContact) {
@@ -4291,8 +4367,10 @@ struct Engine::Impl {
 
             // Per contact rather than per tick, because `[HeadImpact]`'s relief
             // makes the floor a function of which limb arrived.
-            const bool relieved = HeadFloorRelieved(contact);
-            const float floor = relieved ? HeroFloor(hero.floorFrac - HeadRelief()) : baseFloor;
+            const bool relieved = HeadFloorRelieved(contact, actor.mode);
+            const float floor =
+                relieved ? HeroFloor(hero.floorFrac - HeadRelief(actor.mode), actor.mode)
+                         : baseFloor;
             if (contact.impactSpeed < floor) {
                 continue;
             }
@@ -4327,7 +4405,8 @@ struct Engine::Impl {
             // let them come from different ones.
             bool arrived = false;
             if (state.haveBodySamples) {
-                StrategyContext ctx{cfg, actor, rng, nowMs, frameMs, &nextVoiceId, &stats, bank};
+                StrategyContext ctx{For(actor), actor,        rng,   nowMs,
+                                    frameMs,      &nextVoiceId, &stats, bank};
                 const FlightMeasure flight = FlightFor(ctx, contact, false, 0.0f);
                 arrived = flight.airMs >= hero.arrivalMinAirMs &&
                           flight.dropUnits >= hero.arrivalMinDropUnits;
@@ -4448,7 +4527,7 @@ struct Engine::Impl {
     /// rule, so the carried onset gain, capped lift and accumulated trim all live
     /// in `Shape` and only the measurement is here. Returns the ramp it applied.
     float ApplyBodyAirTime(const StrategyContext& ctx, Contact& contact) {
-        const AirTimeConfig& airCfg = cfg.strategies.airTime;
+        const AirTimeConfig& airCfg = ctx.cfg.strategies.airTime;
         if (!airCfg.bodyEnabled || contact.site == LimbSite::kHead) {
             return 0.0f;
         }
@@ -4459,7 +4538,7 @@ struct Engine::Impl {
             return 0.0f;
         }
 
-        Shape(contact, airCfg.bodyLift, ramp, cfg.intensity.dynamicRangeDb);
+        Shape(contact, airCfg.bodyLift, ramp, ctx.cfg.intensity.dynamicRangeDb);
         return ramp;
     }
 
@@ -4473,7 +4552,7 @@ struct Engine::Impl {
             }
             // Before the tier check, so a landing this rule lifts can clear it.
             {
-                StrategyContext airCtx{cfg, *actor, rng, nowMs, frameMs, &nextVoiceId};
+                StrategyContext airCtx{For(*actor), *actor, rng, nowMs, frameMs, &nextVoiceId};
                 const float before = contact.intensity;
                 if (const float ramp = ApplyBodyAirTime(airCtx, contact); ramp > 0.0f) {
                     TraceLine(contact.timeMs, contact.actorId, contact.limbIndex,
@@ -4495,8 +4574,9 @@ struct Engine::Impl {
             // the contact's own row, so `iRngSeed` still re-rolls the whole take.
             Rng contactRng;
             contactRng.Seed(StableSeed(cfg.slots.rngSeed, contact.sourceSeq));
-            StrategyContext ctx{cfg, *actor, cfg.slots.stableVariants ? contactRng : rng,
-                                nowMs, frameMs, &nextVoiceId, &stats, bank};
+            StrategyContext ctx{For(*actor), *actor, cfg.slots.stableVariants ? contactRng : rng,
+                                nowMs,          frameMs, &nextVoiceId,
+                                &stats,         bank};
             // Head contacts get a trace line whatever becomes of them: every head
             // rule judges geometry the cue list cannot show, and without this an
             // air time of zero and one that was never enabled look identical.
@@ -4527,7 +4607,8 @@ struct Engine::Impl {
             if (!actor.inUse || actor.state.tier == DistanceTier::kCulled) {
                 continue;
             }
-            StrategyContext ctx{cfg, actor, rng, nowMs, frameMs, &nextVoiceId, &stats, bank};
+            StrategyContext ctx{For(actor), actor,        rng,   nowMs,
+                                frameMs,      &nextVoiceId, &stats, bank};
             for (IStrategy* strategy : strategies) {
                 strategy->ProposeTick(ctx, proposals);
             }
@@ -4872,7 +4953,8 @@ struct Engine::Impl {
 
         // Contact-derived cues only: a bypass proposal carries no intensity of its
         // own, so shaping it by one re-levels the bed against a zero it never had.
-        const float postShapeDb = proposal.bypass ? 0.0f : PostShapeDb(proposal.intensity);
+        const float postShapeDb =
+            proposal.bypass ? 0.0f : PostShapeDb(proposal.intensity, actor.mode);
 
         // The band compressor is taken per layer, further down, against
         // `Layer::gainDb` - the same pre-trim scale as `levelDb`, where 0 dB is the
@@ -5053,17 +5135,31 @@ void Engine::SetSoundBank(SoundBank* bank) { m_impl->bank = bank; }
 
 void Engine::SetSink(ICueSink* sink) { m_impl->sink = sink; }
 
-void Engine::SetConfig(const AlgorithmConfig& config) {
-    const bool seedChanged = m_impl->cfg.slots.rngSeed != config.slots.rngSeed;
-    m_impl->cfg = config;
+void Engine::SetConfig(const ConfigSet& config) {
+    const bool seedChanged = m_impl->cfg.slots.rngSeed != config.Base().slots.rngSeed;
+    m_impl->cfgs = config;
+    m_impl->cfg = config.Base();
+
+    // The bank is one object shared by every actor, so what it is told comes from
+    // the ragdoll column - which is also the only column `[Slots]` has, since none
+    // of it is `perMode`.
+    //
+    // Pushed on every SetConfig rather than only on a seed change. It used to
+    // hang off `seedChanged`, which was true while the only thing that ever
+    // replaced a config was the testbench pushing a whole new one with a new
+    // seed; with a config set that can be swapped for any reason, four variant
+    // switches would have gone quietly unapplied.
+    if (m_impl->bank != nullptr) {
+        m_impl->bank->SetStableVariants(m_impl->cfg.slots.stableVariants);
+        m_impl->bank->SetConditions(m_impl->cfg.slots.conditionalVariants,
+                                    m_impl->cfg.slots.surfaceConditions,
+                                    m_impl->cfg.slots.armorConditions);
+    }
+    // The stream itself is only re-seeded when the seed actually moved: re-seeding
+    // mid-scene throws away where the shuffle bag had got to, and a config swap
+    // that keeps the seed should not re-roll every variant after it.
     if (seedChanged) {
-        m_impl->rng.Seed(config.slots.rngSeed == 0 ? 1u : config.slots.rngSeed);
-        if (m_impl->bank != nullptr) {
-            m_impl->bank->SetStableVariants(config.slots.stableVariants);
-            m_impl->bank->SetConditions(config.slots.conditionalVariants,
-                                        config.slots.surfaceConditions,
-                                        config.slots.armorConditions);
-        }
+        m_impl->rng.Seed(m_impl->cfg.slots.rngSeed == 0 ? 1u : m_impl->cfg.slots.rngSeed);
     }
 }
 

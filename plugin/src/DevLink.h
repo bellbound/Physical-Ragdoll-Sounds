@@ -74,7 +74,7 @@ public:
         /// game rather than to the mix.
         bool audioMode{};
         bool useVanillaAudio{};
-        AlgorithmConfig config{};
+        ConfigSet config{};
         SfxAssignments sfxTable{};
         std::string libraryPath;
 

@@ -213,7 +213,7 @@ void DevLink::Session(link::Socket& socket) {
                 // what the game runs is exactly what the testbench is showing -
                 // a key the testbench does not know about goes back to its
                 // default rather than silently keeping the ini's value.
-                AlgorithmConfig config{};
+                ConfigSet config{};
                 link::DecodeAlgorithm(text, config);
                 std::lock_guard lock{m_inMutex};
                 m_pending.algorithm = true;

@@ -121,9 +121,11 @@ void ApplyDevbench(Mod& mod) {
         // The feed's radius is read once rather than per frame, so a pushed
         // config that widens it has to say so - otherwise the engine would be
         // willing to hear an actor the feed had already stopped tracking.
-        mod.feed.SetCullRadius(pending.config.distance.simplifiedRadius);
-        mod.feed.SetBodySampleEveryNTicks(pending.config.ingest.bodySampleEveryNTicks);
-        mod.feed.SetGameIntegration(pending.config.game);
+        // Off the ragdoll column: none of these three is per mode, and there is
+        // one feed to tell.
+        mod.feed.SetCullRadius(pending.config.Base().distance.simplifiedRadius);
+        mod.feed.SetBodySampleEveryNTicks(pending.config.Base().ingest.bodySampleEveryNTicks);
+        mod.feed.SetGameIntegration(pending.config.Base().game);
     }
     if (pending.sfx) {
         config.PushSfxOverride(pending.sfxTable);
@@ -158,9 +160,9 @@ void ApplyDevbench(Mod& mod) {
     if (pending.clear && !pending.algorithm) {
         const auto algorithm = config.Algorithm();
         mod.engine.SetConfig(algorithm);
-        mod.feed.SetCullRadius(algorithm.distance.simplifiedRadius);
-        mod.feed.SetBodySampleEveryNTicks(algorithm.ingest.bodySampleEveryNTicks);
-        mod.feed.SetGameIntegration(algorithm.game);
+        mod.feed.SetCullRadius(algorithm.Base().distance.simplifiedRadius);
+        mod.feed.SetBodySampleEveryNTicks(algorithm.Base().ingest.bodySampleEveryNTicks);
+        mod.feed.SetGameIntegration(algorithm.Base().game);
     }
 }
 
@@ -350,9 +352,9 @@ void OnDataLoaded() {
     // Anything past the engine's own Simplified radius is culled by the engine,
     // so there is nothing to be gained by still listening to it. Read once:
     // Algorithm() hands back a copy of a large struct and this runs every frame.
-    mod.feed.SetCullRadius(algorithm.distance.simplifiedRadius);
-    mod.feed.SetBodySampleEveryNTicks(algorithm.ingest.bodySampleEveryNTicks);
-    mod.feed.SetGameIntegration(algorithm.game);
+    mod.feed.SetCullRadius(algorithm.Base().distance.simplifiedRadius);
+    mod.feed.SetBodySampleEveryNTicks(algorithm.Base().ingest.bodySampleEveryNTicks);
+    mod.feed.SetGameIntegration(algorithm.Base().game);
     mod.feed.Install();
 
     // The renderer knows a cue wants a bone; only the feed knows how that actor's

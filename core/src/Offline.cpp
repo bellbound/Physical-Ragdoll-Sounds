@@ -289,15 +289,17 @@ private:
 
 }  // namespace
 
-OfflineResult RunOffline(Recording& recording, const AlgorithmConfig& config, SoundBank& bank,
+OfflineResult RunOffline(Recording& recording, const ConfigSet& config, SoundBank& bank,
                          const OfflineOptions& options) {
     OfflineResult result;
 
     // One seed drives both the engine's scatter and the bank's shuffle bags, so
     // a run is reproducible end to end rather than only halfway.
-    AlgorithmConfig seeded = config;
-    seeded.slots.rngSeed = options.seed == 0 ? 1u : options.seed;
-    bank.Seed(seeded.slots.rngSeed);
+    ConfigSet seeded = config;
+    for (AlgorithmConfig& column : seeded.modes) {
+        column.slots.rngSeed = options.seed == 0 ? 1u : options.seed;
+    }
+    bank.Seed(seeded.Base().slots.rngSeed);
 
     recording.Rewind();
 
@@ -368,7 +370,7 @@ OfflineResult RunOffline(Recording& recording, const AlgorithmConfig& config, So
     return result;
 }
 
-VerifyReport Verify(Recording& recording, const AlgorithmConfig& config, SoundBank& bank,
+VerifyReport Verify(Recording& recording, const ConfigSet& config, SoundBank& bank,
                     const OfflineOptions& options) {
     VerifyReport report;
     report.recordingStem = recording.Info().stem;
@@ -411,7 +413,7 @@ VerifyReport Verify(Recording& recording, const AlgorithmConfig& config, SoundBa
                   std::format("{} onsets in {} bursts - too few to measure a rate",
                               onsets.size(), run.stats.bursts));
         } else {
-            const double windowMs = onsets.back() - onsets.front() + config.arb.burstMinGapMs;
+            const double windowMs = onsets.back() - onsets.front() + config.Base().arb.burstMinGapMs;
             const double perSecond = run.stats.bursts * 1000.0 / windowMs;
             Check(report, "audible moments", perSecond >= 0.8 && perSecond <= 3.0,
                   std::format("{} bursts across {:.0f} ms = {:.1f}/s (design: ~1.5/s, four to six "
@@ -459,7 +461,7 @@ VerifyReport Verify(Recording& recording, const AlgorithmConfig& config, SoundBa
             smallest = std::min(smallest, gap);
             // One millisecond of slack, because a frame boundary is a double and
             // the cap is a float.
-            if (gap < config.arb.rateCapMs - 1.0) {
+            if (gap < config.Base().arb.rateCapMs - 1.0) {
                 ++tooClose;
             }
         }
@@ -473,9 +475,9 @@ VerifyReport Verify(Recording& recording, const AlgorithmConfig& config, SoundBa
                   ? std::format("{} onsets, nothing to compare", onsets.size())
                   : std::format("smallest gap {:.0f} ms against a {:.0f} ms cap over {} onsets; "
                                 "{} inside the cap against {} granted the {:.0f} dB override",
-                                smallest, static_cast<double>(config.arb.rateCapMs), onsets.size(),
+                                smallest, static_cast<double>(config.Base().arb.rateCapMs), onsets.size(),
                                 tooClose, granted,
-                                static_cast<double>(config.arb.rateCapOverrideDb)));
+                                static_cast<double>(config.Base().arb.rateCapOverrideDb)));
     }
 
     // ── 4. bursts of three to five grains in 200-400 ms, then >= 300 ms quiet ─
@@ -499,7 +501,7 @@ VerifyReport Verify(Recording& recording, const AlgorithmConfig& config, SoundBa
             // inside a still-open burst window a burst boundary, and then report
             // the burst that follows as arriving too soon.
             const bool breakHere =
-                i == onsets.size() || (onsets[i] - onsets[i - 1]) >= config.arb.burstMinGapMs * 0.9;
+                i == onsets.size() || (onsets[i] - onsets[i - 1]) >= config.Base().arb.burstMinGapMs * 0.9;
             if (!breakHere) {
                 continue;
             }
@@ -511,9 +513,9 @@ VerifyReport Verify(Recording& recording, const AlgorithmConfig& config, SoundBa
             }
             clusterStart = i;
         }
-        const bool grainsOk = onsets.empty() || worstGrains <= config.arb.burstMaxGrains;
-        const bool spanOk = widestSpan <= config.arb.burstWindowMs + config.arb.rateCapMs;
-        const bool gapOk = clusters < 2 || tightestGap >= config.arb.burstMinGapMs * 0.9;
+        const bool grainsOk = onsets.empty() || worstGrains <= config.Base().arb.burstMaxGrains;
+        const bool spanOk = widestSpan <= config.Base().arb.burstWindowMs + config.Base().arb.rateCapMs;
+        const bool gapOk = clusters < 2 || tightestGap >= config.Base().arb.burstMinGapMs * 0.9;
         Check(report, "burst shape", grainsOk && spanOk && gapOk,
               std::format("{} bursts, at most {} grains, widest span {:.0f} ms, tightest gap "
                           "{:.0f} ms (design: 3-5 grains in 200-400 ms, then >= 300 ms)",
@@ -574,7 +576,7 @@ VerifyReport Verify(Recording& recording, const AlgorithmConfig& config, SoundBa
             const double offset = event.sub->timeMs - event.transient->timeMs;
             // The configured offset plus the scatter the composite applies, which
             // is deliberate variation rather than error.
-            const double slack = config.strategies.impact.offsetScatterMs + 1.0;
+            const double slack = config.Base().strategies.impact.offsetScatterMs + 1.0;
             if (offset < 55.0 - slack || offset > 75.0 + slack) {
                 ++badOffset;
                 worstOffset = std::max(worstOffset, std::fabs(offset - 65.0));

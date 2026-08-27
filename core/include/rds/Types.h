@@ -288,6 +288,36 @@ enum class Moment : std::uint8_t { kOrdinary = 0, kHero, kCount };
 /// above: this is the engine's *gate*, they are its *state*.
 enum class ActorPhase : std::uint8_t { kUnknown = 0, kAnimated, kRagdoll, kGetUp };
 
+/// Which of the three tuning columns an actor is read through. Decided per actor
+/// and re-decided every tick, because it is a question about one body and not
+/// about the scene: a guard swinging a sword and the man he just knocked down are
+/// in the same fight and want opposite tuning.
+///
+/// The whole point of the axis is that most of the mod is *for* ragdolls. Upright
+/// bodies want the same rules with the sensitivity taken off and the strategies
+/// that only make sense for a loose body switched off - which is a column of the
+/// same table, not a second algorithm. See ConfigSchema.h's `perMode`.
+enum class ActorMode : std::uint8_t {
+    kRagdoll = 0,  ///< down, getting up, or not yet classified
+    kGameplay,     ///< upright and nobody is fighting them
+    kCombat,       ///< upright, fighting or being fought
+    kCount
+};
+
+[[nodiscard]] std::string_view ToString(ActorMode m);
+
+/// Ragdoll wins, and that is the rule the whole axis rests on: an actor knocked
+/// down mid-fight is a ragdoll and nothing else, so a fight cannot re-tune a body
+/// that is already on the floor. Every phase that is not plainly `kAnimated`
+/// answers ragdoll, so an actor we have not classified yet keeps the tuning the
+/// mod has always had.
+[[nodiscard]] constexpr ActorMode ModeFor(ActorPhase phase, bool inCombat) {
+    if (phase != ActorPhase::kAnimated) {
+        return ActorMode::kRagdoll;
+    }
+    return inCombat ? ActorMode::kCombat : ActorMode::kGameplay;
+}
+
 /// Distance tier, evaluated per actor per tick rather than per contact (§10).
 enum class DistanceTier : std::uint8_t {
     kFull = 0,    ///< everything: composites, grains, loops, bed

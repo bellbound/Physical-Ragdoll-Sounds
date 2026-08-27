@@ -183,7 +183,7 @@ struct OfflineOptions {
 ///
 /// Ticks at the recording's own frame boundaries, so the engine steps the way it
 /// did in the game rather than at whatever rate the testbench feels like.
-[[nodiscard]] OfflineResult RunOffline(Recording& recording, const AlgorithmConfig& config,
+[[nodiscard]] OfflineResult RunOffline(Recording& recording, const ConfigSet& config,
                                        SoundBank& bank, const OfflineOptions& options = {});
 
 /// A quick self-check the testbench's `--verify` mode runs over the whole
@@ -214,7 +214,7 @@ struct VerifyReport {
 ///   - the sub layer arrives 55-75 ms after its transient, and is the loudest
 ///   - every knockdown closes with exactly one settle cue
 ///   - determinism: the same seed and config twice give a byte-identical list
-[[nodiscard]] VerifyReport Verify(Recording& recording, const AlgorithmConfig& config,
+[[nodiscard]] VerifyReport Verify(Recording& recording, const ConfigSet& config,
                                   SoundBank& bank, const OfflineOptions& options = {});
 
 }  // namespace rds

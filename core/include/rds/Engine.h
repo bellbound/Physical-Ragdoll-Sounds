@@ -292,7 +292,10 @@ public:
 
     /// Config is copied per Tick, so pushing a new one from the testbench takes
     /// effect on the next tick with no restart and no torn read.
-    void SetConfig(const AlgorithmConfig& config);
+    /// All three tuning columns at once. There is no single-config setter: an
+    /// engine holding one column and two stale ones is a bug that only shows up
+    /// on an actor who happened to be upright.
+    void SetConfig(const ConfigSet& config);
 
     /// Collect the trace. Off by default: it allocates per decision.
     void SetTracing(bool on);

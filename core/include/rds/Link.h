@@ -205,12 +205,12 @@ void SocketShutdown();
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// Every algorithm parameter as `Section:Key=value`, in schema order.
-[[nodiscard]] std::string EncodeAlgorithm(const AlgorithmConfig& config);
+[[nodiscard]] std::string EncodeAlgorithm(const ConfigSet& config);
 
 /// Fill `out` from that text. Unknown keys are skipped, missing keys keep
 /// whatever `out` already held - so a testbench and a DLL a version apart still
 /// agree about every parameter they both know.
-void DecodeAlgorithm(std::string_view text, AlgorithmConfig& out);
+void DecodeAlgorithm(std::string_view text, ConfigSet& out);
 
 /// `slot = file|file|file` plus `slot.loop = 0|1`, one slot per line.
 [[nodiscard]] std::string EncodeSfx(const SfxAssignments& assignments);

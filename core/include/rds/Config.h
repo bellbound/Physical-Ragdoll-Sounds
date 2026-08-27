@@ -674,7 +674,7 @@ struct IntensityConfig {
 
     /// Above this the contact is an obliterate, as a multiple of `speedRefHigh`.
     /// Sits above anything a fall can produce. Relaxes the damage limits rather
-    /// than gating under them - see `DamageConfig::obliterateBudgetBonus`.
+    /// than gating under them - see `RagdollDamageConfig::obliterateBudgetBonus`.
     float obliterateFrac{1.46f};
 
     PostIntensityConfig post;
@@ -1284,9 +1284,6 @@ struct DamageConfig {
     /// on top of it.
     bool enabled{true};
 
-    /// How much the violence of the fall moves all six tiers. See the struct.
-    DamageViolenceConfig violence;
-
     /// The head. All three parts' thresholds come off measured data: a tier pitched
     /// near the old obliterate frac could not fire on any head ever recorded.
     ///
@@ -1341,6 +1338,30 @@ struct DamageConfig {
         .gore = {.atFrac = 0.95f, .capFrac = 1.15f, .quietDb = -22.0f, .loudDb = -8.0f,
                  .delayMs = 34.0f, .budget = 1},
     };
+
+};
+
+/// The half of the damage rule that only a loose body can answer for, held apart
+/// from `DamageConfig` so the rest of it can be tuned per mode.
+///
+/// Both members here fail the test the mode columns ask of a parameter - "does
+/// this mean the same thing for a man on his feet?" - and they fail it in the two
+/// different ways there are:
+///
+///  - **Violence** is measured off limbs thrashing *relative to the body*, with
+///    its ramps calibrated on contact-free ticks of thirteen falls. An animated
+///    actor's limbs move because an animation moved them, so the same measurement
+///    upright reads walking speed, not injury.
+///  - **The obliterate relaxation** is scaled off `IntensityConfig::obliterateFrac`,
+///    the top of a *fall's* intensity range. There is no obliterate outside a
+///    ragdoll to relax anything for.
+///
+/// Read through the ragdoll column always, whatever mode the actor is in - which
+/// costs nothing, because a row that is not `perMode` holds the same value in all
+/// three columns. See ConfigSchema.h.
+struct RagdollDamageConfig {
+    /// How much the violence of the fall moves all six tiers. See the struct.
+    DamageViolenceConfig violence;
 
     // -- Past the obliterate point --------------------------------------------
     //
@@ -1708,17 +1729,6 @@ struct ScrapeLoopConfig {
     float rumbleLimbGainDb{-9.0f};
 };
 
-/// The airborne anticipation rise, and nothing else any more. It used to own a
-/// continuous cloth bed too, muted in all thirty-eight saved configs
-/// (`bFoleyCloth = 0` in every one), so that went with its slot.
-struct MotionFoleyConfig {
-    bool enabled{true};
-
-    /// The airborne anticipation rise. On by default at a low level.
-    bool airborneRise{true};
-    float airborneRiseGainDb{-24.0f};
-};
-
 /// The garment: a continuous fabric and armour layer riding a knockdown.
 ///
 /// **Off by default, and off means byte-identical** - nothing is measured, no
@@ -1871,6 +1881,25 @@ struct RustleConfig {
     /// describing the same motion; a fabric bed under all of that is mud. Deep
     /// enough to be suppression rather than damping.
     float slideDuckDb{-14.0f};
+
+    // ── the airborne rise ────────────────────────────────────────────────────
+    //
+    // MotionFoley's last two knobs, moved here when that strategy was retired. It
+    // was never foley: it is the one layer that answers to a body *not touching
+    // anything*, which is the garment's question too, and the garment already
+    // carries an airborne term. Keeping it as a strategy of its own meant a whole
+    // stage-3 object and an ini section for a loop and a stop.
+    //
+    // The old names still load - see the `Renamed()` rows in ConfigSchema.cpp - so
+    // an ini written before the move keeps its tuning.
+    //
+    // Per mode like the rest of the garment, which is the point of moving it: a
+    // man jumping a fence has been airborne, and does not want the rise a thrown
+    // body gets.
+
+    /// The airborne anticipation rise. On by default at a low level.
+    bool airborneRise{true};
+    float airborneRiseGainDb{-24.0f};
 };
 
 struct StrategiesConfig {
@@ -1882,11 +1911,14 @@ struct StrategiesConfig {
     HeadImpactConfig head;
     DamageConfig damage;
     ScrapeLoopConfig scrape;
-    MotionFoleyConfig foley;
     RustleConfig rustle;
     /// Beside `damage` rather than inside it: it answers a different question
     /// off a different measurement and shares no tuning with it.
     AccumDamageConfig accum;
+    /// The ragdoll-only half of `damage`, which is why it is last: everything
+    /// above this line is read through the contacting actor's own mode column,
+    /// and this one is not. See the struct.
+    RagdollDamageConfig ragdollDamage;
 };
 
 // ── Surfaces ─────────────────────────────────────────────────────────────────
@@ -2633,6 +2665,37 @@ struct AlgorithmConfig {
     SlotResolutionConfig slots;
     SlotGainConfig slotGains;
     LayerMuteConfig layers;
+};
+
+/// One whole `AlgorithmConfig` per actor mode - the three columns of the panel,
+/// and what the engine actually reads.
+///
+/// Three complete copies rather than a base plus two overlays, and that is the
+/// design rather than an economy. Every parameter's offset is taken from the root
+/// of `AlgorithmConfig`, so three roots share the one schema table: a column is
+/// `GetParam(&set[mode], p)`, the arrow button between two columns is `SetParam`,
+/// and nothing downstream needs a second code path, an inheritance pass, or a
+/// notion of a value being unset. It costs about six kilobytes.
+///
+/// A row that is not `perMode` holds the same value in all three, kept that way by
+/// `MirrorSharedRows`. That is what lets the engine read *everything* through the
+/// contacting actor's own column without knowing which parameters have three
+/// values and which have one.
+struct ConfigSet {
+    AlgorithmConfig modes[static_cast<std::size_t>(ActorMode::kCount)]{};
+
+    [[nodiscard]] AlgorithmConfig& operator[](ActorMode m) {
+        return modes[static_cast<std::size_t>(m)];
+    }
+    [[nodiscard]] const AlgorithmConfig& operator[](ActorMode m) const {
+        return modes[static_cast<std::size_t>(m)];
+    }
+
+    /// The ragdoll column. Every shared value is read from and written to this
+    /// one, and an ini written before the modes existed loads into it - which is
+    /// why it is the column with no section suffix.
+    [[nodiscard]] AlgorithmConfig& Base() { return modes[0]; }
+    [[nodiscard]] const AlgorithmConfig& Base() const { return modes[0]; }
 };
 
 

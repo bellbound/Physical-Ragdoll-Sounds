@@ -12,6 +12,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "rds/Config.h"
@@ -94,7 +95,38 @@ struct ParamDesc {
     /// shifts nine hundred rows one field to the right.
     std::string_view legacySection2;
     std::string_view legacyKey2;
+
+    /// This row is tuned per actor mode: three values, three columns in the panel,
+    /// three sections in the ini (`[Ingest]`, `[Ingest.Gameplay]`,
+    /// `[Ingest.Combat]`).
+    ///
+    /// Not set by the macros and not typed per row - it is a property of the
+    /// *struct* the row points into, so it is filled in one pass over the table
+    /// from `ModeVaryingMembers()`. Adding a member to that list gives every row
+    /// beneath it three columns; nothing else has to know.
+    bool perMode{};
 };
+
+/// The members of `AlgorithmConfig` that are tuned per actor mode, as byte ranges
+/// inside it. Anything outside them holds one value that every mode reads.
+///
+/// A range and not a list of rows because the question is "does this parameter
+/// mean the same thing for a body on the floor, one walking, and one fighting?",
+/// and that is answered once per struct rather than ninety times per section.
+[[nodiscard]] std::span<const std::pair<std::size_t, std::size_t>> ModeVaryingMembers();
+
+/// Whether an offset inside `AlgorithmConfig` falls in one of those ranges.
+[[nodiscard]] bool IsModeVarying(std::size_t offset);
+
+/// What a mode's rows are suffixed with in the ini: nothing for the ragdoll
+/// column, which is why an ini written before the modes existed still loads as
+/// the ragdoll one and every other column starts as its copy.
+[[nodiscard]] std::string_view ModeSectionSuffix(ActorMode mode);
+
+/// The section a row is written under for `mode`, e.g. "Ingest.Combat". Empty for
+/// a row that is not `perMode` in any mode but the first, since it is written
+/// once.
+[[nodiscard]] std::string ModeSection(const ParamDesc& p, ActorMode mode);
 
 /// Every parameter of RagdollSounds_Algorithm.ini, in file order.
 ///
@@ -159,6 +191,52 @@ void SetParamString(void* root, const ParamDesc& p, std::string_view text);
 /// "Arbitration:fRateCapMs" - stable identity for logging and for the
 /// testbench's saved config files.
 [[nodiscard]] std::string QualifiedKey(const ParamDesc& p);
+
+/// The algorithm file's rows over a whole `ConfigSet` rather than one config:
+/// every row once under the section it has always had, then the `perMode` rows
+/// again under `[<Section>.Gameplay]` and `[<Section>.Combat]`.
+///
+/// The point of building this rather than teaching the reader and the writer
+/// about modes: the three configs sit contiguously inside a `ConfigSet`, so a
+/// row's offset from the set's root is `mode * sizeof(AlgorithmConfig) + offset`.
+/// Pass `&set` as the root and `LoadInto`, `SaveFrom`, `ToIniText` and `Deltas`
+/// all work on three columns without a line of change - including the merge
+/// writer, which keeps every hand-written comment in the file.
+///
+/// Ordered base-column-first, so an ini written before the modes existed is
+/// exactly the head of this file and a diff against it shows only the two blocks
+/// that were appended.
+[[nodiscard]] std::span<const ParamDesc> AlgorithmSetFileParams();
+
+/// The `perMode` rows of one mode, over a `ConfigSet` root. What the log's delta
+/// lines walk to say what a column was changed from.
+[[nodiscard]] std::span<const ParamDesc> ModeParams(ActorMode mode);
+
+// ── over a whole ConfigSet ───────────────────────────────────────────────────
+
+/// Copy every row that is *not* `perMode` from the ragdoll column into the other
+/// two.
+///
+/// Called after anything writes a config: it is what makes "read the actor's own
+/// column" safe for parameters that have only one value. Without it a shared
+/// value edited in the ragdoll column would be stale for an upright actor, which
+/// is the sort of bug that is inaudible until it is baffling.
+void MirrorSharedRows(ConfigSet& set);
+
+/// Copy one row from one column into another - the panel's arrow between two
+/// columns. A no-op for a row that is not `perMode`, since those are one value by
+/// definition.
+void CopyRow(ConfigSet& set, const ParamDesc& p, ActorMode from, ActorMode to);
+
+/// Copy every row of one column into another, for the arrow on a group header.
+/// Returns how many rows moved.
+std::size_t CopyRows(ConfigSet& set, std::span<const ParamDesc> params, ActorMode from,
+                     ActorMode to);
+
+/// How many rows of `params` differ between two columns. What the panel puts on
+/// a group header so a collapsed drawer still says whether it holds a difference.
+[[nodiscard]] std::size_t CountDiffering(const ConfigSet& set, std::span<const ParamDesc> params,
+                                         ActorMode a, ActorMode b);
 
 /// Every param whose current value differs from its default, as
 /// "Section:Key=value (default d)". Logged at info on load: it is the single

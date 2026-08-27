@@ -648,7 +648,7 @@ int CheckConfigRoundTrip() {
     }
 
     manager.Load();
-    const bool readBack = manager.Algorithm().arb.rateCapMs == 61.0f;
+    const bool readBack = manager.Algorithm(rds::ActorMode::kRagdoll).arb.rateCapMs == 61.0f;
     manager.Save();
 
     std::string again;
@@ -670,7 +670,7 @@ int CheckConfigRoundTrip() {
 /// `--set Section:Key=value`, straight through the schema. One line here gives
 /// every parameter a command-line override, which is the same payoff the ini
 /// reader and the testbench's slider panel get from the same table.
-bool ApplyOverride(rds::AlgorithmConfig& config, std::string_view assignment) {
+bool ApplyOverride(rds::ConfigSet& config, std::string_view assignment) {
     const auto equals = assignment.find('=');
     if (equals == std::string_view::npos) {
         return false;
@@ -678,7 +678,26 @@ bool ApplyOverride(rds::AlgorithmConfig& config, std::string_view assignment) {
     const auto qualified = assignment.substr(0, equals);
     const auto value = assignment.substr(equals + 1);
     for (const auto& param : rds::AlgorithmParams()) {
-        if (rds::QualifiedKey(param) == qualified) {
+        if (rds::QualifiedKey(param) != qualified) {
+            continue;
+        }
+        // Every column, not only the ragdoll one: `--set` is how a check says
+        // "run the corpus with this number changed", and a take that happens to
+        // hold an upright actor must be run with the same number.
+        // `Section.Combat:Key` is how to move one column on its own.
+        for (rds::AlgorithmConfig& column : config.modes) {
+            rds::SetParam(&column, param, rds::ParseParam(param, value));
+        }
+        std::printf("override %s = %s\n", std::string(qualified).c_str(),
+                    rds::FormatParam(param, rds::GetParam(&config.Base(), param)).c_str());
+        return true;
+    }
+    // Then the mode-qualified rows, which address one column of the set.
+    for (const rds::ActorMode mode : {rds::ActorMode::kGameplay, rds::ActorMode::kCombat}) {
+        for (const auto& param : rds::ModeParams(mode)) {
+            if (rds::QualifiedKey(param) != qualified) {
+                continue;
+            }
             rds::SetParam(&config, param, rds::ParseParam(param, value));
             std::printf("override %s = %s\n", std::string(qualified).c_str(),
                         rds::FormatParam(param, rds::GetParam(&config, param)).c_str());
@@ -892,7 +911,7 @@ int main(int argc, char** argv) {
     failures += CheckSfxCorrections(bankDir);
     failures += CheckPcmAndMix(bank);
 
-    rds::AlgorithmConfig config{};  // shipping defaults, which are the point
+    rds::ConfigSet config{};  // shipping defaults in all three columns, which are the point
     for (const auto& assignment : overrides) {
         ApplyOverride(config, assignment);
     }

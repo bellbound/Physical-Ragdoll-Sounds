@@ -540,9 +540,12 @@ void ConfigManager::Initialize(const std::filesystem::path& directory) {
     // install ends up with a complete self-documenting ini rather than an empty
     // one somebody has to guess at.
     m_general = GeneralConfig{};
-    m_algorithm = AlgorithmConfig{};
+    m_algorithm = ConfigSet{};
     LoadInto(m_generalPath, &m_general, GeneralParams());
-    LoadInto(m_algorithmPath, &m_algorithm, AlgorithmFileParams());
+    // Over the whole set: the file's bare sections fill the ragdoll column and
+    // its `.Gameplay` / `.Combat` sections the other two, so a file written
+    // before the modes existed loads as three identical columns.
+    LoadInto(m_algorithmPath, &m_algorithm, AlgorithmSetFileParams());
 
     // The surfaces list. If the file does not exist yet, this install predates
     // it, so the three trims and three mutes that used to live in the algorithm
@@ -551,19 +554,22 @@ void ConfigManager::Initialize(const std::filesystem::path& directory) {
     // retires the old keys. There is no second migration to worry about: once
     // the surfaces file exists it is the only thing consulted.
     if (!std::filesystem::exists(m_surfacePath)) {
-        const std::size_t opened = MigrateSurfaces(m_algorithmPath, m_algorithm);
+        const std::size_t opened = MigrateSurfaces(m_algorithmPath, m_algorithm.Base());
         if (opened > 0) {
             spdlog::info("config: migrated {} surface(s) into {}", opened,
                          m_surfacePath.filename().string());
         }
     } else {
-        ReadOpenedSurfaces(m_surfacePath, m_algorithm);
-        LoadInto(m_surfacePath, &m_algorithm, SurfaceParams());
+        ReadOpenedSurfaces(m_surfacePath, m_algorithm.Base());
+        LoadInto(m_surfacePath, &m_algorithm.Base(), SurfaceParams());
     }
-    m_algorithm.surfaces.Resolve();
+    m_algorithm.Base().surfaces.Resolve();
+    // Last, and after everything that writes the ragdoll column: the shared rows
+    // are one value with three homes, and this is where the other two are filled.
+    MirrorSharedRows(m_algorithm);
 
     SaveFrom(m_generalPath, &m_general, GeneralParams(), "RagdollSounds.ini - general settings");
-    SaveFrom(m_algorithmPath, &m_algorithm, AlgorithmFileParams(),
+    SaveFrom(m_algorithmPath, &m_algorithm, AlgorithmSetFileParams(),
              "RagdollSounds_Algorithm.ini - the sound engine");
     SaveSurfaces();
 
@@ -586,9 +592,9 @@ bool ConfigManager::SaveSurfaces() {
     // A header even when nothing is opened, so the file exists and says how to
     // use it. An empty surfaces file is the ordinary state and should not look
     // like a failed write.
-    const auto rows = OpenedSurfaceParams(m_algorithm);
+    const auto rows = OpenedSurfaceParams(m_algorithm.Base());
     std::size_t count = 0;
-    for (bool open : m_algorithm.surfaces.opened) {
+    for (bool open : m_algorithm.Base().surfaces.opened) {
         count += open ? 1 : 0;
     }
     const std::string header = std::format(
@@ -620,20 +626,23 @@ void ConfigManager::Load() {
     }
 
     GeneralConfig general{};
-    AlgorithmConfig algorithm{};
+    ConfigSet algorithm{};
     SfxAssignments sfx{};
     const std::size_t generalKeys = LoadInto(m_generalPath, &general, GeneralParams());
-    std::size_t algorithmKeys = LoadInto(m_algorithmPath, &algorithm, AlgorithmFileParams());
+    std::size_t algorithmKeys = LoadInto(m_algorithmPath, &algorithm, AlgorithmSetFileParams());
     if (!std::filesystem::exists(m_surfacePath)) {
-        MigrateSurfaces(m_algorithmPath, algorithm);
+        MigrateSurfaces(m_algorithmPath, algorithm.Base());
     } else {
-        ReadOpenedSurfaces(m_surfacePath, algorithm);
-        algorithmKeys += LoadInto(m_surfacePath, &algorithm, SurfaceParams());
+        ReadOpenedSurfaces(m_surfacePath, algorithm.Base());
+        algorithmKeys += LoadInto(m_surfacePath, &algorithm.Base(), SurfaceParams());
     }
     // After both, and after the migration: it is what turns thirteen classes'
     // worth of "no block" into thirteen classes' worth of usable numbers, and
     // every read of `surfaces.skins` downstream assumes it has run.
-    algorithm.surfaces.Resolve();
+    algorithm.Base().surfaces.Resolve();
+    // And after all of that: everything above writes the ragdoll column, and a
+    // shared value has to reach the other two before anything reads them.
+    MirrorSharedRows(algorithm);
     const std::size_t sfxSlots = sfx.Load(m_sfxPath);
 
     {
@@ -654,14 +663,16 @@ void ConfigManager::Load() {
     // The single most useful line in a user's log, because it says what they
     // changed. Nothing is a valid answer and worth printing too.
     const auto generalDeltas = Deltas(&m_general, GeneralParams());
-    auto algorithmDeltas = Deltas(&m_algorithm, AlgorithmFileParams());
+    // Over the set, so the gameplay and combat columns report as
+    // "Ingest.Combat:fMinImpactSpeed=..." rather than not at all.
+    auto algorithmDeltas = Deltas(&m_algorithm, AlgorithmSetFileParams());
     // Only the *opened* surfaces. A closed class is holding its parent's values,
     // so reporting it would turn one edit to stone into four lines about ice and
     // glass having changed - which is true of what they play and false about
     // what the user set.
     {
-        const auto opened = OpenedSurfaceParams(m_algorithm);
-        const auto surfaceDeltas = Deltas(&m_algorithm, std::span<const ParamDesc>{opened});
+        const auto opened = OpenedSurfaceParams(m_algorithm.Base());
+        const auto surfaceDeltas = Deltas(&m_algorithm.Base(), std::span<const ParamDesc>{opened});
         algorithmDeltas.insert(algorithmDeltas.end(), surfaceDeltas.begin(), surfaceDeltas.end());
     }
     if (generalDeltas.empty() && algorithmDeltas.empty()) {
@@ -682,7 +693,8 @@ void ConfigManager::Save() {
     }
     std::lock_guard lock{m_mutex};
     SaveFrom(m_generalPath, &m_general, GeneralParams(), "RagdollSounds.ini - general settings");
-    SaveFrom(m_algorithmPath, &m_algorithm, AlgorithmFileParams(),
+    MirrorSharedRows(m_algorithm);
+    SaveFrom(m_algorithmPath, &m_algorithm, AlgorithmSetFileParams(),
              "RagdollSounds_Algorithm.ini - the sound engine");
     SaveSurfaces();
     m_sfx.Save(m_sfxPath);
@@ -734,12 +746,17 @@ bool ConfigManager::HasSfxOverride() const {
     return m_hasSfxOverride;
 }
 
-AlgorithmConfig ConfigManager::Algorithm() const {
+ConfigSet ConfigManager::Algorithm() const {
     std::lock_guard lock{m_mutex};
     return m_hasOverride ? m_override : m_algorithm;
 }
 
-void ConfigManager::PushOverride(const AlgorithmConfig& config) {
+AlgorithmConfig ConfigManager::Algorithm(ActorMode mode) const {
+    std::lock_guard lock{m_mutex};
+    return (m_hasOverride ? m_override : m_algorithm)[mode];
+}
+
+void ConfigManager::PushOverride(const ConfigSet& config) {
     std::vector<std::string> deltas;
     {
         std::lock_guard lock{m_mutex};
@@ -748,9 +765,12 @@ void ConfigManager::PushOverride(const AlgorithmConfig& config) {
         // arriving over the wire from `tune.py` has been through a schema walk
         // that knows nothing about inheritance, so a closed class could be
         // holding whatever the sender's copy had.
-        m_override.surfaces.Resolve();
+        m_override.Base().surfaces.Resolve();
+        // Same belt and braces one axis over: a sender that only knows about the
+        // ragdoll column would otherwise leave two columns holding defaults.
+        MirrorSharedRows(m_override);
         m_hasOverride = true;
-        deltas = Deltas(&m_override, AlgorithmParams());
+        deltas = Deltas(&m_override, AlgorithmSetFileParams());
     }
     // Logged with its deltas, so a log from a testbench session says what was
     // actually being auditioned rather than only that something was.
@@ -758,6 +778,16 @@ void ConfigManager::PushOverride(const AlgorithmConfig& config) {
     for (const auto& line : deltas) {
         spdlog::debug("config: override {}", line);
     }
+}
+
+void ConfigManager::PushOverride(ActorMode mode, const AlgorithmConfig& config) {
+    ConfigSet set;
+    {
+        std::lock_guard lock{m_mutex};
+        set = m_hasOverride ? m_override : m_algorithm;
+    }
+    set[mode] = config;
+    PushOverride(set);
 }
 
 void ConfigManager::ClearOverride() {
@@ -779,6 +809,7 @@ void ConfigManager::CommitOverrideToIni() {
         if (m_hasOverride) {
             m_algorithm = m_override;
         }
+        MirrorSharedRows(m_algorithm);
     }
     Save();
 }

@@ -106,6 +106,12 @@ struct FeedEvent {
     EventKind kind{};
     ActorPhase phase{};  ///< sampled by the tick, so accurate to one tick either side
 
+    /// Whether the game says this actor is fighting or being fought, sampled the
+    /// same way and on every row that carries a phase. It travels beside the phase
+    /// because the two are one question downstream - `ModeFor` - and splitting
+    /// them across two mechanisms would let a row answer one and not the other.
+    bool inCombat{};
+
     /// Both re-fire on most frames of a persisting manifold and they do not
     /// pair up (244 rows carry `last` with no `first`). Kept for provenance;
     /// grade C as a bracket, and Ingest must not use them as one.

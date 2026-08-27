@@ -84,7 +84,7 @@ public:
     // All of them are fire and forget. Nothing waits for an answer, because the
     // answer is that the next contact sounds different.
 
-    void PushAlgorithm(const rds::AlgorithmConfig& config);
+    void PushAlgorithm(const rds::ConfigSet& config);
     void PushSfx(const rds::SfxAssignments& assignments);
     void PushLibraryPath(const std::string& path);
     void PushClear();

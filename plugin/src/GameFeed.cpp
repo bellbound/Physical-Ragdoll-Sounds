@@ -190,7 +190,7 @@ void PushState(ContactRing& ring, ActorId actor, std::string_view state) {
 /// samples with that state, and `rds::pose::IsTickSample` tells the two apart on
 /// exactly this field.
 void PushLimbSamples(ContactRing& ring, const RagdollView& ragdoll, ActorId actor,
-                     ActorPhase phase) {
+                     ActorPhase phase, bool inCombat) {
     const float scale = RE::bhkWorld::GetWorldScaleInverse();
     const TimeMs now = NowMs();
     for (std::size_t index = 0; index < ragdoll.limbs.size(); ++index) {
@@ -204,6 +204,7 @@ void PushLimbSamples(ContactRing& ring, const RagdollView& ragdoll, ActorId acto
         event.actorId = actor;
         event.limbIndex = static_cast<std::uint16_t>(index);
         event.phase = phase;
+        event.inCombat = inCombat;
         event.mass = body->motion.GetMass();
         event.limbRadius = body->motion.motionState.objectRadius * scale;
         event.bodySpeed = body->motion.linearVelocity.Length3() * scale;
@@ -280,6 +281,8 @@ public:
         const auto phase = m_pub != nullptr
                                ? static_cast<ActorPhase>(m_pub->phase.load(std::memory_order_relaxed))
                                : ActorPhase::kUnknown;
+        const bool inCombat =
+            m_pub != nullptr && m_pub->inCombat.load(std::memory_order_relaxed);
         if (phase != ActorPhase::kRagdoll &&
             !(m_pub != nullptr && m_pub->hearAnimated.load(std::memory_order_relaxed))) {
             return;
@@ -298,6 +301,7 @@ public:
             return;
         }
         record.phase = phase;
+        record.inCombat = inCombat;
         record.manifoldFirst = event.firstCallbackForFullManifold;
         record.manifoldLast = event.lastCallbackForFullManifold;
         record.impactSpeed = closing;
@@ -511,7 +515,7 @@ void GameFeed::BuildProfile(Tracked& tracked, RE::Actor& actor) {
     // Once per profile, not per limb: Algorithm() copies (so the caller cannot
     // read a config mid-reload), and eighteen copies per knockdown for two
     // booleans is a real cost.
-    const ArmorConfig armor = ConfigManager::Get().Algorithm().armor;
+    const ArmorConfig armor = ConfigManager::Get().Algorithm(ActorMode::kRagdoll).armor;
     for (const RagdollBody& body : tracked.ragdoll.limbs) {
         LimbInfo limb;
         limb.boneName = body.name;
@@ -678,10 +682,18 @@ void GameFeed::PublishTick(float frameTimeSec) {
         const bool ragdolled = actor->IsInRagdollState();
         const ActorPhase phase = PhaseOf(ragdolled, knock);
 
+        // Asked of the actor rather than of the player: the axis is per body, and
+        // a guard swinging a sword and the man he just knocked down are in one
+        // fight and want opposite tuning. Only asked while they are upright -
+        // `ModeFor` answers ragdoll whatever this says once they are down, and
+        // `IsInCombat` walks the actor's combat groups, which is not free.
+        const bool inCombat = phase == ActorPhase::kAnimated && actor->IsInCombat();
+
         // Phase first: the callback reads it, and the rest of the tick is
         // downstream of it being right.
         tracked.pub.phase.store(static_cast<std::uint8_t>(phase), std::memory_order_relaxed);
         tracked.pub.hearAnimated.store(m_animatedMode, std::memory_order_relaxed);
+        tracked.pub.inCombat.store(inCombat, std::memory_order_relaxed);
 
         // The same answer to the impact manager, which cannot ask an actor
         // anything: vanilla's body impacts drop only where we answer for them.
@@ -703,6 +715,15 @@ void GameFeed::PublishTick(float frameTimeSec) {
             tracked.lastPhase = phase;
         }
 
+        // The mode edges, on the same terms as the phase edges above: published
+        // when they move, so a recording carries the moment an actor entered a
+        // fight and a replay puts them in the same column the game did. Without
+        // these a capture of a brawl would replay as though nobody was fighting.
+        if (inCombat != tracked.lastInCombat) {
+            PushState(m_ring, it->first, inCombat ? "combat_start" : "combat_stop");
+            tracked.lastInCombat = inCombat;
+        }
+
         // Whether the player has this body in hand, on the same terms as the
         // phase: game thread, published on the edge, through the ring.
         // `AccumDamage:bRequireHeld` is the one rule that reads it. `ragdoll_start`
@@ -721,7 +742,7 @@ void GameFeed::PublishTick(float frameTimeSec) {
         if (m_bodySampleEveryNTicks > 0 &&
             (phase != ActorPhase::kAnimated || m_animatedPose) &&
             m_tick % static_cast<std::uint64_t>(m_bodySampleEveryNTicks) == 0) {
-            PushLimbSamples(m_ring, tracked.ragdoll, it->first, phase);
+            PushLimbSamples(m_ring, tracked.ragdoll, it->first, phase, inCombat);
         }
 
         // Game thread only, hence published rather than read in the callback.

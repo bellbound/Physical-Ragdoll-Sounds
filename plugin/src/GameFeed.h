@@ -53,6 +53,12 @@ struct ActorPublication {
     /// rather than read off the config, which lives behind a mutex.
     std::atomic<bool> hearAnimated{};
 
+    /// Whether this actor is fighting or being fought, for `ActorMode`. Published
+    /// beside the phase and read the same way: the contact callback is a Havok
+    /// worker thread and cannot ask an actor anything, so both halves of the
+    /// question have to be answered on the game thread and left here.
+    std::atomic<bool> inCombat{};
+
     ActorProfile profile;  ///< rebuilt on every ragdoll attach, never cached across one
 };
 
@@ -145,6 +151,9 @@ private:
         /// knockdown opened and closed. Starts unknown, so the first tick after a
         /// knockdown publishes ragdoll_start rather than assuming it.
         ActorPhase lastPhase{ActorPhase::kUnknown};
+        /// The other half of the mode, edge-published the same way. False rather
+        /// than "unknown": an actor we have not seen fight is not fighting.
+        bool lastInCombat{};
 
         /// The same for whether the player has this body in hand, so only the edge
         /// is published. Cleared on `ragdoll_start`, the edge that gives the actor

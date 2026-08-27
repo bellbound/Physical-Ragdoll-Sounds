@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <deque>
 #include <cmath>
 #include <cstring>
 #include <format>
@@ -1260,97 +1261,6 @@ const ParamDesc kAlgorithmParams[] = {
                       "The master switch for crunch and gore on every part of the body. This is most of "
                       "what makes the mod gnarly. Each part and each tier has its own switch under it."),
             "HeadImpact", "bDamageEnabled"),
-    RDS_HRULE(AlgorithmConfig, "Damage", "iObliterateBudgetBonus", kInt,
-              strategies.damage.obliterateBudgetBonus, 0, 16, 1, "Damage", "Obliterate: budget bonus",
-              "Extra slots a tier's budget is granted when the contact is past "
-              "Intensity:fObliterateFrac. That point used to be a second gate under the gore, "
-              "which made the most extreme contacts the mod can see the hardest ones to hear; it "
-              "loosens the limits now instead. 0 holds an obliterate to the ordinary budget."),
-    RDS_PARAM(AlgorithmConfig, "Damage", "fObliterateSpacingScale", kFloat,
-              strategies.damage.obliterateSpacingScale, 0, 1, 0.01, "Damage", "Obliterate: spacing scale",
-              "What a tier's spacing is multiplied by for a contact past the obliterate point. 1 "
-              "leaves the spacing alone, 0 removes it entirely. It is a relaxation and not a "
-              "waiver on purpose: a raised budget is still a budget, so a ridiculous impulse "
-              "from another mod cannot machine-gun the layer."),
-    RDS_HRULE(AlgorithmConfig, "Damage", "bViolenceEnabled", kBool,
-              strategies.damage.violence.enabled, 0, 1, 1, "Damage", "Violence terms",
-              "Let how violent the fall has been move all six tiers, on top of how hard the "
-              "contact itself was. A medium knock on a body that has been cartwheeling down a "
-              "staircase breaks something more readily than the same knock on a body that was "
-              "lying still. Off by default and off changes nothing; the amounts below are "
-              "already set to a usable voicing."),
-    RDS_PAIRS(AlgorithmConfig, "Damage", "fViolenceThrashWeight", kFloat,
-              strategies.damage.violence.thrashWeight, 0, 4, 0.05, "Damage", "Thrash weight",
-              "How much of the violence reading comes from the limbs being slammed about relative "
-              "to the body. Its own measurement, sharing nothing with the garment's: this one "
-              "weights each limb by how much *body* is on it, where the rustle weights by how "
-              "much cloth. A naked body breaks exactly as well as a clothed one."),
-    RDS_PARAM(AlgorithmConfig, "Damage", "fViolenceTumbleWeight", kFloat,
-              strategies.damage.violence.tumbleWeight, 0, 4, 0.05, "Damage", "Tumble weight",
-              "How much of it comes from the limbs being wrung about their own axes. A steady "
-              "cartwheel has a large tumble and a small thrash; a body slamming from one pose to "
-              "another has the reverse. Reads zero on takes recorded before the pose sidecar "
-              "carried rotation."),
-    RDS_HPAIR(AlgorithmConfig, "Damage", "fViolenceThrashFloor", kFloat,
-              strategies.damage.violence.thrashFloor, 0, 8000, 10, "Damage", "Thrash floor",
-              "Mass-weighted relative limb acceleration, u/s2, under which a fall counts as calm "
-              "however long it goes on."),
-    RDS_PARAM(AlgorithmConfig, "Damage", "fViolenceThrashFull", kFloat,
-              strategies.damage.violence.thrashFull, 10, 20000, 50, "Damage", "Thrash full",
-              "Where the thrash half reads maximum. Leave headroom above what the recordings "
-              "reach: the worst fall in the corpus is not the worst fall there is."),
-    RDS_HPAIR(AlgorithmConfig, "Damage", "fViolenceTumbleFloor", kFloat,
-              strategies.damage.violence.tumbleFloor, 0, 2000, 5, "Damage", "Tumble floor",
-              "Limb surface speed from rotation, u/s, under which spinning contributes nothing."),
-    RDS_PARAM(AlgorithmConfig, "Damage", "fViolenceTumbleFull", kFloat,
-              strategies.damage.violence.tumbleFull, 10, 4000, 10, "Damage", "Tumble full",
-              "Where the rotation half reads maximum."),
-    RDS_PARAM(AlgorithmConfig, "Damage", "fViolenceThrashCeiling", kFloat,
-              strategies.damage.violence.thrashCeiling, 100, 40000, 50, "Damage",
-              "Thrash ceiling",
-              "Per-limb clamp before the sum, against a solver blow-up and against one limb "
-              "striking stone standing in for the whole body."),
-    RDS_PARAM(AlgorithmConfig, "Damage", "fViolenceHoldMs", kFloat,
-              strategies.damage.violence.holdMs, 50, 4000, 10, "Damage", "Violence memory",
-              "How long a violent stretch is remembered. Long enough to bridge the gaps between "
-              "the bounces of a staircase, short enough that a fall which has settled is judged "
-              "as settled. It is measured only between collisions - a contact cannot raise it, "
-              "or every impact would be evidence of its own violence."),
-    RDS_PARAM(AlgorithmConfig, "Damage", "fViolenceLimbShare", kFloat,
-              strategies.damage.violence.limbShare, 0, 1, 0.05, "Damage", "Limb share",
-              "How much of the answer is this limb rather than the whole body. 0 asks only how "
-              "bad the fall is; 1 asks only how hard this particular arm is being whipped about. "
-              "They come apart - a body sliding to a stop with one leg still cartwheeling is "
-              "quiet on the first and loud on the second."),
-    RDS_HPAIR(AlgorithmConfig, "Damage", "fViolenceGateDropFrac", kFloat,
-              strategies.damage.violence.gateDropFrac, 0, 1, 0.05, "Damage", "Gate drop",
-              "How far a violent fall lowers each tier's threshold, as a fraction of that tier's "
-              "own span. The aggressive half of occurrence: it admits weaker contacts, so it can "
-              "put a crunch on a knock that would never have earned one. What comes through the "
-              "lowered bar still arrives at the quiet end of the level ramp."),
-    RDS_PARAM(AlgorithmConfig, "Damage", "fViolenceChanceBonus", kFloat,
-              strategies.damage.violence.chanceBonus, 0, 1, 0.05, "Damage", "Chance bonus",
-              "How much more often an already-eligible contact fires. DEAD at the shipped defaults: "
-              "all six tiers fire with certainty once past their gate, so there is no room above "
-              "to add. Pull a tier's 'chance at gate' below 1 and this comes alive."),
-    RDS_HPAIR(AlgorithmConfig, "Damage", "iViolenceBudgetBonus", kInt,
-              strategies.damage.violence.budgetBonus, 0, 16, 1, "Damage", "Budget bonus",
-              "Extra breaks a violent fall is allowed, on top of each tier's own budget. **The "
-              "lever that actually moves how often you hear one**: measured on the corpus these "
-              "tiers are budget-limited rather than threshold-limited, so lowering the gate admits "
-              "contacts into a ledger that is usually already spent. Measured over the corpus: "
-              "the gate drop alone is +3% more breaks, this alone is +5%, and the two together "
-              "at 3 are +22%. Still a budget, so even the worst tumble cannot machine-gun it."),
-    RDS_PARAM(AlgorithmConfig, "Damage", "fViolenceSpacingScale", kFloat,
-              strategies.damage.violence.spacingScale, 0, 1, 0.05, "Damage", "Spacing scale",
-              "How far the gap between two breaks shrinks when the fall is violent. DEAD at the "
-              "shipped defaults: every tier ships with no spacing at all, and scaling zero is "
-              "zero. Set a tier's spacing and this starts tightening it."),
-    RDS_PARAM(AlgorithmConfig, "Damage", "fViolenceLevelBonusDb", kFloat,
-              strategies.damage.violence.levelBonusDb, 0, 12, 0.5, "Damage", "Level bonus",
-              "How much louder a break is when the fall is violent. A tier is discrete - a bone "
-              "either broke or it did not - so this only pushes a break that was already "
-              "happening further forward, and never softens one into existence."),
     RDS_HRULE(AlgorithmConfig, "Damage", "bHeadEnabled", kBool,
               strategies.damage.head.enabled, 0, 1, 1, "Head damage", "Enabled",
               "Crunch and gore for a head contact. Off, the part still sounds - it just never "
@@ -1733,6 +1643,120 @@ const ParamDesc kAlgorithmParams[] = {
               "of the two and the one to reach for first: any value at all stops one sprawl "
               "arriving as a burst of breaking sticks without capping what a long tumble may add "
               "up to."),
+    // -- Stage 3: the ragdoll-only half of Damage -----------------------------
+    //
+    // Violence is measured off limbs thrashing relative to the body, and the
+    // obliterate relaxation is scaled off a fall's intensity range. Neither means
+    // anything for a man on his feet, so neither gets mode columns - see
+    // RagdollDamageConfig. Both used to live in [Damage]; the Renamed rows keep an
+    // older ini's tuning.
+    Renamed(RDS_HRULE(AlgorithmConfig, "RagdollDamage", "iObliterateBudgetBonus", kInt,
+                      strategies.ragdollDamage.obliterateBudgetBonus, 0, 16, 1, "Ragdoll damage", "Obliterate: budget bonus",
+                      "Extra slots a tier's budget is granted when the contact is past "
+                      "Intensity:fObliterateFrac. That point used to be a second gate under the gore, "
+                      "which made the most extreme contacts the mod can see the hardest ones to hear; it "
+                      "loosens the limits now instead. 0 holds an obliterate to the ordinary budget."),
+            "Damage", "iObliterateBudgetBonus"),
+    Renamed(RDS_PARAM(AlgorithmConfig, "RagdollDamage", "fObliterateSpacingScale", kFloat,
+                      strategies.ragdollDamage.obliterateSpacingScale, 0, 1, 0.01, "Ragdoll damage", "Obliterate: spacing scale",
+                      "What a tier's spacing is multiplied by for a contact past the obliterate point. 1 "
+                      "leaves the spacing alone, 0 removes it entirely. It is a relaxation and not a "
+                      "waiver on purpose: a raised budget is still a budget, so a ridiculous impulse "
+                      "from another mod cannot machine-gun the layer."),
+            "Damage", "fObliterateSpacingScale"),
+    Renamed(RDS_HRULE(AlgorithmConfig, "RagdollDamage", "bViolenceEnabled", kBool,
+                      strategies.ragdollDamage.violence.enabled, 0, 1, 1, "Ragdoll damage", "Violence terms",
+                      "Let how violent the fall has been move all six tiers, on top of how hard the "
+                      "contact itself was. A medium knock on a body that has been cartwheeling down a "
+                      "staircase breaks something more readily than the same knock on a body that was "
+                      "lying still. Off by default and off changes nothing; the amounts below are "
+                      "already set to a usable voicing."),
+            "Damage", "bViolenceEnabled"),
+    Renamed(RDS_PAIRS(AlgorithmConfig, "RagdollDamage", "fViolenceThrashWeight", kFloat,
+                      strategies.ragdollDamage.violence.thrashWeight, 0, 4, 0.05, "Ragdoll damage", "Thrash weight",
+                      "How much of the violence reading comes from the limbs being slammed about relative "
+                      "to the body. Its own measurement, sharing nothing with the garment's: this one "
+                      "weights each limb by how much *body* is on it, where the rustle weights by how "
+                      "much cloth. A naked body breaks exactly as well as a clothed one."),
+            "Damage", "fViolenceThrashWeight"),
+    Renamed(RDS_PARAM(AlgorithmConfig, "RagdollDamage", "fViolenceTumbleWeight", kFloat,
+                      strategies.ragdollDamage.violence.tumbleWeight, 0, 4, 0.05, "Ragdoll damage", "Tumble weight",
+                      "How much of it comes from the limbs being wrung about their own axes. A steady "
+                      "cartwheel has a large tumble and a small thrash; a body slamming from one pose to "
+                      "another has the reverse. Reads zero on takes recorded before the pose sidecar "
+                      "carried rotation."),
+            "Damage", "fViolenceTumbleWeight"),
+    Renamed(RDS_HPAIR(AlgorithmConfig, "RagdollDamage", "fViolenceThrashFloor", kFloat,
+                      strategies.ragdollDamage.violence.thrashFloor, 0, 8000, 10, "Ragdoll damage", "Thrash floor",
+                      "Mass-weighted relative limb acceleration, u/s2, under which a fall counts as calm "
+                      "however long it goes on."),
+            "Damage", "fViolenceThrashFloor"),
+    Renamed(RDS_PARAM(AlgorithmConfig, "RagdollDamage", "fViolenceThrashFull", kFloat,
+                      strategies.ragdollDamage.violence.thrashFull, 10, 20000, 50, "Ragdoll damage", "Thrash full",
+                      "Where the thrash half reads maximum. Leave headroom above what the recordings "
+                      "reach: the worst fall in the corpus is not the worst fall there is."),
+            "Damage", "fViolenceThrashFull"),
+    Renamed(RDS_HPAIR(AlgorithmConfig, "RagdollDamage", "fViolenceTumbleFloor", kFloat,
+                      strategies.ragdollDamage.violence.tumbleFloor, 0, 2000, 5, "Ragdoll damage", "Tumble floor",
+                      "Limb surface speed from rotation, u/s, under which spinning contributes nothing."),
+            "Damage", "fViolenceTumbleFloor"),
+    Renamed(RDS_PARAM(AlgorithmConfig, "RagdollDamage", "fViolenceTumbleFull", kFloat,
+                      strategies.ragdollDamage.violence.tumbleFull, 10, 4000, 10, "Ragdoll damage", "Tumble full",
+                      "Where the rotation half reads maximum."),
+            "Damage", "fViolenceTumbleFull"),
+    Renamed(RDS_PARAM(AlgorithmConfig, "RagdollDamage", "fViolenceThrashCeiling", kFloat,
+                      strategies.ragdollDamage.violence.thrashCeiling, 100, 40000, 50, "Ragdoll damage", "Thrash ceiling",
+                      "Per-limb clamp before the sum, against a solver blow-up and against one limb "
+                      "striking stone standing in for the whole body."),
+            "Damage", "fViolenceThrashCeiling"),
+    Renamed(RDS_PARAM(AlgorithmConfig, "RagdollDamage", "fViolenceHoldMs", kFloat,
+                      strategies.ragdollDamage.violence.holdMs, 50, 4000, 10, "Ragdoll damage", "Violence memory",
+                      "How long a violent stretch is remembered. Long enough to bridge the gaps between "
+                      "the bounces of a staircase, short enough that a fall which has settled is judged "
+                      "as settled. It is measured only between collisions - a contact cannot raise it, "
+                      "or every impact would be evidence of its own violence."),
+            "Damage", "fViolenceHoldMs"),
+    Renamed(RDS_PARAM(AlgorithmConfig, "RagdollDamage", "fViolenceLimbShare", kFloat,
+                      strategies.ragdollDamage.violence.limbShare, 0, 1, 0.05, "Ragdoll damage", "Limb share",
+                      "How much of the answer is this limb rather than the whole body. 0 asks only how "
+                      "bad the fall is; 1 asks only how hard this particular arm is being whipped about. "
+                      "They come apart - a body sliding to a stop with one leg still cartwheeling is "
+                      "quiet on the first and loud on the second."),
+            "Damage", "fViolenceLimbShare"),
+    Renamed(RDS_HPAIR(AlgorithmConfig, "RagdollDamage", "fViolenceGateDropFrac", kFloat,
+                      strategies.ragdollDamage.violence.gateDropFrac, 0, 1, 0.05, "Ragdoll damage", "Gate drop",
+                      "How far a violent fall lowers each tier's threshold, as a fraction of that tier's "
+                      "own span. The aggressive half of occurrence: it admits weaker contacts, so it can "
+                      "put a crunch on a knock that would never have earned one. What comes through the "
+                      "lowered bar still arrives at the quiet end of the level ramp."),
+            "Damage", "fViolenceGateDropFrac"),
+    Renamed(RDS_PARAM(AlgorithmConfig, "RagdollDamage", "fViolenceChanceBonus", kFloat,
+                      strategies.ragdollDamage.violence.chanceBonus, 0, 1, 0.05, "Ragdoll damage", "Chance bonus",
+                      "How much more often an already-eligible contact fires. DEAD at the shipped defaults: "
+                      "all six tiers fire with certainty once past their gate, so there is no room above "
+                      "to add. Pull a tier's 'chance at gate' below 1 and this comes alive."),
+            "Damage", "fViolenceChanceBonus"),
+    Renamed(RDS_HPAIR(AlgorithmConfig, "RagdollDamage", "iViolenceBudgetBonus", kInt,
+                      strategies.ragdollDamage.violence.budgetBonus, 0, 16, 1, "Ragdoll damage", "Budget bonus",
+                      "Extra breaks a violent fall is allowed, on top of each tier's own budget. **The "
+                      "lever that actually moves how often you hear one**: measured on the corpus these "
+                      "tiers are budget-limited rather than threshold-limited, so lowering the gate admits "
+                      "contacts into a ledger that is usually already spent. Measured over the corpus: "
+                      "the gate drop alone is +3% more breaks, this alone is +5%, and the two together "
+                      "at 3 are +22%. Still a budget, so even the worst tumble cannot machine-gun it."),
+            "Damage", "iViolenceBudgetBonus"),
+    Renamed(RDS_PARAM(AlgorithmConfig, "RagdollDamage", "fViolenceSpacingScale", kFloat,
+                      strategies.ragdollDamage.violence.spacingScale, 0, 1, 0.05, "Ragdoll damage", "Spacing scale",
+                      "How far the gap between two breaks shrinks when the fall is violent. DEAD at the "
+                      "shipped defaults: every tier ships with no spacing at all, and scaling zero is "
+                      "zero. Set a tier's spacing and this starts tightening it."),
+            "Damage", "fViolenceSpacingScale"),
+    Renamed(RDS_PARAM(AlgorithmConfig, "RagdollDamage", "fViolenceLevelBonusDb", kFloat,
+                      strategies.ragdollDamage.violence.levelBonusDb, 0, 12, 0.5, "Ragdoll damage", "Level bonus",
+                      "How much louder a break is when the fall is violent. A tier is discrete - a bone "
+                      "either broke or it did not - so this only pushes a break that was already "
+                      "happening further forward, and never softens one into existence."),
+            "Damage", "fViolenceLevelBonusDb"),
 
     // -- The slide, end to end ------------------------------------------------
     //
@@ -2189,19 +2213,6 @@ const ParamDesc kAlgorithmParams[] = {
               "recording behind it falls back to the default anyway, so this costs nothing until "
               "the files exist."),
 
-    // -- Stage 3: MotionFoley -------------------------------------------------
-    RDS_PARAM(AlgorithmConfig, "MotionFoley", "bEnabled", kBool, strategies.foley.enabled, 0, 1, 1,
-              "Motion foley", "Enabled",
-              "The airborne anticipation whoosh. This section used to own a continuous cloth "
-              "bed as well; it was muted in every saved config and went with its slot."),
-    RDS_PARAM(AlgorithmConfig, "MotionFoley", "bAirborneRise", kBool, strategies.foley.airborneRise,
-              0, 1, 1, "Motion foley", "Airborne rise",
-              "The anticipation whoosh while a body is in the air. On by default at a low level: "
-              "it tells the ear something is about to land."),
-    RDS_PARAM(AlgorithmConfig, "MotionFoley", "fAirborneRiseGainDb", kFloat,
-              strategies.foley.airborneRiseGainDb, -80, 6, 0.5, "Motion foley", "Rise level",
-              "How loud the whoosh is. It should be felt rather than heard."),
-
     // -- Stage 3: AccumDamage -------------------------------------------------
     RDS_HRULE(AlgorithmConfig, "DamageAccum", "bEnabled", kBool, strategies.accum.enabled, 0, 1, 1,
               "Accumulated damage", "Enabled",
@@ -2448,6 +2459,19 @@ const ParamDesc kAlgorithmParams[] = {
               "How far a running body grind pulls the rustle down, scaled by the grind's own "
               "weight so it arrives with the slide rather than switching on. A slide already has "
               "four layers describing the same motion; fabric under all of it is mud."),
+    Renamed(RDS_PAIRS(AlgorithmConfig, "Rustle", "bAirborneRise", kBool,
+                      strategies.rustle.airborneRise, 0, 1, 1, "Rustle", "Airborne rise",
+                      "The low airy rise under a body that is off the ground and still falling. "
+                      "MotionFoley's last layer, moved here when that strategy was retired: it "
+                      "answers to a body touching nothing, which is the garment's question too. "
+                      "Per mode like the rest of the garment, so a man vaulting a fence need not "
+                      "get the rise a thrown body gets."),
+            "MotionFoley", "bAirborneRise"),
+    Renamed(RDS_PARAM(AlgorithmConfig, "Rustle", "fAirborneRiseGainDb", kFloat,
+                      strategies.rustle.airborneRiseGainDb, -80, 6, 0.5, "Rustle", "Rise level",
+                      "How loud that rise is. Low by design - it is anticipation rather than an "
+                      "event, and the landing is what the ear is waiting for."),
+            "MotionFoley", "fAirborneRiseGainDb"),
 
     // -- Mix ------------------------------------------------------------------
     RDS_PARAM(AlgorithmConfig, "Mix", "fMasterGainDb", kFloat, mix.masterGainDb, -40, 20, 0.5,
@@ -2733,8 +2757,7 @@ const ParamDesc kAlgorithmParams[] = {
               "The dull skull thud with its granular edge. Mute it to check the head gate is firing on head contacts and not on everything that happens to be moving fast."),
     RDS_PARAM(AlgorithmConfig, "Layers", "bSettleRest", kBool, layers.settleRest, 0, 1, 1, "Layers",
               "settle_rest",
-              "The soft final flop that closes the event. Mute it and falls should audibly trail off unfinished, which is the whole reason it exists."),
-};
+              "The soft final flop that closes the event. Mute it and falls should audibly trail off unfinished, which is the whole reason it exists."),};
 
 #undef RDS_PARAM
 #undef RDS_PAIRS
@@ -2891,12 +2914,223 @@ struct SurfaceRowStrings {
         std::vector<ParamDesc> out{std::begin(kAlgorithmParams), std::end(kAlgorithmParams)};
         const auto& surfaces = SurfaceRows();
         out.insert(out.end(), surfaces.begin(), surfaces.end());
+        // The one place `perMode` is decided, and it is decided from the offset
+        // rather than typed per row: three columns is a property of the struct a
+        // row points into, not of the row. See kModeVarying.
+        for (ParamDesc& row : out) {
+            row.perMode = IsModeVarying(row.offset);
+        }
         return out;
     }();
     return all;
 }
 
 }  // namespace
+
+// ── the mode axis ────────────────────────────────────────────────────────────
+
+namespace {
+
+/// Which members of `AlgorithmConfig` are tuned per actor mode, as [begin, end)
+/// byte ranges. The test each one passed: *does this parameter mean the same
+/// thing for a body on the floor, a body walking, and a body fighting?*
+///
+///  - **ingest** is the collision filter, and it is most of why an upright body
+///    needs its own column at all: the ragdoll bodies collide the whole time a
+///    character is animated, so the floor that admits a knockdown's small taps
+///    admits every footstep as well.
+///  - **intensity** is the loudness curve. Same shape upright, lower ceiling.
+///  - **glancing** rejects contacts by angle of incidence, and nearly everything
+///    an animated body does is glancing.
+///  - **every strategy except `ragdollDamage`**, so each one can be switched off
+///    for a mode from its own `bEnabled` row rather than through a second
+///    mechanism. `ragdollDamage` is the half of the damage rule that only a loose
+///    body can answer for - see RagdollDamageConfig.
+///
+/// Listed member by member rather than as one span over `strategies`, so
+/// reordering that struct cannot quietly hand columns to something that should
+/// not have them.
+constexpr std::pair<std::size_t, std::size_t> Range(std::size_t begin, std::size_t size) {
+    return {begin, begin + size};
+}
+
+constexpr std::pair<std::size_t, std::size_t> kModeVarying[] = {
+    Range(offsetof(AlgorithmConfig, ingest), sizeof(IngestConfig)),
+    Range(offsetof(AlgorithmConfig, intensity), sizeof(IntensityConfig)),
+    Range(offsetof(AlgorithmConfig, glancing), sizeof(GlancingImpactConfig)),
+    Range(offsetof(AlgorithmConfig, strategies.impact), sizeof(ImpactCompositeConfig)),
+    Range(offsetof(AlgorithmConfig, strategies.airTime), sizeof(AirTimeConfig)),
+    Range(offsetof(AlgorithmConfig, strategies.head), sizeof(HeadImpactConfig)),
+    Range(offsetof(AlgorithmConfig, strategies.damage), sizeof(DamageConfig)),
+    Range(offsetof(AlgorithmConfig, strategies.scrape), sizeof(ScrapeLoopConfig)),
+    Range(offsetof(AlgorithmConfig, strategies.rustle), sizeof(RustleConfig)),
+    Range(offsetof(AlgorithmConfig, strategies.accum), sizeof(AccumDamageConfig)),
+};
+
+}  // namespace
+
+namespace {
+
+/// `AlgorithmFileParams()` for the ragdoll column, then the mode-varying rows
+/// again per further column, each offset into its own config inside the set.
+[[nodiscard]] const std::vector<ParamDesc>& SetFileRows() {
+    static const std::vector<ParamDesc> rows = [] {
+        const auto base = AlgorithmFileParams();
+        std::vector<ParamDesc> out{base.begin(), base.end()};
+        for (std::size_t m = 1; m < static_cast<std::size_t>(ActorMode::kCount); ++m) {
+            const auto mode = static_cast<ActorMode>(m);
+            for (const ParamDesc& p : base) {
+                if (!p.perMode) {
+                    continue;
+                }
+                ParamDesc row = p;
+                row.offset += m * sizeof(AlgorithmConfig);
+                // Held by the table, not by the row: a string_view into a
+                // temporary would dangle the moment this lambda returned.
+                static std::deque<std::string> sections;
+                row.section = sections.emplace_back(ModeSection(p, mode));
+                // The old name belongs to the column that inherited the old file.
+                // A legacy lookup under "[Damage.Combat]" would be answering a
+                // question nobody asked.
+                row.legacySection = {};
+                row.legacyKey = {};
+                row.legacySection2 = {};
+                row.legacyKey2 = {};
+                out.push_back(row);
+            }
+        }
+        return out;
+    }();
+    return rows;
+}
+
+}  // namespace
+
+std::span<const ParamDesc> AlgorithmSetFileParams() {
+    const auto& rows = SetFileRows();
+    return std::span<const ParamDesc>{rows};
+}
+
+std::span<const ParamDesc> ModeParams(ActorMode mode) {
+    const auto& rows = SetFileRows();
+    const std::size_t m = static_cast<std::size_t>(mode);
+    const std::size_t base = AlgorithmFileParams().size();
+    if (m == 0) {
+        return std::span<const ParamDesc>{rows}.first(base);
+    }
+    std::size_t perMode = 0;
+    for (const ParamDesc& p : AlgorithmFileParams()) {
+        perMode += p.perMode ? 1 : 0;
+    }
+    return std::span<const ParamDesc>{rows}.subspan(base + (m - 1) * perMode, perMode);
+}
+
+std::span<const std::pair<std::size_t, std::size_t>> ModeVaryingMembers() {
+    return std::span<const std::pair<std::size_t, std::size_t>>{kModeVarying};
+}
+
+/// The rows inside a mode-varying member that are *not* per mode after all,
+/// because something outside the engine reads them once and can only hold one
+/// answer.
+///
+/// One entry today. `[Ingest] iBodySampleEveryNTicks` is not a rule about a
+/// contact: it is how often the game-side feed publishes a pose, and there is one
+/// feed. Three values would mean two of them silently doing nothing, which is
+/// worse than the row not being per mode.
+constexpr std::size_t kModeShared[] = {
+    offsetof(AlgorithmConfig, ingest.bodySampleEveryNTicks),
+};
+
+bool IsModeVarying(std::size_t offset) {
+    for (const std::size_t shared : kModeShared) {
+        if (offset == shared) {
+            return false;
+        }
+    }
+    for (const auto& [begin, end] : kModeVarying) {
+        if (offset >= begin && offset < end) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string_view ModeSectionSuffix(ActorMode mode) {
+    switch (mode) {
+        case ActorMode::kRagdoll: return {};
+        case ActorMode::kGameplay: return ".Gameplay";
+        case ActorMode::kCombat: return ".Combat";
+        case ActorMode::kCount: break;
+    }
+    return {};
+}
+
+void MirrorSharedRows(ConfigSet& set) {
+    for (const ParamDesc& p : AlgorithmParams()) {
+        if (p.perMode) {
+            continue;
+        }
+        for (std::size_t m = 1; m < static_cast<std::size_t>(ActorMode::kCount); ++m) {
+            CopyRow(set, p, ActorMode::kRagdoll, static_cast<ActorMode>(m));
+        }
+    }
+}
+
+void CopyRow(ConfigSet& set, const ParamDesc& p, ActorMode from, ActorMode to) {
+    if (from == to) {
+        return;
+    }
+    if (p.type == ParamType::kString) {
+        SetParamString(&set[to], p, GetParamString(&set[from], p));
+        return;
+    }
+    SetParam(&set[to], p, GetParam(&set[from], p));
+}
+
+std::size_t CopyRows(ConfigSet& set, std::span<const ParamDesc> params, ActorMode from,
+                     ActorMode to) {
+    if (from == to) {
+        return 0;
+    }
+    std::size_t moved = 0;
+    for (const ParamDesc& p : params) {
+        if (!p.perMode) {
+            continue;
+        }
+        CopyRow(set, p, from, to);
+        ++moved;
+    }
+    return moved;
+}
+
+std::size_t CountDiffering(const ConfigSet& set, std::span<const ParamDesc> params, ActorMode a,
+                           ActorMode b) {
+    if (a == b) {
+        return 0;
+    }
+    std::size_t n = 0;
+    for (const ParamDesc& p : params) {
+        if (!p.perMode) {
+            continue;
+        }
+        if (p.type == ParamType::kString) {
+            n += GetParamString(&set[a], p) != GetParamString(&set[b], p) ? 1 : 0;
+            continue;
+        }
+        n += std::fabs(GetParam(&set[a], p) - GetParam(&set[b], p)) > 1e-9 ? 1 : 0;
+    }
+    return n;
+}
+
+std::string ModeSection(const ParamDesc& p, ActorMode mode) {
+    // The ragdoll column keeps the bare section name, which is the whole of the
+    // migration story: an ini written before the modes existed is read as the
+    // ragdoll column, and the other two start life as copies of it.
+    if (mode == ActorMode::kRagdoll || !p.perMode) {
+        return std::string{p.section};
+    }
+    return std::string{p.section} + std::string{ModeSectionSuffix(mode)};
+}
 
 std::span<const ParamDesc> AlgorithmParams() {
     const auto& all = AllAlgorithmRows();

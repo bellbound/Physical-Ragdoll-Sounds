@@ -85,23 +85,33 @@ public:
     /// game, and wherever `--sounds` points beside the testbench.
     [[nodiscard]] const std::filesystem::path& SfxPath() const { return m_sfxPath; }
 
-    /// The algorithm config the engine should use right now: the override if one
-    /// is pushed, otherwise the ini's.
+    /// All three tuning columns the engine should use right now: the override if
+    /// one is pushed, otherwise the ini's.
     ///
-    /// Returned by value, cheap and trivially copyable, because the caller may
-    /// be an audio thread and a reference into a struct somebody is about to
-    /// swap is how that thread reads half of one config and half of another.
-    [[nodiscard]] AlgorithmConfig Algorithm() const;
+    /// Returned by value, trivially copyable, because the caller may be an audio
+    /// thread and a reference into a struct somebody is about to swap is how that
+    /// thread reads half of one config and half of another. Six kilobytes rather
+    /// than two now - still nothing beside what it buys, and still not something
+    /// to call per frame.
+    [[nodiscard]] ConfigSet Algorithm() const;
 
-    /// The ini's own copy, ignoring any override. What Save() writes.
-    [[nodiscard]] const AlgorithmConfig& AlgorithmFromIni() const { return m_algorithm; }
+    /// One column of the above. `ActorMode::kRagdoll` is what a caller that has
+    /// no actor in hand wants: it is the column every shared value lives in.
+    [[nodiscard]] AlgorithmConfig Algorithm(ActorMode mode) const;
+
+    /// The ini's own set, ignoring any override. What Save() writes.
+    [[nodiscard]] const ConfigSet& AlgorithmFromIni() const { return m_algorithm; }
 
     // ── the testbench seam ───────────────────────────────────────────────────
 
     /// Use this instead of the ini's until ClearOverride(). Logged at info with
     /// the deltas against the ini, so a log from a testbench session says what
     /// was actually being auditioned.
-    void PushOverride(const AlgorithmConfig& config);
+    void PushOverride(const ConfigSet& config);
+
+    /// The same seam for one column, for a caller that has only edited one - the
+    /// testbench's slider panel, which pushes the column being tuned.
+    void PushOverride(ActorMode mode, const AlgorithmConfig& config);
 
     void ClearOverride();
 
@@ -141,6 +151,8 @@ public:
 
     /// Fold a pre-list ini's three surface trims and three mutes into the list.
     ///
+    /// Takes the ragdoll column: surfaces are not tuned per mode.
+    ///
     /// Reads the old `[Surfaces]` keys - and the `[SlotGain]` / `[Layers]` names
     /// they had before that - straight out of the algorithm file, and opens
     /// exactly the classes that carried a value differing from its default. A
@@ -174,12 +186,12 @@ private:
     std::filesystem::path m_sfxPath;
 
     GeneralConfig m_general{};
-    AlgorithmConfig m_algorithm{};
+    ConfigSet m_algorithm{};
     SfxAssignments m_sfx{};
 
     mutable std::mutex m_mutex;
     bool m_hasOverride{};
-    AlgorithmConfig m_override{};
+    ConfigSet m_override{};
     bool m_hasSfxOverride{};
     SfxAssignments m_sfxOverride{};
 };

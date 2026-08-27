@@ -127,7 +127,7 @@ void GameLink::Queue(rds::link::Msg type, const void* payload, std::size_t bytes
     }
 }
 
-void GameLink::PushAlgorithm(const rds::AlgorithmConfig& config) {
+void GameLink::PushAlgorithm(const rds::ConfigSet& config) {
     const std::string text = rds::link::EncodeAlgorithm(config);
     Queue(rds::link::Msg::kAlgorithm, text.data(), text.size());
 }

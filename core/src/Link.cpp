@@ -377,21 +377,43 @@ int ReadMessage(Socket& socket, Msg& type, std::vector<std::byte>& payload, int 
 // the text payloads
 // ═════════════════════════════════════════════════════════════════════════════
 
-std::string EncodeAlgorithm(const AlgorithmConfig& config) {
+std::string EncodeAlgorithm(const ConfigSet& config) {
     std::string out;
-    out.reserve(6 * 1024);
-    for (const ParamDesc& p : AlgorithmParams()) {
-        if (p.type == ParamType::kString) {
-            out += std::format("{}:{}={}\n", p.section, p.key, GetParamString(&config, p));
-            continue;
+    out.reserve(12 * 1024);
+    // The ragdoll column first, under the plain names it has always used, so a
+    // testbench or a `tune.py` that predates the modes reads and writes the file
+    // it always did. `AlgorithmConfig` sits at offset 0 of a `ConfigSet`, which is
+    // what lets these rows address the set directly.
+    const auto write = [&out, &config](std::span<const ParamDesc> params) {
+        for (const ParamDesc& p : params) {
+            if (p.type == ParamType::kString) {
+                out += std::format("{}:{}={}\n", p.section, p.key, GetParamString(&config, p));
+                continue;
+            }
+            out += std::format("{}:{}={}\n", p.section, p.key, FormatParam(p, GetParam(&config, p)));
         }
-        out += std::format("{}:{}={}\n", p.section, p.key, FormatParam(p, GetParam(&config, p)));
-    }
+    };
+    write(AlgorithmParams());
+    write(ModeParams(ActorMode::kGameplay));
+    write(ModeParams(ActorMode::kCombat));
     return out;
 }
 
-void DecodeAlgorithm(std::string_view text, AlgorithmConfig& out) {
-    const auto params = AlgorithmParams();
+void DecodeAlgorithm(std::string_view text, ConfigSet& out) {
+    // One table with the mode rows on the end, so a `Section.Combat:Key` line
+    // lands in the combat column and a bare `Section:Key` line in the ragdoll one
+    // by the same lookup.
+    static const std::vector<ParamDesc> table = [] {
+        std::vector<ParamDesc> all;
+        const auto base = AlgorithmParams();
+        all.assign(base.begin(), base.end());
+        for (const ActorMode mode : {ActorMode::kGameplay, ActorMode::kCombat}) {
+            const auto rows = ModeParams(mode);
+            all.insert(all.end(), rows.begin(), rows.end());
+        }
+        return all;
+    }();
+    const auto params = std::span<const ParamDesc>{table};
     ForEachLine(text, [&](std::string_view line) {
         std::string_view qualified;
         std::string_view value;

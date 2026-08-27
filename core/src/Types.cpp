@@ -285,6 +285,16 @@ std::string_view ToString(DistanceTier t) {
     return "full";
 }
 
+std::string_view ToString(ActorMode m) {
+    switch (m) {
+        case ActorMode::kRagdoll: return "ragdoll";
+        case ActorMode::kGameplay: return "gameplay";
+        case ActorMode::kCombat: return "combat";
+        case ActorMode::kCount: break;
+    }
+    return "ragdoll";
+}
+
 LimbSite SiteFromBoneName(std::string_view boneName) {
     // Order is not arbitrary: "UpperArm" and "Forearm" both contain "arm", and
     // the ragdoll bone for the pelvis is called "COM", which is a substring of
