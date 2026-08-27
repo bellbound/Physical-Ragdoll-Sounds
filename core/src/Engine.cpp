@@ -445,13 +445,10 @@ struct ActorRuntime {
     };
     std::array<std::array<DamageLedger, 2>, static_cast<std::size_t>(DamageSite::kCount)> damage{};
 
-    bool riseRunning{};
-    std::uint32_t riseVoice{};
-    float riseLastDb{kSilentDb};
     /// The anchor each running loop was last *told* about, which is not the anchor
     /// it should be on. The renderer re-attaches only when a cue arrives, so the
     /// engine has to know what it sent. See `EmitLoopProposal`.
-    std::uint16_t riseAnchor{};
+    ///
     /// The motion trim as the bed hears it: `fBedTrimGlideMs` of glide behind
     /// `MotionBudgetFor`. Seeded on the first tick rather than started at zero, so
     /// the first loop of a take does not fade up out of a trim it was never in.
@@ -2346,8 +2343,6 @@ public:
         const RustleConfig& rustle = ctx.cfg.strategies.rustle;
         ActorRuntime& actor = ctx.actor;
 
-        AirborneRise(ctx, out, rustle);
-
         const float drive = actor.state.rustleDrive;
 
         // Every reason there might be nothing to play, in one test - and every
@@ -2400,39 +2395,6 @@ public:
     }
 
 private:
-    /// The airborne anticipation rise: MotionFoley's last layer, moved here when
-    /// that strategy was retired.
-    ///
-    /// It sits inside the garment rather than beside it because it answers the one
-    /// question the garment already asks - what a body that is not touching
-    /// anything is doing - and because a whole stage-3 object for a loop and a stop
-    /// was most of a strategy's cost for none of its independence. It is still its
-    /// own slot, its own voice and its own enable, so nothing about what is heard
-    /// has changed.
-    ///
-    /// Independent of the rustle's own `bEnabled`: they are two layers, and an
-    /// install with no `cloth_rustle` recorded still has an `air_whoosh`.
-    static void AirborneRise(const StrategyContext& ctx, ProposalList& out,
-                             const RustleConfig& rustle) {
-        ActorRuntime& actor = ctx.actor;
-
-        // Skipped for your own ragdoll: you are the one moving and the view tells
-        // you.
-        const bool wantsRise = rustle.airborneRise && actor.haveBodyPoint &&
-                               actor.state.airborne &&
-                               actor.state.tier == DistanceTier::kFull &&
-                               !(actor.isPlayer && ctx.cfg.player.skipAirborneWhoosh);
-        if (wantsRise) {
-            EmitLoopProposal(ctx, out, actor.riseRunning, actor.riseVoice, actor.riseLastDb,
-                             actor.riseAnchor, SlotId::kAirWhoosh, rustle.airborneRiseGainDb, 1.0f,
-                             CueReason::kAirborneRise, 150.0f, BodyAnchor(actor),
-                             ActorClassCoverage(ctx));
-        } else if (actor.riseRunning) {
-            StopLoopProposal(ctx, out, actor.riseRunning, actor.riseVoice, SlotId::kAirWhoosh,
-                             CueReason::kAirborneRise, 200.0f);
-        }
-    }
-
     /// The class the whole actor answers to. The torso's `bodyCoverage`, whatever
     /// `[Armor] iActorClassSource` says about the other actor-level cues: a
     /// garment is what the body is wearing, and the slide's coverage is
@@ -2676,8 +2638,6 @@ struct Engine::Impl {
     /// the renderer lets its voice go, and the budget entry given back.
     void StopActorLoops(ActorRuntime& actor, TimeMs nowMs) {
         const AlgorithmConfig& c = For(actor);
-        StopOneLoop(actor, nowMs, actor.riseRunning, actor.riseVoice, SlotId::kAirWhoosh,
-                    CueReason::kAirborneRise, 200.0f);
         StopOneLoop(actor, nowMs, actor.scrapeRunning, actor.scrapeVoice, actor.scrapeSlot,
                     CueReason::kScrape, c.strategies.scrape.stopFadeMs);
         StopOneLoop(actor, nowMs, actor.armorSlideRunning, actor.armorSlideVoice,
@@ -2980,7 +2940,6 @@ struct Engine::Impl {
             // Its own trim, not the grind's: the balance between them is the whole
             // of this layer.
             case SlotId::kScrapeLoopRumble: return g.scrapeLoopRumble;
-            case SlotId::kAirWhoosh:    return g.airWhoosh;
             case SlotId::kHeadImpact:   return g.headImpact;
             case SlotId::kSettleRest:   return g.settleRest;
             default:                    return 0.0f;

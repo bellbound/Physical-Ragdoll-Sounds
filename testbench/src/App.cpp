@@ -29,8 +29,16 @@ namespace {
 /// drag delta from, which is all this is. `vertical` describes the *bar*, so a
 /// The gap between two mode columns. Wide enough for the pair of copy arrows the
 /// row draws into it while the cursor is on that row, which is what the gap is
-/// there for - a divider you can act on rather than only look at.
-constexpr float kModeColumnGap = 30.0f;
+/// there for - a divider you can act on rather than only look at. Two
+/// `ArrowButton`s are two frame heights side by side, so this is measured off
+/// that rather than guessed.
+[[nodiscard]] float ModeColumnGap() { return ImGui::GetFrameHeight() * 2.0f + 10.0f; }
+
+/// Where a three-column row's widgets start, measured from the row's left edge.
+/// Fixed rather than "after this row's label", because three columns are only
+/// readable if every row's three start in the same place - and a header can only
+/// be drawn over a column that does not move.
+constexpr float kModeLabelWidth = 190.0f;
 
 /// vertical bar moves a left/right split.
 bool Splitter(const char* id, bool vertical, float& frac, float span, float minFrac,
@@ -91,7 +99,6 @@ ImU32 ReasonColour(rds::CueReason r) {
         case rds::CueReason::kGore:            return IM_COL32(190, 40, 60, 255);
         case rds::CueReason::kLimbTap:         return IM_COL32(150, 205, 255, 255);
         case rds::CueReason::kScrape:          return IM_COL32(120, 220, 170, 255);
-        case rds::CueReason::kAirborneRise:    return IM_COL32(150, 120, 220, 255);
         // The same warm neutral the envelope under the lane is drawn in, so the
         // handful of cues and the curve they came from read as one thing.
         case rds::CueReason::kRustle:          return IM_COL32(214, 176, 132, 255);
@@ -2045,10 +2052,8 @@ void App::DrawTransport() {
         "the one thing the testbench does that Skyrim cannot. Turn it off to hear what the mix "
         "really does when a burst stacks.");
 
-    DrawSimulateRow();
-
     UpdateCueWindow();
-    DrawBenchmarkRow();
+    DrawSimulateRow();
 
     if (m_video.HasVideo()) {
         float nudge = static_cast<float>(m_videoOffsetMs);
@@ -2080,21 +2085,6 @@ void App::DrawTransport() {
             m_offsets.Set(m_takes[static_cast<std::size_t>(m_take)].stem, m_videoOffsetMs);
         }
         Tip("Assume the clip brackets the take evenly. A starting point, not a measurement.");
-        ImGui::SameLine();
-        const bool wholeOutput = m_recording && m_recording->Info().videoIsWholeOutput;
-        if (m_sync.valid)
-            ImGui::TextDisabled("sync: %d/%d rows, min rtt %.0f ms, drift %+.2f ms/s | %s %.0f ms | %s",
-                                m_sync.rowsUsed, m_sync.rowsTotal, m_sync.minRttMs, m_sync.driftMsPerSec,
-                                wholeOutput ? "recording" : "clip",
-                                m_video.Ready() ? m_video.DurationMs() : 0.0, m_video.Status());
-        else if (wholeOutput)
-            // Not a complaint: OBS started and stopped for this take, so its
-            // video begins where the take does and the offset near zero is
-            // right. Only the drift is missing.
-            ImGui::TextDisabled("no _sync.csv - this take's own recording, so zero is the offset | %s",
-                                m_video.Status());
-        else
-            ImGui::TextDisabled("no _sync.csv - the offset is the whole story here | %s", m_video.Status());
     }
 }
 
@@ -2191,9 +2181,10 @@ void App::UpdateCueWindow() {
 
 // ── the benchmark ────────────────────────────────────────────────────────────
 //
-// Under the transport because it is a transport control: it stops playback and
+// On the simulate row because it is a transport control: it stops playback and
 // replays the take the scrub bar is sitting in, which is what Play does with a
-// different clock.
+// different clock. It shares that row rather than owning one because a row of
+// the window is worth more to the timeline than to a button.
 
 void App::DrawSimulateRow() {
     // Every take in the corpus was recorded on one floor wearing one thing, and
@@ -2280,7 +2271,26 @@ void App::DrawSimulateRow() {
         "the per-limb rule.");
 
     ImGui::SameLine();
-    if (ImGui::TreeNodeEx("per limb", ImGuiTreeNodeFlags_NoTreePushOnOpen)) {
+    const bool perLimbOpen = ImGui::TreeNodeEx("per limb", ImGuiTreeNodeFlags_NoTreePushOnOpen);
+
+    if (m_pretend.Pretending()) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.35f, 1), "PRETENDING");
+        Tip("This take is not being replayed as it was recorded. Every level you are judging is "
+            "being judged in a world that did not happen.");
+    }
+
+    // The benchmark and the cue window ride this row rather than owning one of
+    // their own. They are take-level controls like everything else on it, and
+    // the row they used to cost is worth more to the timeline than to them.
+    ImGui::SameLine();
+    ImGui::TextDisabled("|");
+    ImGui::SameLine();
+    DrawBenchmarkControls();
+
+    // The expander last, because it draws down the window: anything SameLined
+    // after its body lands on the last site's combo rather than on this row.
+    if (perLimbOpen) {
         for (std::size_t s = 0; s < std::size(m_pretend.coverageSet); ++s) {
             const auto site = static_cast<rds::CoverageSite>(s);
             const std::string name{rds::ToString(site)};
@@ -2306,13 +2316,6 @@ void App::DrawSimulateRow() {
             ImGui::TextUnformatted(name.c_str());
         }
     }
-
-    if (m_pretend.Pretending()) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.35f, 1), "PRETENDING");
-        Tip("This take is not being replayed as it was recorded. Every level you are judging is "
-            "being judged in a world that did not happen.");
-    }
 }
 
 void App::MarkPretendDirty() {
@@ -2322,16 +2325,14 @@ void App::MarkPretendDirty() {
     m_side[1].dirty = true;
 }
 
-void App::DrawBenchmarkRow() {
+void App::DrawBenchmarkControls() {
     ImGui::BeginDisabled(!m_recording);
     if (ImGui::Button("benchmark", ImVec2(110, 0))) RunBenchmark();
     ImGui::EndDisabled();
     Tip("Pauses playback and replays this take through the backend as fast as it will go, "
         "reporting the fastest run.\n\n"
-        "Tracing is off for it - the game never traces, and the testbench's own "
-        "\"RunOffline + mix\" figure beside the stats is mostly the cost of filling the "
-        "timeline. So this number is lower than that one on purpose, and it is the one that "
-        "says something about the mod.\n\n"
+        "Tracing is off for it - the game never traces - so this is the engine's cost and "
+        "not the testbench's, and it is the one that says something about the mod.\n\n"
         "The window freezes while it runs. That is deliberate: measuring against a UI that is "
         "drawing at the same time measures the UI.");
     ImGui::SameLine();
@@ -2339,13 +2340,6 @@ void App::DrawBenchmarkRow() {
     ImGui::SliderFloat("##benchbudget", &m_benchBudgetSec, 0.1f, 5.0f, "%.1f s each");
     Tip("How long to spend measuring, per config. Longer is a tighter number and a longer "
         "freeze. While split A/B, both sides are measured, so the freeze is twice this.");
-    ImGui::SameLine();
-    if (m_split)
-        ImGui::TextDisabled("| A and B, back to back");
-    else
-        ImGui::TextDisabled("| side %c only - turn on split A/B to compare two configs",
-                            'A' + m_focusSide);
-
     // The cue window, beside the benchmark because both are about the same
     // thing: how long you wait to hear the answer to a change you just made.
     ImGui::SameLine();
@@ -3507,26 +3501,15 @@ void App::DrawBodyReadout(const ConfigSide& side) {
         "-686 u/s2 (9.8 m/s2 x 69.99 u/m), and anything holding the body up pulls it\n"
         "toward zero. That is why nothing here needs a ground reference, and why it\n"
         "survives a staircase.");
-    ImGui::SameLine();
+    // Only the airborne half of the flight state: `supported` is the ordinary
+    // case and saying so on every frame is a word that never means anything.
     if (found->airborne) {
+        ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.60f, 0.85f, 1.0f, 1.0f), "| airborne, dropped %.0f",
                            found->fallDropUnits);
         Tip("Nothing is holding the body up at this frame. The drop is measured from where\n"
             "the flight began, so it is relative and a staircase does not confuse it.");
-    } else {
-        ImGui::TextDisabled("| supported");
-        Tip("Something is holding the body up at this frame - the floor, a step, a wall.");
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled("| %.*s / %.*s @ %.0f ms",
-                        static_cast<int>(rds::ToString(found->motion).size()),
-                        rds::ToString(found->motion).data(),
-                        static_cast<int>(rds::ToString(found->moment).size()),
-                        rds::ToString(found->moment).data(), found->timeMs);
-    Tip("Stage 2's two axes at this frame, and the tick the numbers were sampled on.\n"
-        "Motion is what the body is doing and physics owns it; Moment is what the mix is\n"
-        "doing and design owns it. A quiet-looking contact inside a hero moment comes out\n"
-        "loud, and this is the line that says so.");
     if (found->slideExit != rds::SlideExit::kNone) {
         ImGui::SameLine();
         ImGui::TextDisabled("| last slide %.*s",
@@ -3583,32 +3566,11 @@ void App::DrawStats() {
                 st.contactsIn, st.emittedCues, st.bursts, st.ReductionRatio());
     Tip("The design's target is about 10:1 - four to six audible moments against 30-60 collisions.");
     ImGui::SameLine();
-    ImGui::TextDisabled("| peak %.0f u/s | cues span %.0f-%.0f ms | RunOffline + mix %.1f ms", st.peakSpeed,
-                        st.firstCueMs, st.lastCueMs, s.runMs);
-    Tip("Peak is the hardest closing speed the take carried, and it is the number every\n"
-        "gate is a fraction of - Intensity:fSpeedRefHigh is what the mod calls loud, and a\n"
-        "take peaking well under it is a take nothing will reach the top of the range on.\n\n"
-        "The run time is this replay plus the mix, not the engine's cost in the game. It is\n"
-        "mostly the cost of filling the timeline: for what a frame actually costs, use the\n"
-        "benchmark button under the transport.");
+    ImGui::TextDisabled("| peak %.0f u/s", st.peakSpeed);
+    Tip("The hardest closing speed the take carried, and the number every gate is a\n"
+        "fraction of - Intensity:fSpeedRefHigh is what the mod calls loud, and a take\n"
+        "peaking well under it is a take nothing will reach the top of the range on.");
 
-    // The bank's per-slot resolution: "imp_sub: 0/2 files, nothing to play" is
-    // the line that explains a thin mix, and it belongs on screen for the same
-    // reason it belongs in the log.
-    int withFiles = 0, declared = 0, fellBack = 0;
-    for (const rds::SlotDesc& d : rds::Slots()) {
-        if (d.expectedVariants == 0) continue;
-        ++declared;
-        if (m_bank.FileCount(d.id) > 0) {
-            ++withFiles;
-        } else if (m_bank.FileCount(m_bank.PlaysAs(d.id)) > 0) {
-            // Empty, but not silent and not synthesised: the surface-coloured
-            // scrapes play the grind they are a variant of. Counted apart from
-            // both, because a slot that needs a recording and a slot that is
-            // waiting for an optional one are different jobs.
-            ++fellBack;
-        }
-    }
     if (s.audio) {
         const float rawDb = 20.0f * std::log10(std::max(s.audio->rawPeak, 1e-6f));
         if (s.audio->rawPeak > 1.0f)
@@ -3617,88 +3579,6 @@ void App::DrawStats() {
             ImGui::TextDisabled("mix peak %+.1f dBFS before the limiter", rawDb);
         Tip("The testbench soft-clips the sum; the game does not. Above 0 dBFS here means this "
             "config would clip in Skyrim, whatever it sounds like in this window.");
-    }
-
-    const int silentSlots = declared - withFiles - fellBack;
-    if (silentSlots > 0) {
-        ImGui::TextColored(ImVec4(0.95f, 0.45f, 0.40f, 1.0f),
-                           "bank: %d of %d slots have wav files, %d play a fallback slot's, %d "
-                           "have nothing to play",
-                           withFiles, declared, fellBack, silentSlots);
-    } else {
-        ImGui::TextDisabled("bank: %d of %d slots have wav files, %d play a fallback slot's",
-                            withFiles, declared, fellBack);
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::BeginTooltip();
-        for (const rds::SlotDesc& d : rds::Slots()) {
-            if (d.expectedVariants == 0) continue;
-            const rds::SlotId plays = m_bank.PlaysAs(d.id);
-            const bool falls = plays != d.id && m_bank.FileCount(plays) > 0;
-            const std::string_view playsName = rds::ToString(plays);
-            ImGui::Text("%.*s: %zu/%u files%s%.*s", static_cast<int>(d.name.size()), d.name.data(),
-                        m_bank.FileCount(d.id), d.expectedVariants,
-                        m_bank.FileCount(d.id) ? "" : (falls ? ", plays " : ", nothing to play"),
-                        falls ? static_cast<int>(playsName.size()) : 0, playsName.data());
-        }
-        ImGui::EndTooltip();
-    }
-
-    // What is actually sounding in this window, by slot. It replaced a breakdown of
-    // everything the arbitrator threw away: "there were four thuds there and I
-    // heard one" is about which slots fired, not which rule dropped what, and the
-    // drop counts are still in the export.
-    double lo = 0.0;
-    double hi = 0.0;
-    WindowMs(lo, hi);
-
-    std::array<int, static_cast<std::size_t>(rds::SlotId::kCount)> perSlot{};
-    int total = 0;
-    for (const rds::Cue& c : s.result.cues) {
-        if (c.timeMs < lo || c.timeMs > hi) continue;
-        const auto k = static_cast<std::size_t>(c.slot);
-        if (k < perSlot.size()) ++perSlot[k];
-        ++total;
-    }
-
-    if (WindowIsRegion()) {
-        ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1.0f),
-                           "cues by slot in the loop region  %.0f-%.0f ms  (%d cues)", lo, hi,
-                           total);
-    } else {
-        ImGui::TextDisabled("cues by slot, whole take (%d cues) - drag the strip under the "
-                            "timeline to narrow it", total);
-    }
-
-    // Only the slots that fired, so the row is a picture of this window rather
-    // than a fixed table of mostly zeroes.
-    if (total == 0) {
-        ImGui::TextDisabled("(nothing sounds here)");
-    } else if (ImGui::BeginTable("perslot", 7, ImGuiTableFlags_SizingStretchProp)) {
-        int drawn = 0;
-        for (const rds::SlotDesc& d : rds::Slots()) {
-            const auto k = static_cast<std::size_t>(d.id);
-            if (k >= perSlot.size() || perSlot[k] == 0) continue;
-            if (drawn % 7 == 0) ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextDisabled("%.*s", static_cast<int>(d.name.size()), d.name.data());
-            ImGui::SameLine();
-            ImGui::Text("%d", perSlot[k]);
-            if (ImGui::IsItemHovered()) {
-                const rds::SlotId plays = m_bank.PlaysAs(d.id);
-                const bool falls = plays != d.id && m_bank.FileCount(plays) > 0;
-                const std::string_view playsName = rds::ToString(plays);
-                ImGui::SetTooltip("%.*s\n%zu/%u wav files%s%.*s",
-                                  static_cast<int>(d.character.size()), d.character.data(),
-                                  m_bank.FileCount(d.id), d.expectedVariants,
-                                  m_bank.FileCount(d.id) ? ""
-                                                         : (falls ? " - nothing recorded, playing "
-                                                                  : " - nothing to play"),
-                                  falls ? static_cast<int>(playsName.size()) : 0, playsName.data());
-            }
-            ++drawn;
-        }
-        ImGui::EndTable();
     }
 }
 
@@ -3736,15 +3616,6 @@ void App::DrawSelectedCue() {
                         rds::CompressThresholdDb(s.cfg.Base().compress, c.compressBand),
                         s.cfg.Base().compress.ratio, -c.compressCutDb));
     }
-    const std::string_view reason = rds::ToString(c.reason);
-    const std::string_view site = rds::ToString(c.site);
-    const std::string_view surf = rds::ToString(c.surface);
-    const std::string_view phase = rds::ToString(c.motion, c.moment);
-    ImGui::TextDisabled("actor %08X  limb %u (%.*s)  surface %.*s  reason %.*s  phase %.*s  intensity %.3f  seq %u",
-                        c.actorId, c.limbIndex, static_cast<int>(site.size()), site.data(),
-                        static_cast<int>(surf.size()), surf.data(), static_cast<int>(reason.size()), reason.data(),
-                        static_cast<int>(phase.size()), phase.data(), c.intensity, c.sourceSeq);
-    Tip("sourceSeq is the seq column of the take's CSV - the row this cue came from.");
 }
 
 void App::DrawRight(int side, float height, bool split) {
@@ -3979,6 +3850,9 @@ void App::DrawParams(int side) {
     /// Whether this group has put a row on screen yet - what a rule needs above
     /// it before it is worth drawing.
     bool groupDrew = false;
+    /// Whether this group has already had "ragdoll / gameplay / combat" drawn
+    /// over its columns. Reset when a group opens.
+    bool modeHeaderDrawn = false;
 
     // Two columns, and only where the schema asked for one: the row that opens a
     // pair leaves this set, and the next row that actually gets drawn takes it.
@@ -4023,6 +3897,7 @@ void App::DrawParams(int side) {
             // says so in a dialog across the panel.
             ImGui::PushID(static_cast<const void*>(&p));
             groupVisible = ImGui::CollapsingHeader(std::string(p.group).c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+            modeHeaderDrawn = false;
             // An opened surface can be given back. Closing is not a reset to the
             // defaults - it is a return to inheriting, so a class under a tuned
             // parent goes back to that parent rather than to zero, which is why
@@ -4071,6 +3946,14 @@ void App::DrawParams(int side) {
         // and a widget inside it can be placed with one number each.
         const float left = ImGui::GetCursorPosX();
         const float right = left + ImGui::GetContentRegionAvail().x;
+
+        // Once per group, over the first row in it that has three columns. Per
+        // group rather than once at the top of the panel: the panel scrolls, and
+        // a heading you have scrolled past is a heading you do not have.
+        if (p.perMode && m_modeColumns && !modeHeaderDrawn) {
+            DrawModeHeader(left, right);
+            modeHeaderDrawn = true;
+        }
         float startX = 0.0f;  ///< 0 means "start the row here", without a SameLine
         float columnRight = right;
         // A row drawn in three columns takes the whole line: pairing it with the
@@ -4215,6 +4098,7 @@ void App::DrawParam(int side, const rds::ParamDesc& p, float startX, float right
     // part of the row and ImGui draws in the order it is told.
     const bool columns = p.perMode && m_modeColumns;
     const bool hovered = columns && RowHovered(ImGui::GetFrameHeight());
+
     void* root = &s.cfg.Base();
 
     // The desc's own address, not the key text: several sections carry a key
@@ -4271,7 +4155,19 @@ void App::DrawParam(int side, const rds::ParamDesc& p, float startX, float right
     // pushes the text off the right edge of the panel, which turns a tuning
     // surface into a hundred anonymous numbers.
     if (moved) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.45f, 1.0f));
-    ImGui::TextUnformatted(p.label.data(), p.label.data() + p.label.size());
+    if (columns) {
+        // Clipped to its own column rather than allowed to push the widgets
+        // right: the three columns line up down the whole panel, and one long
+        // name must not be able to shunt one row's three out of that line. The
+        // tooltip carries the name in full.
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        ImGui::PushClipRect(at, ImVec2(at.x + kModeLabelWidth - 10.0f,
+                                       at.y + ImGui::GetFrameHeight()), true);
+        ImGui::TextUnformatted(p.label.data(), p.label.data() + p.label.size());
+        ImGui::PopClipRect();
+    } else {
+        ImGui::TextUnformatted(p.label.data(), p.label.data() + p.label.size());
+    }
     if (moved) ImGui::PopStyleColor();
     Tip(tip);
 
@@ -4287,12 +4183,22 @@ void App::DrawParam(int side, const rds::ParamDesc& p, float startX, float right
     // being asked of them is "how much quieter should this be on its feet?" and
     // that is not a question you can answer by scrolling.
     if (columns) {
-        const float span = std::max(120.0f, rightX - widgetX);
-        const float width = (span - 2.0f * kModeColumnGap) / 3.0f;
+        const float columnLeft = left + kModeLabelWidth;
+        const float gap = ModeColumnGap();
+        const float width = ModeColumnWidth(left, rightX);
         for (std::size_t m = 0; m < static_cast<std::size_t>(rds::ActorMode::kCount); ++m) {
             DrawParamColumn(side, p, static_cast<rds::ActorMode>(m),
-                            widgetX + static_cast<float>(m) * (width + kModeColumnGap), width,
-                            hovered);
+                            columnLeft + static_cast<float>(m) * (width + gap), width);
+        }
+        // After all three, and that is the fix rather than a tidy-up: ImGui gives
+        // an overlapping click to whichever item was submitted last, so arrows
+        // drawn between two columns were being swallowed by the slider on their
+        // right.
+        for (std::size_t m = 0; m + 1 < static_cast<std::size_t>(rds::ActorMode::kCount); ++m) {
+            DrawCopyArrows(side, p, static_cast<rds::ActorMode>(m),
+                           columnLeft + static_cast<float>(m + 1) * width +
+                               static_cast<float>(m) * gap,
+                           hovered);
         }
         ImGui::PopID();
         return;
@@ -4352,12 +4258,79 @@ void App::ApplyParamEdit(int side, const rds::ParamDesc& p, rds::ActorMode mode,
 bool App::RowHovered(float height) {
     const ImVec2 at = ImGui::GetCursorScreenPos();
     const float width = ImGui::GetContentRegionAvail().x;
-    return ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+    // AllowWhenBlockedByActiveItem so a row stays lit while one of its own
+    // sliders is being dragged: without it the arrows fade out the moment you
+    // touch the value you were about to copy.
+    return ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows |
+                                  ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) &&
            ImGui::IsMouseHoveringRect(at, ImVec2(at.x + width, at.y + height), false);
 }
 
+float App::ModeColumnWidth(float left, float rightX) {
+    const float span = std::max(150.0f, rightX - left - kModeLabelWidth);
+    return (span - 2.0f * ModeColumnGap()) / 3.0f;
+}
+
+void App::DrawModeHeader(float left, float rightX) {
+    // An item on the line before any SameLine, which is what SameLine measures
+    // its offset against.
+    ImGui::Dummy(ImVec2(0.0f, 0.0f));
+    const float columnLeft = left + kModeLabelWidth;
+    const float gap = ModeColumnGap();
+    const float width = ModeColumnWidth(left, rightX);
+    for (std::size_t m = 0; m < static_cast<std::size_t>(rds::ActorMode::kCount); ++m) {
+        const auto mode = static_cast<rds::ActorMode>(m);
+        ImGui::SameLine(columnLeft + static_cast<float>(m) * (width + gap));
+        ImGui::TextDisabled("%s", std::string(rds::ToString(mode)).c_str());
+        Tip(mode == rds::ActorMode::kRagdoll
+                ? "A body on the floor: down, getting up, or not classified yet.\n\n"
+                  "Every parameter that is not tuned per mode is read from this column, so a "
+                  "single-column row is this one."
+                : mode == rds::ActorMode::kGameplay
+                      ? "Upright, and nobody is fighting them. Walking, falling off a ledge, "
+                        "being shoved."
+                      : "Upright, and in a fight - theirs or somebody else's.\n\nA fighter who "
+                        "is knocked down is read through the ragdoll column from that moment: "
+                        "ragdoll wins.");
+    }
+    ImGui::Spacing();
+}
+
+void App::DrawCopyArrows(int side, const rds::ParamDesc& p, rds::ActorMode from, float x,
+                         bool hovered) {
+    ConfigSide& s = m_side[side];
+    const auto to = static_cast<rds::ActorMode>(static_cast<std::size_t>(from) + 1);
+    ImGui::PushID(static_cast<const void*>(&p));
+    ImGui::PushID(static_cast<int>(from) + 100);
+    // Faded rather than hidden off the hovered row. Drawn either way, and that is
+    // deliberate: an arrow that is not submitted cannot be clicked, so making its
+    // existence depend on a hover test is one bad rect away from a button that
+    // does nothing. Faded, it is as quiet as it was meant to be and always works.
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * (hovered ? 1.0f : 0.28f));
+
+    const auto copy = [&](rds::ActorMode src, rds::ActorMode dst) {
+        BeginEdit(side, std::format("{} -> {}", rds::ToString(src), rds::ToString(dst)));
+        rds::CopyRow(s.cfg, p, src, dst);
+        CommitEdit(side);
+        s.dirty = true;
+        s.verifyRun = false;
+        m_focusSide = side;
+    };
+
+    ImGui::SameLine(x + 3.0f);
+    if (ImGui::ArrowButton("##right", ImGuiDir_Right)) copy(from, to);
+    Tip(std::format("Copy {}'s value into {}.", rds::ToString(from), rds::ToString(to)));
+    ImGui::SameLine(0.0f, 2.0f);
+    if (ImGui::ArrowButton("##left", ImGuiDir_Left)) copy(to, from);
+    Tip(std::format("Copy {}'s value back into {}.", rds::ToString(to), rds::ToString(from)));
+
+    ImGui::PopStyleVar();
+    ImGui::PopID();
+    ImGui::PopID();
+}
+
 void App::DrawParamColumn(int side, const rds::ParamDesc& p, rds::ActorMode mode, float x,
-                          float width, bool hovered) {
+                          float width) {
     ConfigSide& s = m_side[side];
     ImGui::PushID(static_cast<int>(mode));
 
@@ -4380,35 +4353,6 @@ void App::DrawParamColumn(int side, const rds::ParamDesc& p, rds::ActorMode mode
                                    : " - upright, nobody fighting them"),
                     p.tooltip));
 
-    // The arrow into the column on the right, drawn in the gap between the two
-    // and only while the row is under the cursor: three columns of sliders is
-    // already a lot to look at, and a permanent pair of buttons between each of
-    // them would be more furniture than tuning surface.
-    const auto next = static_cast<rds::ActorMode>(static_cast<std::size_t>(mode) + 1);
-    if (hovered && next != rds::ActorMode::kCount) {
-        ImGui::SameLine(x + width + 2.0f);
-        if (ImGui::SmallButton(">")) {
-            BeginEdit(side, std::format("{} -> {}", rds::ToString(mode), rds::ToString(next)));
-            rds::CopyRow(s.cfg, p, mode, next);
-            CommitEdit(side);
-            s.dirty = true;
-            s.verifyRun = false;
-            m_focusSide = side;
-        }
-        Tip(std::format("Copy this value from {} into {}.", rds::ToString(mode),
-                        rds::ToString(next)));
-        ImGui::SameLine(0.0f, 1.0f);
-        if (ImGui::SmallButton("<")) {
-            BeginEdit(side, std::format("{} -> {}", rds::ToString(next), rds::ToString(mode)));
-            rds::CopyRow(s.cfg, p, next, mode);
-            CommitEdit(side);
-            s.dirty = true;
-            s.verifyRun = false;
-            m_focusSide = side;
-        }
-        Tip(std::format("Copy {}'s value back into {}.", rds::ToString(next),
-                        rds::ToString(mode)));
-    }
     ImGui::PopID();
 }
 

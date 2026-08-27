@@ -475,7 +475,7 @@ private:
     /// The benchmark button and its answer. Its own function rather than four
     /// more inches of DrawTransport, which is already the second longest thing
     /// in this file.
-    void DrawBenchmarkRow();
+    void DrawBenchmarkControls();
     void DrawSimulateRow();
     void MarkPretendDirty();
     /// Push the two cue-window switches at the transport, once per frame.
@@ -550,7 +550,19 @@ private:
     /// One column of a `perMode` row: the widget, its edit, and the arrow that
     /// copies it sideways. Returns the x the next column starts at.
     void DrawParamColumn(int side, const rds::ParamDesc& p, rds::ActorMode mode, float x,
-                         float width, bool hovered);
+                         float width);
+
+    /// The pair of arrows in the gap to the right of `from`, drawn after every
+    /// column of the row so an overlapping click cannot land on a slider instead.
+    void DrawCopyArrows(int side, const rds::ParamDesc& p, rds::ActorMode from, float x,
+                        bool hovered);
+
+    /// "ragdoll   gameplay   combat" over the three columns, once per group.
+    static void DrawModeHeader(float left, float rightX);
+
+    /// How wide one of the three columns is, so the header and the rows under it
+    /// are laid out by the same arithmetic rather than by two copies of it.
+    [[nodiscard]] static float ModeColumnWidth(float left, float rightX);
 
     /// The widget for one value. `value` is read in and written back; the return
     /// says whether this frame moved it.

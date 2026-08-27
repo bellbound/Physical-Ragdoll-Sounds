@@ -40,7 +40,6 @@ enum class CueReason : std::uint8_t {
     kGore,
     kLimbTap,
     kScrape,
-    kAirborneRise,
     kRustle,
 };
 
@@ -70,7 +69,6 @@ enum class CompressBand : std::uint8_t {
     kCrunch,
     kGore,
     kScrape,
-    kAirborne,
 };
 
 /// The ini key this band is set by, for a tooltip that names the slider rather

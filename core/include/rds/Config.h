@@ -1881,25 +1881,6 @@ struct RustleConfig {
     /// describing the same motion; a fabric bed under all of that is mud. Deep
     /// enough to be suppression rather than damping.
     float slideDuckDb{-14.0f};
-
-    // ── the airborne rise ────────────────────────────────────────────────────
-    //
-    // MotionFoley's last two knobs, moved here when that strategy was retired. It
-    // was never foley: it is the one layer that answers to a body *not touching
-    // anything*, which is the garment's question too, and the garment already
-    // carries an airborne term. Keeping it as a strategy of its own meant a whole
-    // stage-3 object and an ini section for a loop and a stop.
-    //
-    // The old names still load - see the `Renamed()` rows in ConfigSchema.cpp - so
-    // an ini written before the move keeps its tuning.
-    //
-    // Per mode like the rest of the garment, which is the point of moving it: a
-    // man jumping a fence has been airborne, and does not want the rise a thrown
-    // body gets.
-
-    /// The airborne anticipation rise. On by default at a low level.
-    bool airborneRise{true};
-    float airborneRiseGainDb{-24.0f};
 };
 
 struct StrategiesConfig {
@@ -2418,7 +2399,6 @@ struct CompressConfig {
     float crunchDb{0.0f};
     float goreDb{0.0f};
     float scrapeDb{0.0f};
-    float airborneDb{0.0f};
 };
 
 /// How many dB the class compressor takes off a moment at this level, as a
@@ -2450,9 +2430,6 @@ struct PlayerConfig {
     /// A 30 Hz boom at zero distance through headphones is overwhelming, and in
     /// VR low frequency is felt as much as heard.
     float subTrimDb{-9.0f};
-
-    /// You are the one moving and the visual already tells you.
-    bool skipAirborneWhoosh{true};
 
     float masterGainDb{-3.0f};
 };
@@ -2500,7 +2477,6 @@ struct LayerMuteConfig {
     /// The bed under both grinds. Its own mute rather than the grind's: silencing
     /// the mass and silencing the grit is the A/B this layer exists for.
     bool scrapeLoopRumble{true};
-    bool airWhoosh{true};
 
     // accents
     bool headImpact{true};
@@ -2536,7 +2512,6 @@ struct SlotGainConfig {
     float scrapeLoop{0.0f};
     float scrapeLimb{0.0f};
     float scrapeLoopRumble{0.0f};
-    float airWhoosh{0.0f};
 
     float headImpact{0.0f};
     float settleRest{0.0f};

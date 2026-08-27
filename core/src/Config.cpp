@@ -39,7 +39,6 @@ bool* LayerMute(AlgorithmConfig& config, SlotId slot) {
         case SlotId::kScrapeLoop:   return &config.layers.scrapeLoop;
         case SlotId::kScrapeLimb:   return &config.layers.scrapeLimb;
         case SlotId::kScrapeLoopRumble: return &config.layers.scrapeLoopRumble;
-        case SlotId::kAirWhoosh:    return &config.layers.airWhoosh;
 
         // The armour skins are muted from the armour section, not from the layer
         // block - one panel owns what the body was wearing, exactly as one panel
@@ -52,10 +51,13 @@ bool* LayerMute(AlgorithmConfig& config, SlotId slot) {
         case SlotId::kHeadImpact:   return &config.layers.headImpact;
         case SlotId::kSettleRest:   return &config.layers.settleRest;
 
-        // The two declared-and-unfilled voice slots have no mute, because
-        // nothing ever resolves to them and a control over silence is a lie.
+        // The declared-and-unfilled slots have no mute, because nothing ever
+        // resolves to them and a control over silence is a lie. `kAirWhoosh`
+        // joined them when the airborne rise was removed: the slot, its files and
+        // its sfx block are still here, and nothing proposes it.
         case SlotId::kGruntImpact:
         case SlotId::kScreamBig:
+        case SlotId::kAirWhoosh:
 
         // Every surface skin is answered by the table above, before the switch.
         // Listed so this stays exhaustive and a fourteenth class is a compile

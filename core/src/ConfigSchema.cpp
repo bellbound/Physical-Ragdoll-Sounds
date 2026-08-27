@@ -705,10 +705,6 @@ const ParamDesc kAlgorithmParams[] = {
               "The bed under both grinds. Its own trim rather than the grind's, because the "
               "balance between mass and grit is the whole of the layer - and because it is a "
               "synthesised file arriving at a level nothing else in the bank shares."),
-    RDS_PARAM(AlgorithmConfig, "SlotGain", "fAirWhoosh", kFloat, slotGains.airWhoosh, -24, 12, 0.5,
-              "Slot gains", "air_whoosh",
-              "The airborne rise. Anticipation, not event - lift it and every knockdown announces "
-              "itself before it has landed."),
     RDS_PARAM(AlgorithmConfig, "SlotGain", "fHeadImpact", kFloat, slotGains.headImpact, -24,
               12, 0.5, "Slot gains", "head_impact",
               "The skull accent. Rare and unmissable is the brief, and it rides on a full "
@@ -2459,19 +2455,6 @@ const ParamDesc kAlgorithmParams[] = {
               "How far a running body grind pulls the rustle down, scaled by the grind's own "
               "weight so it arrives with the slide rather than switching on. A slide already has "
               "four layers describing the same motion; fabric under all of it is mud."),
-    Renamed(RDS_PAIRS(AlgorithmConfig, "Rustle", "bAirborneRise", kBool,
-                      strategies.rustle.airborneRise, 0, 1, 1, "Rustle", "Airborne rise",
-                      "The low airy rise under a body that is off the ground and still falling. "
-                      "MotionFoley's last layer, moved here when that strategy was retired: it "
-                      "answers to a body touching nothing, which is the garment's question too. "
-                      "Per mode like the rest of the garment, so a man vaulting a fence need not "
-                      "get the rise a thrown body gets."),
-            "MotionFoley", "bAirborneRise"),
-    Renamed(RDS_PARAM(AlgorithmConfig, "Rustle", "fAirborneRiseGainDb", kFloat,
-                      strategies.rustle.airborneRiseGainDb, -80, 6, 0.5, "Rustle", "Rise level",
-                      "How loud that rise is. Low by design - it is anticipation rather than an "
-                      "event, and the landing is what the ear is waiting for."),
-            "MotionFoley", "fAirborneRiseGainDb"),
 
     // -- Mix ------------------------------------------------------------------
     RDS_PARAM(AlgorithmConfig, "Mix", "fMasterGainDb", kFloat, mix.masterGainDb, -40, 20, 0.5,
@@ -2638,9 +2621,6 @@ const ParamDesc kAlgorithmParams[] = {
               "Where the sliding scrape loop starts being held, in dB under the mod's loudest. A "
               "loop is re-levelled while it runs, so this is the one class where the holding "
               "happens continuously rather than at one instant."),
-    RDS_PARAM(AlgorithmConfig, "Compress", "fAirborneDb", kFloat, compress.airborneDb, -60, 0, 0.5,
-              "Compress", "Airborne rise",
-              "Where the airborne whoosh starts being held, in dB under the mod's loudest."),
 
     // -- Player ---------------------------------------------------------------
     RDS_PARAM(AlgorithmConfig, "Player", "bEnabled", kBool, player.enabled, 0, 1, 1, "Player",
@@ -2654,10 +2634,6 @@ const ParamDesc kAlgorithmParams[] = {
               "Player", "Sub trim",
               "A 30 Hz boom at zero distance through headphones is overwhelming, and in VR low "
               "frequency is felt as much as heard. This pulls it back for your own falls only."),
-    RDS_PARAM(AlgorithmConfig, "Player", "bSkipAirborneWhoosh", kBool, player.skipAirborneWhoosh, 0,
-              1, 1, "Player", "Skip whoosh",
-              "You are the one moving and the view already tells you, so the anticipation whoosh "
-              "is off for your own falls."),
     RDS_HRULE(AlgorithmConfig, "Player", "fMasterGainDb", kFloat, player.masterGainDb, -40, 20, 0.5,
               "Player", "Master gain", "Your own ragdoll's level, separate from everyone else's."),
 
@@ -2749,9 +2725,6 @@ const ParamDesc kAlgorithmParams[] = {
               "before the layer existed, which is the A/B the whole thing was built for: our "
               "grinds measure 35-45 dB brighter than a real slide, and this is the half that was "
               "missing rather than the half that was wrong."),
-    RDS_PARAM(AlgorithmConfig, "Layers", "bAirWhoosh", kBool, layers.airWhoosh, 0, 1, 1, "Layers",
-              "air_whoosh",
-              "The airborne anticipation rise. Mute it to judge whether the fall still reads as a fall without being told one is coming."),
     RDS_PARAM(AlgorithmConfig, "Layers", "bHeadImpact", kBool, layers.headImpact, 0, 1, 1, "Layers",
               "head_impact",
               "The dull skull thud with its granular edge. Mute it to check the head gate is firing on head contacts and not on everything that happens to be moving fast."),

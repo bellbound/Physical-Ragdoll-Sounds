@@ -33,7 +33,6 @@ std::string_view ToString(CueReason r) {
         case CueReason::kGore: return "gore";
         case CueReason::kLimbTap: return "tap";
         case CueReason::kScrape: return "scrape";
-        case CueReason::kAirborneRise: return "rise";
         case CueReason::kRustle: return "rustle";
     }
     return "composite";
@@ -54,7 +53,6 @@ std::string_view ToString(CompressBand band) {
         case CompressBand::kCrunch:    return "fCrunchDb";
         case CompressBand::kGore:      return "fGoreDb";
         case CompressBand::kScrape:    return "fScrapeDb";
-        case CompressBand::kAirborne:  return "fAirborneDb";
     }
     return "fImpactDb";
 }
@@ -89,7 +87,6 @@ CompressBand CompressBandFor(SlotId slot, CueReason reason) {
         // place for it to be made differently.
         case CueReason::kScrape:
         case CueReason::kRustle:       return CompressBand::kScrape;
-        case CueReason::kAirborneRise: return CompressBand::kAirborne;
     }
     return CompressBand::kImpact;
 }
@@ -106,7 +103,6 @@ float CompressThresholdDb(const CompressConfig& cfg, CompressBand band) {
         case CompressBand::kCrunch:    return cfg.crunchDb;
         case CompressBand::kGore:      return cfg.goreDb;
         case CompressBand::kScrape:    return cfg.scrapeDb;
-        case CompressBand::kAirborne:  return cfg.airborneDb;
     }
     return cfg.impactDb;
 }
