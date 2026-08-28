@@ -40,6 +40,35 @@ namespace {
 /// be drawn over a column that does not move.
 constexpr float kModeLabelWidth = 190.0f;
 
+/// A wheel over the picker just drawn steps it, rather than scrolling whatever
+/// is behind it.
+///
+/// The simulate row is a row of "what if it had been X instead" questions, and
+/// the answer to each is heard rather than read - so getting from stone to
+/// gravel to snow should cost a flick, not three clicks each. Wheel up is the
+/// previous entry, which is the direction every list in this program already
+/// moves under a wheel.
+///
+/// `lo` is usually -1, the "as recorded" entry that sits above the real ones.
+/// The wheel is consumed either way, so the panel behind a picker cannot scroll
+/// out from under the cursor mid-audition.
+bool WheelPick(int& index, int lo, int hi) {
+    if (!ImGui::IsItemHovered()) {
+        return false;
+    }
+    const float wheel = ImGui::GetIO().MouseWheel;
+    if (wheel == 0.0f) {
+        return false;
+    }
+    ImGui::GetIO().MouseWheel = 0.0f;
+    const int next = std::clamp(index + (wheel > 0.0f ? -1 : 1), lo, hi);
+    if (next == index) {
+        return false;
+    }
+    index = next;
+    return true;
+}
+
 /// vertical bar moves a left/right split.
 bool Splitter(const char* id, bool vertical, float& frac, float span, float minFrac,
               float maxFrac) {
@@ -2224,6 +2253,11 @@ void App::DrawSimulateRow() {
         }
         ImGui::EndCombo();
     }
+    if (WheelPick(surfaceIndex, -1, static_cast<int>(rds::SurfaceClass::kCount) - 1)) {
+        m_pretend.surfaceAs = surfaceIndex < 0 ? rds::SurfaceClass::kCount
+                                               : static_cast<rds::SurfaceClass>(surfaceIndex);
+        MarkPretendDirty();
+    }
     Tip("Forces every world contact onto this floor. Self- and body-contacts are left alone: they "
         "are routed by which limb was hit, and dressing one up as stone would move it into a "
         "different branch of ingest - a behaviour change that has nothing to do with the floor.");
@@ -2266,9 +2300,70 @@ void App::DrawSimulateRow() {
         }
         ImGui::EndCombo();
     }
+    // From "as recorded" when the sites disagree: a wheel on a mixed wardrobe has
+    // no value to step from, and picking one of the six to start at would be a
+    // guess about which of them the user meant.
+    int wheelArmour = mixed ? -1 : allIndex;
+    if (WheelPick(wheelArmour, -1, IM_ARRAYSIZE(kCoverage) - 1)) {
+        for (std::size_t s = 0; s < std::size(m_pretend.coverageSet); ++s) {
+            m_pretend.coverageSet[s] = wheelArmour >= 0;
+            if (wheelArmour >= 0) {
+                m_pretend.coverageAs[s] = static_cast<rds::Coverage>(wheelArmour);
+            }
+        }
+        MarkPretendDirty();
+    }
     Tip("Dresses every body site at once. Use the per-site expander for the case this cannot "
         "express - heavy boots on an otherwise naked body, which is the one that actually tests "
         "the per-limb rule.");
+
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(150.0f);
+    // The third pretend, and the one the mode columns exist for: every take in
+    // the corpus is a knockdown, so without this the gameplay and combat columns
+    // could only be tuned in the game.
+    int modeIndex = m_pretend.modeAs == rds::ActorMode::kCount
+                        ? -1
+                        : static_cast<int>(m_pretend.modeAs);
+    const std::string_view modeName =
+        modeIndex < 0 ? std::string_view{"as recorded"} : rds::ToString(m_pretend.modeAs);
+    if (ImGui::BeginCombo("##pretendMode", std::string(modeName).c_str())) {
+        if (ImGui::Selectable("as recorded", modeIndex < 0)) {
+            m_pretend.modeAs = rds::ActorMode::kCount;
+            MarkPretendDirty();
+        }
+        for (int i = 0; i < static_cast<int>(rds::ActorMode::kCount); ++i) {
+            const auto mode = static_cast<rds::ActorMode>(i);
+            if (ImGui::Selectable(std::string(rds::ToString(mode)).c_str(), modeIndex == i)) {
+                m_pretend.modeAs = mode;
+                MarkPretendDirty();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (WheelPick(modeIndex, -1, static_cast<int>(rds::ActorMode::kCount) - 1)) {
+        m_pretend.modeAs =
+            modeIndex < 0 ? rds::ActorMode::kCount : static_cast<rds::ActorMode>(modeIndex);
+        MarkPretendDirty();
+    }
+    Tip("Replays the take as if the body had been in this state throughout, which is what "
+        "decides which of the three tuning columns every contact is judged through.\n\n"
+        "It goes in as a phase and a combat flag on every row, not as a mode - the engine works "
+        "the mode out from those exactly as it does in the game. So it also goes in through the "
+        "ingest gate: pretending an upright body with GameIntegration:bAnimatedMode off gives a "
+        "silent take, because that is what the game does with one.");
+
+    // Said here rather than left to be discovered: an upright pretend with the
+    // gate shut is silence, and silence looks like a broken column.
+    if (m_pretend.modeAs != rds::ActorMode::kCount &&
+        m_pretend.modeAs != rds::ActorMode::kRagdoll &&
+        !m_side[m_focusSide].cfg.Base().game.animatedMode) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.35f, 1), "(gate shut)");
+        Tip("This take is being replayed as an upright body, and GameIntegration:bAnimatedMode is "
+            "off - so ingest drops every contact and you will hear nothing. Turn it on to "
+            "audition the upright columns.");
+    }
 
     ImGui::SameLine();
     const bool perLimbOpen = ImGui::TreeNodeEx("per limb", ImGuiTreeNodeFlags_NoTreePushOnOpen);

@@ -159,9 +159,22 @@ struct OfflineOptions {
     Coverage coverageAs[static_cast<std::size_t>(CoverageSite::kCount)]{};
     bool coverageSet[static_cast<std::size_t>(CoverageSite::kCount)]{};
 
+    /// Replay the take as if the actor were in this state, or `kCount` to replay
+    /// it as recorded. The third pretend, and the one the mode columns need:
+    /// every take in the corpus is a knockdown, so without it the gameplay and
+    /// combat columns can only be tuned in the game.
+    ///
+    /// Goes in as a phase and a combat flag on every row, not as a mode: the
+    /// engine decides the mode from those two exactly as it does in the game, so
+    /// what is being auditioned is the rule and not a testbench shortcut around
+    /// it. That includes the ingest gate - pretending an upright actor with
+    /// `GameIntegration:bAnimatedMode` off is a silent take, because that is what
+    /// the game would do with one.
+    ActorMode modeAs{ActorMode::kCount};
+
     /// Whether anything is being pretended, for the warning chip.
     [[nodiscard]] bool Pretending() const {
-        if (surfaceAs != SurfaceClass::kCount) {
+        if (surfaceAs != SurfaceClass::kCount || modeAs != ActorMode::kCount) {
             return true;
         }
         for (const bool set : coverageSet) {

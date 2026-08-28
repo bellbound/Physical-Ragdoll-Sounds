@@ -225,6 +225,22 @@ public:
     bool Drain(TimeMs untilMs, std::vector<FeedEvent>& out) override {
         const std::size_t first = out.size();
         const bool more = m_inner.Drain(untilMs, out);
+
+        // The state, before the floor: every row of the take, contacts and poses
+        // and the state rows between them, restamped as though this body had been
+        // in that state the whole time. The engine works the mode out from these
+        // two fields the way it does in the game.
+        if (m_options.modeAs != ActorMode::kCount) {
+            const ActorPhase phase = m_options.modeAs == ActorMode::kRagdoll
+                                         ? ActorPhase::kRagdoll
+                                         : ActorPhase::kAnimated;
+            const bool inCombat = m_options.modeAs == ActorMode::kCombat;
+            for (std::size_t i = first; i < out.size(); ++i) {
+                out[i].phase = phase;
+                out[i].inCombat = inCombat;
+            }
+        }
+
         if (m_options.surfaceAs == SurfaceClass::kCount) {
             return more;
         }
