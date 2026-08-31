@@ -2,13 +2,18 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <numbers>
+#include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "miniaudio.h"
 
+#include "rds/Mix.h"
 #include "rds/VanillaTrack.h"
 
 namespace tb {
@@ -22,18 +27,26 @@ std::uint32_t CacheKey(rds::SlotId slot, std::uint8_t variant) {
 
 float DbToLin(float db) { return std::pow(10.0f, db / 20.0f); }
 
-/// Equal-power pan from the cue's world position, as heard from the listener.
-/// The engine has already put distance into gainDb, so this is direction only.
-void PanFor(const rds::Cue& cue, const rds::ListenerState& listener, float& gl, float& gr) {
+/// Equal-power pan from a world position, as heard from the listener. `centred`
+/// is a voice hung on a bone: at arm's length the player's own ragdoll is not a
+/// direction.
+///
+/// **Direction only, and there is no distance term anywhere on this side.** Not
+/// because the engine put one in `gainDb` - it explicitly does not, see the note
+/// at Engine.cpp's `Emit` - but because Skyrim attenuates a positioned voice
+/// itself through the output model the renderer attaches. So what is tuned here
+/// is the un-attenuated cue, in both halves, and falloff is the game's alone.
+void PanForPoint(const rds::Vec3& position, bool centred, const rds::ListenerState& listener,
+                 float& gl, float& gr) {
     float pan = 0.0f;
-    if (cue.boneIndex < 0) {
+    if (!centred) {
         // right = facing x up, with up = +z
         const rds::Vec3 f = listener.facing;
         const float rx = f.y, ry = -f.x;
         const float rlen = std::sqrt(rx * rx + ry * ry);
         if (rlen > 1e-4f) {
-            const float dx = cue.position.x - listener.position.x;
-            const float dy = cue.position.y - listener.position.y;
+            const float dx = position.x - listener.position.x;
+            const float dy = position.y - listener.position.y;
             const float lateral = (dx * rx + dy * ry) / rlen;
             pan = std::clamp(lateral / 220.0f, -1.0f, 1.0f) * 0.75f;  // ~3 m to full width
         }
@@ -44,6 +57,10 @@ void PanFor(const rds::Cue& cue, const rds::ListenerState& listener, float& gl, 
 }
 
 /// One-shot: read `src` at `pitch` with linear interpolation, into the mix.
+///
+/// The vanilla track's, now. A cue goes through `rds::MixComposite` with the rest
+/// of its moment; a vanilla row is one file the game played on its own and has no
+/// moment to belong to.
 void AddOneShot(std::vector<float>& mix, std::size_t frames, const std::vector<float>& src,
                 double startSec, int sr, float pitch, float gain, float gl, float gr, float fadeMs) {
     if (src.empty() || gain <= 0.0f) return;
@@ -85,6 +102,23 @@ void AddLoop(std::vector<float>& mix, std::size_t frames, const std::vector<floa
     if (src.empty() || points.empty()) return;
     const double srcLen = static_cast<double>(src.size());
     if (srcLen < 2.0) return;
+
+    // The seam, the way `MixLoop` makes it in the game: the lap turns over a
+    // crossfade before the end of the file and the tail is mixed back across the
+    // head. Wrapping hard - which is what this did - put a step the size of the
+    // signal into `scrape_loop` once every two seconds, and only here: the
+    // shipped file's ends are a full -25 dBFS apart, which is its own noise floor.
+    const double fadeFrames =
+        std::min(srcLen * 0.5, static_cast<double>(rds::kLoopSeamMs) * 0.001 * sr);
+    const double period = std::max(1.0, srcLen - fadeFrames);
+    bool wrapped = false;
+
+    const auto read = [&](double at) {
+        const std::size_t a = static_cast<std::size_t>(at);
+        if (a + 1 >= src.size()) return src[src.size() - 1];
+        const float f = static_cast<float>(at - static_cast<double>(a));
+        return src[a] * (1.0f - f) + src[a + 1] * f;
+    };
 
     const std::size_t start = static_cast<std::size_t>(std::max(0.0, points.front().timeSec) * sr);
 
@@ -158,16 +192,23 @@ void AddLoop(std::vector<float>& mix, std::size_t frames, const std::vector<floa
         const int until = static_cast<int>(end - i);
         if (outFade > 0 && until < outFade) env *= static_cast<float>(until) / static_cast<float>(outFade);
 
-        const std::size_t i0 = static_cast<std::size_t>(pos);
-        const float frac = static_cast<float>(pos - static_cast<double>(i0));
-        const std::size_t i1 = (i0 + 1 < src.size()) ? i0 + 1 : 0;
-        const float s = src[i0] * (1.0f - frac) + src[i1] * frac;
+        // Only after the first lap: the head of a loop is heard as it was
+        // recorded the first time round, which is what the game's first tile does
+        // too.
+        float s = read(pos);
+        if (wrapped && fadeFrames > 0.0 && pos < fadeFrames) {
+            const float t = static_cast<float>(pos / fadeFrames);
+            s = s * t + read(pos + period) * (1.0f - t);
+        }
 
         mix[i * 2] += s * gain * env * gl;
         mix[i * 2 + 1] += s * gain * env * gr;
 
         pos += std::max(0.01f, pitch);
-        while (pos >= srcLen) pos -= srcLen;
+        while (pos >= period) {
+            pos -= period;
+            wrapped = true;
+        }
     }
 }
 
@@ -228,18 +269,19 @@ void SoundSource::SetBank(const rds::SoundBank* bank, int sampleRate) {
     m_cache.clear();
 }
 
-const std::vector<float>& SoundSource::Get(rds::SlotId slot, std::uint8_t variant) {
+const rds::PcmBuffer& SoundSource::Get(rds::SlotId slot, std::uint8_t variant) {
     // Ahead of the cache rather than in it: the audition is not keyed on a
     // variant, and putting it in the cache would mean invalidating a slot's
     // worth of entries every time the highlight moved one row.
-    if (m_auditionSlot == static_cast<int>(slot) && !m_auditionSamples.empty()) {
+    if (m_auditionSlot == static_cast<int>(slot) && !m_auditionSamples.Empty()) {
         return m_auditionSamples;
     }
     const std::uint32_t key = CacheKey(slot, variant);
     auto it = m_cache.find(key);
-    if (it != m_cache.end()) return it->second.samples;
+    if (it != m_cache.end()) return it->second;
 
-    Entry e;
+    rds::PcmBuffer e;
+    e.sampleRate = m_sampleRate;
     rds::ResolvedSound resolved;
     // Get, never Resolve: Resolve advances the shuffle bag and would hand back a
     // different variant than the cue names, so the audio would not be the cue
@@ -252,7 +294,7 @@ const std::vector<float>& SoundSource::Get(rds::SlotId slot, std::uint8_t varian
     // mix is then what the shipped mod plays, which is this layer missing. The
     // stand-in that used to fill it made the testbench the one place the mod
     // sounded complete.
-    return m_cache.emplace(key, std::move(e)).first->second.samples;
+    return m_cache.emplace(key, std::move(e)).first->second;
 }
 
 void SoundSource::SetAudition(rds::SlotId slot, const std::string& path) {
@@ -261,21 +303,22 @@ void SoundSource::SetAudition(rds::SlotId slot, const std::string& path) {
     }
     m_auditionSlot = static_cast<int>(slot);
     m_auditionPath = path;
-    m_auditionSamples.clear();
+    m_auditionSamples.samples.clear();
+    m_auditionSamples.sampleRate = m_sampleRate;
     int rate = 0;
-    if (!DecodeFile(path, 1, m_sampleRate, m_auditionSamples, rate)) {
+    if (!DecodeFile(path, 1, m_sampleRate, m_auditionSamples.samples, rate)) {
         // Nothing to hear rather than a stand-in: a file the decoder cannot read
         // is one the browser is already flagging, and synthesising something in
         // its place would have the audition answer for a sound that does not
         // exist.
-        m_auditionSamples.clear();
+        m_auditionSamples.samples.clear();
     }
 }
 
 void SoundSource::ClearAudition() {
     m_auditionSlot = -1;
     m_auditionPath.clear();
-    m_auditionSamples.clear();
+    m_auditionSamples.samples.clear();
 }
 
 void SoundSource::Invalidate() { m_cache.clear(); }
@@ -298,23 +341,58 @@ MixedAudio MixCues(const std::vector<rds::Cue>& cues, double audioDurationMs,
 
     const float master = DbToLin(masterGainDb);
 
-    // Loops first: gather each voiceId's control points, then render once so the
+    // One-shots are grouped, never played one at a time. `Engine::Emit` stamps
+    // every layer of a proposal with the same (actorId, sourceSeq) inside one
+    // tick, which is the composite id `GameRenderer` groups on; the damage layers
+    // are a second group inside the same moment because the game opens them on
+    // their own sound category. Both halves take the moment's earliest cue as
+    // frame zero, so the split moves no timing.
+    struct GroupKey {
+        rds::ActorId actorId{};
+        std::uint32_t sourceSeq{};
+        bool damage{};
+        bool operator==(const GroupKey&) const = default;
+    };
+    const auto momentOf = [](const rds::Cue& c) {
+        return (static_cast<std::uint64_t>(c.actorId) << 32) | c.sourceSeq;
+    };
+    std::vector<std::pair<GroupKey, std::vector<rds::Cue>>> groups;
+    std::map<std::uint64_t, rds::TimeMs> bases;
+
+    // Loops: gather each voiceId's control points, then render once so the
     // source phase carries across the updates.
     std::map<std::uint32_t, std::vector<LoopPoint>> loops;
     std::map<std::uint32_t, std::pair<rds::SlotId, std::uint8_t>> loopSlot;
 
     for (const rds::Cue& c : cues) {
+        if (c.op == rds::CueOp::kPlayOneShot) {
+            const GroupKey key{c.actorId, c.sourceSeq, rds::IsDamageLayer(c.reason)};
+            const auto it = std::find_if(groups.begin(), groups.end(),
+                                         [&](const auto& g) { return g.first == key; });
+            if (it == groups.end()) {
+                groups.emplace_back(key, std::vector<rds::Cue>{c});
+            } else {
+                it->second.push_back(c);
+            }
+            // The base spans both halves of the moment, so a crunch 20 ms behind
+            // the transient keeps that 20 ms as leading silence in its own buffer
+            // rather than starting at the head of it.
+            const auto base = bases.find(momentOf(c));
+            if (base == bases.end()) {
+                bases.emplace(momentOf(c), c.timeMs);
+            } else {
+                base->second = std::min(base->second, c.timeMs);
+            }
+            continue;
+        }
+
         float gl = 1.0f, gr = 1.0f;
-        PanFor(c, listener, gl, gr);
+        PanForPoint(c.position, c.boneIndex >= 0, listener, gl, gr);
         const float gain = DbToLin(c.gainDb) * master;
 
         switch (c.op) {
-            case rds::CueOp::kPlayOneShot: {
-                const std::vector<float>& src = sources.Get(c.slot, c.variant);
-                AddOneShot(out.stereo, frames, src, c.timeMs * 0.001, sampleRate, c.pitch, gain, gl, gr,
-                           c.fadeMs);
-                break;
-            }
+            case rds::CueOp::kPlayOneShot:
+                break;  // grouped above
             case rds::CueOp::kStartLoop:
                 loopSlot[c.voiceId] = {c.slot, c.variant};
                 loops[c.voiceId].push_back({c.timeMs * 0.001, gain, c.pitch, gl, gr, false, c.fadeMs});
@@ -330,10 +408,44 @@ MixedAudio MixCues(const std::vector<rds::Cue>& cues, double audioDurationMs,
         }
     }
 
+    // Each group into one buffer, through the game's own mixer. The audition level
+    // goes on afterwards and never before: the soft clip inside `MixComposite` is
+    // part of what the game builds, and folding a monitor level into it would move
+    // the knee every time the slider did.
+    rds::MixParams params;
+    params.sampleRate = sampleRate;
+    rds::MixBuffer mixed;
+    for (const auto& [key, group] : groups) {
+        const auto base = bases.find((static_cast<std::uint64_t>(key.actorId) << 32) |
+                                     key.sourceSeq);
+        const std::optional<rds::TimeMs> timeBase =
+            base == bases.end() ? std::nullopt : std::optional<rds::TimeMs>{base->second};
+        if (!rds::MixComposite(group, sources, params, mixed, timeBase) || mixed.Empty()) {
+            continue;
+        }
+
+        // One point for the whole composite, because the game hangs one voice on
+        // it. `MixComposite` picks the loudest cue's, which is the same rule the
+        // renderer follows.
+        float gl = 1.0f, gr = 1.0f;
+        PanForPoint(mixed.position, mixed.boneIndex >= 0, listener, gl, gr);
+
+        const auto start =
+            static_cast<std::size_t>(std::max(0.0, mixed.startMs) * 0.001 * sampleRate);
+        for (std::size_t i = 0; i < mixed.samples.size(); ++i) {
+            const std::size_t f = start + i;
+            if (f >= frames) break;
+            const float s = mixed.samples[i] * master;
+            out.stereo[f * 2] += s * gl;
+            out.stereo[f * 2 + 1] += s * gr;
+        }
+    }
+
     for (auto& [voiceId, points] : loops) {
         auto it = loopSlot.find(voiceId);
         if (it == loopSlot.end()) continue;
-        AddLoop(out.stereo, frames, sources.Get(it->second.first, it->second.second), points, sampleRate);
+        AddLoop(out.stereo, frames, sources.Get(it->second.first, it->second.second).samples, points,
+                sampleRate);
     }
 
     // The references are compressed and limited; a soft clip at the end is
@@ -355,27 +467,6 @@ MixedAudio MixCues(const std::vector<rds::Cue>& cues, double audioDurationMs,
 // ── the vanilla mix ──────────────────────────────────────────────────────────
 
 namespace {
-
-/// Equal-power pan for a bare world position. `PanFor` takes a Cue and a vanilla
-/// row is not one; the geometry is identical and duplicating it here rather than
-/// generalising both keeps Cue's own "bone index means centre" rule where it
-/// belongs, since a vanilla row has no bone to be attached to.
-void PanForPosition(const rds::Vec3& position, const rds::ListenerState& listener, float& gl,
-                    float& gr) {
-    float pan = 0.0f;
-    const rds::Vec3 f = listener.facing;
-    const float rx = f.y, ry = -f.x;
-    const float rlen = std::sqrt(rx * rx + ry * ry);
-    if (rlen > 1e-4f) {
-        const float dx = position.x - listener.position.x;
-        const float dy = position.y - listener.position.y;
-        const float lateral = (dx * rx + dy * ry) / rlen;
-        pan = std::clamp(lateral / 220.0f, -1.0f, 1.0f) * 0.75f;
-    }
-    const float a = (pan + 1.0f) * 0.25f * kPi;
-    gl = std::cos(a);
-    gr = std::sin(a);
-}
 
 /// Which of a descriptor's files this row draws.
 ///
@@ -483,7 +574,8 @@ MixedAudio MixVanilla(const std::vector<rds::FeedEvent>& track, double audioDura
         const float gain = DbToLin(-rds::vanilla::AttenuationDb(event.vanilla)) * master;
 
         float gl = 1.0f, gr = 1.0f;
-        PanForPosition(event.position, listener, gl, gr);
+        // Never centred: a vanilla row has no bone to be attached to.
+        PanForPoint(event.position, false, listener, gl, gr);
         AddOneShot(out.stereo, frames, src, event.timeMs * 0.001, sampleRate, 1.0f, gain, gl, gr,
                    0.0f);
         ++played;

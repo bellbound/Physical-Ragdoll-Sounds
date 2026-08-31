@@ -81,7 +81,7 @@ void MixVoice(std::span<const float> source, std::ptrdiff_t startFrame, float ga
     }
 }
 
-bool MixComposite(std::span<const Cue> cues, PcmCache& cache, const MixParams& params,
+bool MixComposite(std::span<const Cue> cues, ISampleSource& cache, const MixParams& params,
                   MixBuffer& out, std::optional<TimeMs> timeBaseMs) {
     out.samples.clear();
     out.sampleRate = params.sampleRate;
@@ -108,10 +108,23 @@ bool MixComposite(std::span<const Cue> cues, PcmCache& cache, const MixParams& p
     }
     out.startMs = earliest;
 
+    // A layer so far behind the moment that its cue time cannot be meant. Dropped
+    // rather than clamped: a layer moved in time is a wrong sound, where a missing
+    // one is an obvious one - and it is the only term here that can run away,
+    // since the other comes off a file on disk.
+    const auto absurd = [&](const Cue& cue) {
+        return cue.timeMs - earliest > static_cast<double>(params.maxOffsetMs);
+    };
+
     // How long the buffer has to be: the latest layer's offset plus its own
-    // length, capped. Measured from the sources rather than the slot briefs,
-    // because a recording is only ever roughly the length its brief asked for
-    // and a buffer sized from the brief truncates whichever ran long.
+    // length. Measured from the sources rather than the slot briefs, because a
+    // recording is only ever roughly the length its brief asked for and a buffer
+    // sized from the brief truncates whichever ran long.
+    //
+    // **Not capped.** It used to be, at 600 ms, and `head_impact`'s longest
+    // recording is 670 - so the mod cut 70 ms off a shipped sound and nobody was
+    // told. Nothing downstream wants it bounded: voices do not queue, so a long
+    // composite holds its own blob for its own length and delays no other sound.
     double neededMs = 0.0;
     float loudest = -1000.0f;
     for (const Cue& cue : cues) {
@@ -120,6 +133,12 @@ bool MixComposite(std::span<const Cue> cues, PcmCache& cache, const MixParams& p
         }
         const PcmBuffer& source = cache.Get(cue.slot, cue.variant);
         if (source.Empty()) {
+            continue;
+        }
+        if (absurd(cue)) {
+            spdlog::warn("mix: {} sits {:.0f} ms behind its moment, past the {:.0f} ms guard - "
+                         "dropped as a bad cue time",
+                         ToString(cue.slot), cue.timeMs - earliest, params.maxOffsetMs);
             continue;
         }
         const double pitch = std::max(kMinPitch, cue.pitch);
@@ -137,7 +156,6 @@ bool MixComposite(std::span<const Cue> cues, PcmCache& cache, const MixParams& p
     if (neededMs <= 0.0) {
         return false;
     }
-    neededMs = std::min(neededMs, static_cast<double>(params.maxLengthMs));
 
     const std::size_t frames =
         static_cast<std::size_t>(neededMs * 0.001 * static_cast<double>(params.sampleRate)) + 1;
@@ -148,7 +166,7 @@ bool MixComposite(std::span<const Cue> cues, PcmCache& cache, const MixParams& p
             continue;
         }
         const PcmBuffer& source = cache.Get(cue.slot, cue.variant);
-        if (source.Empty()) {
+        if (source.Empty() || absurd(cue)) {
             continue;
         }
         const auto startFrame = static_cast<std::ptrdiff_t>(
@@ -169,7 +187,8 @@ bool MixComposite(std::span<const Cue> cues, PcmCache& cache, const MixParams& p
 }
 
 bool MixLoop(SlotId slot, std::uint8_t variant, float gainDb, float pitch, float lengthMs,
-             float crossfadeMs, PcmCache& cache, const MixParams& params, MixBuffer& out) {
+             float crossfadeMs, float startFadeMs, ISampleSource& cache, const MixParams& params,
+             MixBuffer& out) {
     out.samples.clear();
     out.sampleRate = params.sampleRate;
     out.rawPeak = 0.0f;
@@ -207,9 +226,21 @@ bool MixLoop(SlotId slot, std::uint8_t variant, float gainDb, float pitch, float
         // the same window. Linear rather than equal-power: the two tiles are the
         // same signal a loop-length apart and correlate, so a linear pair sums
         // flat where an equal-power pair would bulge.
-        const float fadeIn = start == 0 ? 0.0f : crossfadeMs;
+        const float fadeIn = start == 0 ? std::max(0.0f, startFadeMs) : crossfadeMs;
         MixVoice(source.samples, start, gain, pitch, fadeIn, crossfadeMs, params.sampleRate,
                  out.samples.data(), frames, 1);
+    }
+
+    // The buffer's own end, which the tiling above never reaches. Left alone it
+    // stops at whatever amplitude the source happened to be at, which is a step at
+    // every re-issue - and it leaves the replacement's opening with nothing to fade
+    // against, so the two ran together at full level for the length of the overlap
+    // and then one of them stopped dead. Faded here, a re-issue is a crossfade.
+    const auto tailFrames =
+        std::min(frames, static_cast<std::size_t>(std::max(0.0f, crossfadeMs) * 0.001f *
+                                                  static_cast<float>(params.sampleRate)));
+    for (std::size_t i = 0; i < tailFrames; ++i) {
+        out.samples[frames - 1 - i] *= static_cast<float>(i) / static_cast<float>(tailFrames);
     }
 
     for (float& sample : out.samples) {

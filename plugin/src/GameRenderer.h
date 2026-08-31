@@ -170,6 +170,13 @@ private:
         std::uint8_t variant{};
         float gainDb{};
         float pitch{1.0f};
+        /// The fade the `kStartLoop` cue asked for, kept for the first issue.
+        ///
+        /// It used to be dropped on the floor: the buffer opened at full level and
+        /// the cloth bed the engine wanted to swell in over 90 ms banged on
+        /// instead. It also covers the frames before `SetVolume` lands - see
+        /// `volumeAttempts`, where a dropped message is the one that gets *louder*.
+        float startFadeMs{};
         Vec3 position{};
         std::int32_t boneIndex{-1};
         /// The limb the loop is on. This side used to throw it away and pin every

@@ -29,3 +29,9 @@ skyrim_*.flac
 # in the repo, so tracking it would leave 35 readings of nothing. The survey that
 # is worth keeping is assets\sfx\skyrim\manifest.csv.
 skyrim_*.meta.ini
+
+# tools/deploy-config.py keeps a .bak of every ini it replaces, beside the file it
+# replaced - including inside deployment_files\, which is tracked. It is the PREVIOUS
+# tuning: useful for a minute after a deploy, never worth a commit, and worth keeping
+# out of the release zip as well (build-and-release-mod.ps1 excludes it there).
+deployment_files/**/*.bak

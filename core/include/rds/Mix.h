@@ -10,7 +10,11 @@
 //
 // So the game mixes its composites too and hands the engine one voice per acoustic
 // moment. It lives in core/ rather than the testbench because the placement, the
-// resample and the gain are now the same arithmetic in both halves.
+// resample and the gain are now the same arithmetic in both halves - and that is
+// only true because the testbench goes through this as well. It did not until
+// 2026-08-28, and what the two halves disagreed about was the loudest hits: the
+// soft clip below is per composite, so a hit that peaked 4 dB over came out of the
+// game squashed and out of the tuning app clean.
 //
 // NOT here, deliberately: panning and a master limiter. The engine spatialises our
 // mono buffer through its own output model and has no bus to limit (00 §13).
@@ -25,6 +29,14 @@
 #include "rds/Types.h"
 
 namespace rds {
+
+/// How long a loop's seam is, in both halves.
+///
+/// The game crossfades its tiles and its re-issues over this window; the testbench
+/// turns its own loop over across the same one. Shared rather than named twice,
+/// because a recording whose ends do not meet is only judged honestly when the
+/// seam that hides it is the same length in the app you judge it in.
+inline constexpr float kLoopSeamMs = 150.0f;
 
 /// Read `source` at `pitch` with linear interpolation and add it into `dst` at
 /// `startFrame`, at `gain`, fading in over `fadeInMs` and out over `fadeOutMs`.
@@ -45,10 +57,21 @@ void MixVoice(std::span<const float> source, std::ptrdiff_t startFrame, float ga
 struct MixParams {
     int sampleRate{48000};
 
-    /// Hard cap on one composite. The longest slot is `imp_sub` at 400 ms and the
-    /// latest layer offset is +65, so 600 leaves room without letting a bad cue
-    /// time allocate something absurd.
-    float maxLengthMs{600.0f};
+    /// How far behind the moment a layer may sit before it is treated as a bad
+    /// cue time and dropped.
+    ///
+    /// This is the guard the old `maxLengthMs` was trying to be and was not. It
+    /// used to bound the *buffer*, which meant a recording longer than it was cut
+    /// - `head_impact`'s longest is 670 ms against a 600 ms cap, so the mod was
+    /// silently truncating a shipped sound. A slot's length is a suggestion in the
+    /// brief and nothing downstream needs it bounded: composites do not queue, so
+    /// a long one costs its own blob for its own length and delays nothing.
+    ///
+    /// The offset is the term that can actually run away - it comes from a cue
+    /// time rather than from a file - and a layer past this is dropped rather than
+    /// clamped, because moving a layer in time is a wrong sound and not a loud
+    /// one. The real layer offsets top out at +65.
+    float maxOffsetMs{600.0f};
 
     /// Soft-clip ceiling applied to the composite's own sum.
     ///
@@ -113,7 +136,11 @@ struct MixBuffer {
 /// Passing the whole moment's earliest time to both puts that 20 ms back as
 /// leading silence, so the two voices start on the same frame with their layers
 /// intact. A base later than a cue is clamped rather than trusted.
-bool MixComposite(std::span<const Cue> cues, PcmCache& cache, const MixParams& params,
+///
+/// The buffer is as long as the layers in it need, measured from the recordings
+/// themselves. Nothing is cut: a slot's declared length is a brief, not a
+/// contract, and the only bound is `maxOffsetMs` on where a layer may sit.
+bool MixComposite(std::span<const Cue> cues, ISampleSource& cache, const MixParams& params,
                   MixBuffer& out, std::optional<TimeMs> timeBaseMs = std::nullopt);
 
 /// Render a loop slot into a buffer at least `lengthMs` long by tiling the source
@@ -123,7 +150,19 @@ bool MixComposite(std::span<const Cue> cues, PcmCache& cache, const MixParams& p
 /// worked example anywhere in this tree, so a loop is a long one-shot that gets
 /// re-issued. Tiling here rather than trusting the flag means the seam is ours to
 /// make inaudible, which for a cloth bed and a stone scrape it comfortably is.
+///
+/// `startFadeMs` fades the head of the buffer in. Two callers want two different
+/// things there and neither used to get one: the first issue of a loop wants the
+/// cue's own fade, so a bed asked to swell over 90 ms does not snap on, and a
+/// re-issue wants `crossfadeMs`, so its opening lands over the tail this leaves on
+/// the buffer it replaces rather than beside it at full level.
+///
+/// The buffer's own end is faded over `crossfadeMs` whatever the caller asks for.
+/// The tiling cannot do it: MixVoice measures a tile's fade-out from where that
+/// tile runs out, and the last tile is cut off by the end of the buffer long
+/// before it gets there.
 bool MixLoop(SlotId slot, std::uint8_t variant, float gainDb, float pitch, float lengthMs,
-             float crossfadeMs, PcmCache& cache, const MixParams& params, MixBuffer& out);
+             float crossfadeMs, float startFadeMs, ISampleSource& cache, const MixParams& params,
+             MixBuffer& out);
 
 }  // namespace rds

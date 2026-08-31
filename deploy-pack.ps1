@@ -1,4 +1,11 @@
-# Copy the built sound pack and the sfx library into the deployed mod folder.
+# Copy the built sound pack and the sfx library into every deployed copy of the mod.
+#
+# Where those copies are is not decided here: mod-registry.ps1 is the one place that
+# says where a mod is installed, and this script reads it by the same rule
+# build-skse-mods.ps1 uses - DeployPath if the entry has one (it may list several
+# instances), otherwise the junctioned folder under papyrus\mods. The two scripts
+# resolving the same registry entry the same way is the point: a DLL deployed to two
+# instances and a pack deployed to one is the drift that makes a log unreadable.
 #
 # Scoped to sounds\ and one named ini ON PURPOSE. Everything else under
 # papyrus\mods\Physical Ragdoll Sounds\ is hand-maintained - meta.ini, the working
@@ -27,6 +34,10 @@
 #       filename convention, so scrape_limb was a procedural stand-in while the
 #       testbench beside it was playing a recording.
 #
+# All three are sourced from the repo (the ini from the deployment_files overlay under
+# papyrus\mods, which is the release copy and does not move) and written into each
+# destination in turn.
+#
 # The third copy is the one with a trap in it, and `-Mo2Overwrite` is that trap:
 # the plugin round-trips its inis at startup, and a write through MO2's VFS lands
 # in `overwrite\` rather than in the mod. That copy then *shadows* the mod's own
@@ -50,87 +61,95 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$source = Join-Path $PSScriptRoot 'assets\sfx'
-$dest = Join-Path $PSScriptRoot '..\..\papyrus\mods\Physical Ragdoll Sounds\SKSE\Plugins\RagdollSounds\sounds'
+# The key in $ModRegistry. Misspelled there and in the folder name both, and they
+# match, which is what matters.
+$ModName = 'Physical-Ragoll-Sounds'
 
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$registry = Join-Path $repoRoot 'mod-registry.ps1'
+if (-not (Test-Path $registry)) {
+    throw "no mod registry at $registry - this script takes its destinations from it"
+}
+. $registry
+
+$modInfo = Get-ModInfo $ModName
+if (-not $modInfo) {
+    throw "$ModName is not in $registry"
+}
+
+# The papyrus\mods folder is where the release overlay lives whether or not the mod
+# also deploys elsewhere, so the ini source is resolved from it separately from the
+# destination list below.
+$papyrusFolder = Get-ModPapyrusFolder $ModName
+$papyrusDir = if ($papyrusFolder) { Join-Path $repoRoot "papyrus\mods\$papyrusFolder" } else { $null }
+
+# Same rule as build-skse-mods.ps1: DeployPath is the exception list for installed
+# folders MO2 owns outright, and it replaces the junctioned papyrus\mods copy rather
+# than adding to it. @() so a lone string and an array behave alike.
+$modDirs = if ($modInfo.DeployPath) { @($modInfo.DeployPath) } else { @($papyrusDir) }
+$modDirs = @($modDirs | Where-Object { $_ })
+if ($modDirs.Count -eq 0) {
+    throw "$ModName has neither a DeployPath nor a papyrus\mods folder in the registry"
+}
+
+$source = Join-Path $PSScriptRoot 'assets\sfx'
 if (-not (Test-Path $source)) {
     throw "no pack at $source - has sfx.py been run?"
 }
-
-if (-not (Test-Path $dest)) {
-    $null = New-Item -ItemType Directory -Path $dest -Force
-}
-$dest = (Resolve-Path $dest).Path
 
 $wavs = Get-ChildItem -Path $source -Filter '*.wav' -File
 if ($wavs.Count -eq 0) {
     throw "no wavs under $source"
 }
 
-# Stale files are removed rather than left: a slot's variants are indexed by their
-# position in the sorted set, so a file the pack no longer contains does not just
-# sit there unused - it shifts every variant after it and a cue plays a different
-# sound than the one the engine chose.
-$keep = $wavs.Name
-Get-ChildItem -Path $dest -Filter '*.wav' -File |
-    Where-Object { $keep -notcontains $_.Name } |
-    ForEach-Object {
-        if ($PSCmdlet.ShouldProcess($_.FullName, 'remove stale pack file')) {
-            Remove-Item $_.FullName -Force
-        }
-        Write-Host "  - $($_.Name)" -ForegroundColor DarkYellow
-    }
-
-$copied = 0
-foreach ($wav in $wavs) {
-    $target = Join-Path $dest $wav.Name
-    $same = (Test-Path $target) -and
-            ((Get-FileHash $wav.FullName -Algorithm SHA256).Hash -eq
-             (Get-FileHash $target -Algorithm SHA256).Hash)
-    if ($same) { continue }
-    if ($PSCmdlet.ShouldProcess($target, 'copy')) {
-        Copy-Item $wav.FullName $target -Force
-    }
-    Write-Host "  + $($wav.Name)" -ForegroundColor DarkGreen
-    $copied++
-}
-
-Write-Host "pack: $($wavs.Count) file(s), $copied changed -> $dest" -ForegroundColor Green
-
-# ── the library ──────────────────────────────────────────────────────────────
-#
-# Mirrored rather than merged: a file the repo's library no longer holds is one
-# the ini cannot be naming any more, and leaving it behind only grows the
-# install. Sidecars come along - they are what the testbench reads back on the
-# next run, and on a machine that only ever runs the game they cost a few
-# kilobytes and explain what every file is.
-
 $libSource = Join-Path $PSScriptRoot 'assets\sfx\library'
-# Under sounds\, not beside it: plugin.cpp reads
-# Data/SKSE/Plugins/RagdollSounds/sounds/library, and a library one directory up
-# is 788 files the game never opens.
-$libDest = Join-Path $dest 'library'
 
-if (Test-Path $libSource) {
-    if (-not (Test-Path $libDest)) {
-        $null = New-Item -ItemType Directory -Path $libDest -Force
+$sfxIni = if ($papyrusDir) {
+    Join-Path $papyrusDir 'deployment_files\main\SKSE\Plugins\RagdollSounds\RagdollSounds_SFX.ini'
+} else { $null }
+$hasIni = $sfxIni -and (Test-Path $sfxIni)
+if ($hasIni) { $sfxIni = (Resolve-Path $sfxIni).Path }
+
+# Mirror rather than merge, everywhere this is used. For the pack, a file it no longer
+# contains does not just sit there unused - a slot's variants are indexed by their
+# position in the sorted set, so a stale file shifts every variant after it and a cue
+# plays a different sound than the one the engine chose. For the library, a file the
+# repo no longer holds is one the ini cannot be naming any more, and leaving it behind
+# only grows the install. Sidecars come along: they are what the testbench reads back
+# on the next run, and on a machine that only ever runs the game they cost a few
+# kilobytes and explain what every file is.
+function Sync-PackDirectory {
+    param(
+        [System.IO.FileInfo[]] $Files = @(),
+        [Parameter(Mandatory)] [string] $Dest,
+        [string] $Filter = '*',
+        [string] $Label = ''
+    )
+
+    # -WhatIf creates nothing, not even the directory, so the rest of the pass runs
+    # against a path that is not there yet and reports every file as a copy - which is
+    # what a dry run against a destination the mod has never been deployed to should say.
+    if (-not (Test-Path $Dest)) {
+        if ($PSCmdlet.ShouldProcess($Dest, 'create directory')) {
+            $null = New-Item -ItemType Directory -Path $Dest -Force
+        }
     }
-    $libDest = (Resolve-Path $libDest).Path
+    $resolved = Resolve-Path $Dest -ErrorAction SilentlyContinue
+    if ($resolved) { $Dest = $resolved.Path }
 
-    $libFiles = Get-ChildItem -Path $libSource -File
-    $libKeep = $libFiles.Name
-    Get-ChildItem -Path $libDest -File |
-        Where-Object { $libKeep -notcontains $_.Name } |
+    $keep = @($Files.Name)
+    Get-ChildItem -Path $Dest -Filter $Filter -File -ErrorAction SilentlyContinue |
+        Where-Object { $keep -notcontains $_.Name } |
         ForEach-Object {
-            if ($PSCmdlet.ShouldProcess($_.FullName, 'remove stale library file')) {
+            if ($PSCmdlet.ShouldProcess($_.FullName, 'remove stale file')) {
                 Remove-Item $_.FullName -Force
             }
-            Write-Host "  - library\$($_.Name)" -ForegroundColor DarkYellow
+            Write-Host "  - $Label$($_.Name)" -ForegroundColor DarkYellow
         }
 
-    $libCopied = 0
-    foreach ($file in $libFiles) {
-        $target = Join-Path $libDest $file.Name
+    $copied = 0
+    foreach ($file in $Files) {
+        $target = Join-Path $Dest $file.Name
         $same = (Test-Path $target) -and
                 ((Get-FileHash $file.FullName -Algorithm SHA256).Hash -eq
                  (Get-FileHash $target -Algorithm SHA256).Hash)
@@ -138,62 +157,85 @@ if (Test-Path $libSource) {
         if ($PSCmdlet.ShouldProcess($target, 'copy')) {
             Copy-Item $file.FullName $target -Force
         }
-        Write-Host "  + library\$($file.Name)" -ForegroundColor DarkGreen
-        $libCopied++
+        Write-Host "  + $Label$($file.Name)" -ForegroundColor DarkGreen
+        $copied++
     }
 
-    Write-Host "library: $($libFiles.Count) file(s), $libCopied changed -> $libDest" -ForegroundColor Green
-} else {
-    Write-Host "library: nothing at $libSource - the ini's assignments will all fall back" -ForegroundColor DarkGray
+    return [pscustomobject]@{ Dest = $Dest; Copied = $copied }
 }
 
-# ── the assignments ──────────────────────────────────────────────────────────
-#
-# Beside the library on purpose: an ini naming files the install does not have is
-# the one failure the log alone explains, so the two are deployed in one pass or
-# not at all.
+foreach ($modDir in $modDirs) {
+    Write-Host ""
+    Write-Host "== $modDir" -ForegroundColor Cyan
 
-$sfxIni = Join-Path $PSScriptRoot '..\..\papyrus\mods\Physical Ragdoll Sounds\deployment_files\main\SKSE\Plugins\RagdollSounds\RagdollSounds_SFX.ini'
-if (Test-Path $sfxIni) {
-    $sfxIni = (Resolve-Path $sfxIni).Path
-    # Beside the pack rather than inside it: plugin.cpp reads the three inis from
-    # Data/SKSE/Plugins/RagdollSounds, one directory up from sounds\.
-    $sfxDest = Join-Path (Split-Path $dest -Parent) 'RagdollSounds_SFX.ini'
+    $dest = Join-Path $modDir 'SKSE\Plugins\RagdollSounds\sounds'
 
-    $same = (Test-Path $sfxDest) -and
-            ((Get-FileHash $sfxIni -Algorithm SHA256).Hash -eq
-             (Get-FileHash $sfxDest -Algorithm SHA256).Hash)
-    if ($same) {
-        Write-Host "assignments: unchanged -> $sfxDest" -ForegroundColor Green
+    # ── the pack ─────────────────────────────────────────────────────────────
+    $packResult = Sync-PackDirectory -Files $wavs -Dest $dest -Filter '*.wav'
+    $dest = $packResult.Dest
+    Write-Host "pack: $($wavs.Count) file(s), $($packResult.Copied) changed -> $dest" -ForegroundColor Green
+
+    # ── the library ──────────────────────────────────────────────────────────
+    #
+    # Under sounds\, not beside it: plugin.cpp reads
+    # Data/SKSE/Plugins/RagdollSounds/sounds/library, and a library one directory up
+    # is 788 files the game never opens.
+    if (Test-Path $libSource) {
+        $libFiles = @(Get-ChildItem -Path $libSource -File)
+        $libResult = Sync-PackDirectory -Files $libFiles -Dest (Join-Path $dest 'library') -Label 'library\'
+        Write-Host "library: $($libFiles.Count) file(s), $($libResult.Copied) changed -> $($libResult.Dest)" -ForegroundColor Green
     } else {
-        if ($PSCmdlet.ShouldProcess($sfxDest, 'copy')) {
-            Copy-Item $sfxIni $sfxDest -Force
-        }
-        $slots = @(Select-String -Path $sfxIni -Pattern '^Sfx = .' ).Count
-        Write-Host "assignments: $slots slot(s) -> $sfxDest" -ForegroundColor Green
+        Write-Host "library: nothing at $libSource - the ini's assignments will all fall back" -ForegroundColor DarkGray
     }
 
-    # The shadow. See the header: while this exists the game reads it and not the
-    # copy above, and the one sitting there now is the empty template the plugin
-    # generated on a launch that had no ini to read.
-    if ($Mo2Overwrite) {
-        $shadow = Join-Path $Mo2Overwrite 'SKSE\Plugins\RagdollSounds\RagdollSounds_SFX.ini'
-        if (Test-Path $shadow) {
-            $shadowSlots = @(Select-String -Path $shadow -Pattern '^Sfx = .').Count
-            $deployedSlots = @(Select-String -Path $sfxIni -Pattern '^Sfx = .').Count
-            if ($shadowSlots -gt $deployedSlots) {
-                # Somebody assigned slots in-game and this is the only copy of it.
-                # Removing it would be deleting the newer file to install the
-                # older one, which is not a deploy.
-                Write-Host "overwrite: $shadow has $shadowSlots assignment(s) against $deployedSlots here - left alone, and it is what the game will read" -ForegroundColor Yellow
-            } else {
-                if ($PSCmdlet.ShouldProcess($shadow, 'remove shadowing ini')) {
-                    Remove-Item $shadow -Force
-                }
-                Write-Host "overwrite: removed $shadow ($shadowSlots assignment(s)) - it was shadowing the mod's copy" -ForegroundColor DarkYellow
+    # ── the assignments ──────────────────────────────────────────────────────
+    #
+    # Beside the library on purpose: an ini naming files the install does not have is
+    # the one failure the log alone explains, so the two are deployed in one pass or
+    # not at all.
+    if ($hasIni) {
+        # Beside the pack rather than inside it: plugin.cpp reads the three inis from
+        # Data/SKSE/Plugins/RagdollSounds, one directory up from sounds\.
+        $sfxDest = Join-Path (Split-Path $dest -Parent) 'RagdollSounds_SFX.ini'
+
+        $same = (Test-Path $sfxDest) -and
+                ((Get-FileHash $sfxIni -Algorithm SHA256).Hash -eq
+                 (Get-FileHash $sfxDest -Algorithm SHA256).Hash)
+        if ($same) {
+            Write-Host "assignments: unchanged -> $sfxDest" -ForegroundColor Green
+        } else {
+            if ($PSCmdlet.ShouldProcess($sfxDest, 'copy')) {
+                Copy-Item $sfxIni $sfxDest -Force
             }
+            $slots = @(Select-String -Path $sfxIni -Pattern '^Sfx = .' ).Count
+            Write-Host "assignments: $slots slot(s) -> $sfxDest" -ForegroundColor Green
+        }
+    } else {
+        Write-Host "assignments: no RagdollSounds_SFX.ini yet - every slot falls back to <slot>_NN.wav" -ForegroundColor DarkGray
+    }
+}
+
+# ── the shadow ───────────────────────────────────────────────────────────────
+#
+# See the header: while this exists the game reads it and not the copies above, and
+# the one sitting there now is the empty template the plugin generated on a launch
+# that had no ini to read. One overwrite folder belongs to one instance, so this is
+# outside the loop.
+if ($hasIni -and $Mo2Overwrite) {
+    $shadow = Join-Path $Mo2Overwrite 'SKSE\Plugins\RagdollSounds\RagdollSounds_SFX.ini'
+    if (Test-Path $shadow) {
+        $shadowSlots = @(Select-String -Path $shadow -Pattern '^Sfx = .').Count
+        $deployedSlots = @(Select-String -Path $sfxIni -Pattern '^Sfx = .').Count
+        if ($shadowSlots -gt $deployedSlots) {
+            # Somebody assigned slots in-game and this is the only copy of it.
+            # Removing it would be deleting the newer file to install the
+            # older one, which is not a deploy.
+            Write-Host "overwrite: $shadow has $shadowSlots assignment(s) against $deployedSlots here - left alone, and it is what the game will read" -ForegroundColor Yellow
+        } else {
+            if ($PSCmdlet.ShouldProcess($shadow, 'remove shadowing ini')) {
+                Remove-Item $shadow -Force
+            }
+            Write-Host "overwrite: removed $shadow ($shadowSlots assignment(s)) - it was shadowing the mod's copy" -ForegroundColor DarkYellow
         }
     }
-} else {
-    Write-Host "assignments: no RagdollSounds_SFX.ini yet - every slot falls back to <slot>_NN.wav" -ForegroundColor DarkGray
 }

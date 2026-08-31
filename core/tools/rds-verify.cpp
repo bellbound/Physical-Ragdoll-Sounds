@@ -185,6 +185,51 @@ int CheckPcmAndMix(rds::SoundBank& bank) {
     rds::MixComposite(cues, cache, params, again);
     const bool deterministic = again.samples == mixed.samples;
 
+    // Nothing is cut. A slot's length in the manifest is a brief and recordings
+    // run past it - `head_impact`'s longest is 670 ms - and the mix used to cap a
+    // composite at 600, so the mod truncated a shipped sound and said nothing.
+    // Asked of whatever the pack's longest one-shot happens to be, so it stays
+    // true of the next long recording somebody drops in.
+    rds::SlotId longestSlot = rds::SlotId::kImpTransient;
+    std::uint8_t longestVariant = 0;
+    float longestMs = 0.0f;
+    for (const auto& slot : rds::Slots()) {
+        if (slot.isLoop) {
+            continue;
+        }
+        for (std::uint8_t variant = 0; variant < bank.FileCount(slot.id); ++variant) {
+            const float ms = cache.Get(slot.id, variant).LengthMs();
+            if (ms > longestMs) {
+                longestMs = ms;
+                longestSlot = slot.id;
+                longestVariant = variant;
+            }
+        }
+    }
+    //
+    // Two of it, the second a long way behind the first, so the buffer has to run
+    // past 600 ms whatever the pack holds. The longest file alone would not do:
+    // the scan bank this check runs on tops out at 500 ms, comfortably under the
+    // cap that was cutting, so the guard would have passed through the whole bug.
+    constexpr double kLateOffsetMs = 400.0;
+    bool nothingCut = true;
+    rds::MixBuffer whole;
+    double wantedMs = 0.0;
+    if (longestMs > 0.0f) {
+        std::vector<rds::Cue> pair(2);
+        for (rds::Cue& cue : pair) {
+            cue.op = rds::CueOp::kPlayOneShot;
+            cue.slot = longestSlot;
+            cue.variant = longestVariant;
+        }
+        pair[1].timeMs = kLateOffsetMs;
+        wantedMs = kLateOffsetMs + static_cast<double>(longestMs);
+        // One millisecond of slack for the buffer's own rounding, and no more: the
+        // point is that the late layer is there to its last sample.
+        nothingCut = rds::MixComposite(pair, cache, params, whole) &&
+                     static_cast<double>(whole.LengthMs()) >= wantedMs - 1.0;
+    }
+
     // And the container round-trips. Written to a real file because that is the
     // path a wav takes on the way in, and it exercises the chunk walk rather
     // than just the encoder.
@@ -208,12 +253,16 @@ int CheckPcmAndMix(rds::SoundBank& bank) {
     problems += subArrived ? 0 : 1;
     problems += deterministic ? 0 : 1;
     problems += roundTripped ? 0 : 1;
+    problems += nothingCut ? 0 : 1;
 
     std::printf("pcm + mix   %-4s - %zu wav decoded; composite %.0f ms, peak %.2f; "
-                "start %s, sub at +%.0f ms %s, deterministic %s, wav round-trip %s (worst %.1f LSB)\n\n",
+                "start %s, sub at +%.0f ms %s, deterministic %s, wav round-trip %s (worst %.1f LSB); "
+                "longest one-shot %s is %.0f ms, and %.0f ms of it mixes to %.0f ms %s\n\n",
                 problems == 0 ? "ok" : "FAIL", decoded, mixed.LengthMs(), mixed.rawPeak,
                 startedAtEarliest ? "yes" : "NO", kSubOffsetMs, subArrived ? "yes" : "NO",
-                deterministic ? "yes" : "NO", roundTripped ? "yes" : "NO", worst * 32768.0f);
+                deterministic ? "yes" : "NO", roundTripped ? "yes" : "NO", worst * 32768.0f,
+                std::string(rds::ToString(longestSlot)).c_str(), longestMs, wantedMs,
+                whole.LengthMs(), nothingCut ? "" : "- CUT");
     return problems;
 }
 
@@ -870,15 +919,11 @@ void CollectHeadroom(const std::vector<rds::Cue>& cues, rds::PcmCache& cache,
     std::vector<std::pair<Key, std::vector<rds::Cue>>> groups;
     std::vector<std::pair<Key, rds::TimeMs>> bases;
 
-    const auto isGore = [](rds::CueReason reason) {
-        return reason == rds::CueReason::kCrunch || reason == rds::CueReason::kGore;
-    };
-
     for (const rds::Cue& cue : cues) {
         if (cue.op != rds::CueOp::kPlayOneShot) {
             continue;
         }
-        const Key key{cue.actorId, cue.sourceSeq, isGore(cue.reason)};
+        const Key key{cue.actorId, cue.sourceSeq, rds::IsDamageLayer(cue.reason)};
         auto it = std::find_if(groups.begin(), groups.end(),
                                [&](const auto& g) { return g.first == key; });
         if (it == groups.end()) {

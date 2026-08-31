@@ -68,7 +68,9 @@ constexpr float kUnitsPerMetre = 69.99124f;
 /// level. **Level is a live message now.** Pitch still waits - see
 /// `StartLoopVoice`.
 constexpr float kLoopBufferMs = 4000.0f;
-constexpr float kLoopOverlapMs = 150.0f;
+/// The seam is core's, so the testbench turns its own loops over across the same
+/// window and a recording whose ends do not meet is judged the same in both.
+constexpr float kLoopOverlapMs = kLoopSeamMs;
 
 /// What the engine reads back off our descriptor. Mirrored vtable layout; slot
 /// order from BSISoundDescriptor.h.
@@ -117,13 +119,7 @@ public:
 /// picks a different recording per body part, so a slot-keyed mapping would have
 /// to be kept in step with that list.
 [[nodiscard]] SoundBus BusFor(CueReason reason) {
-    switch (reason) {
-        case CueReason::kCrunch:
-        case CueReason::kGore:
-            return SoundBus::kGore;
-        default:
-            return SoundBus::kMain;
-    }
+    return IsDamageLayer(reason) ? SoundBus::kGore : SoundBus::kMain;
 }
 
 [[nodiscard]] const char* ToString(SoundBus bus) {
@@ -261,6 +257,7 @@ void GameRenderer::Emit(const Cue& cue) {
             loop.variant = cue.variant;
             loop.gainDb = cue.gainDb;
             loop.pitch = cue.pitch;
+            loop.startFadeMs = cue.fadeMs;
             loop.position = cue.position;
             loop.boneIndex = cue.boneIndex;
             loop.limbIndex = cue.limbIndex;
@@ -557,8 +554,16 @@ bool GameRenderer::StartLoopVoice(Loop& loop, TimeMs nowMs) {
     // Also better for quality: the blob is PCM16, so baking a -30 dB slide level
     // into it threw away five bits before the engine saw the samples.
     loop.bakedDb = std::max(0.0f, loop.gainDb);
+
+    // The first issue takes the cue's own fade; a re-issue takes the overlap, so
+    // its opening crossfades with the tail MixLoop leaves on the buffer it is
+    // replacing. Neither happened before: the head of a loop buffer opened at full
+    // level whatever it had been asked for, which lost the fade the engine sends on
+    // `kStartLoop` and put two voices at full level beside each other for 150 ms at
+    // every re-issue.
+    const float fadeInMs = loop.handle.IsValid() ? kLoopOverlapMs : loop.startFadeMs;
     if (!MixLoop(loop.slot, loop.variant, loop.bakedDb, loop.pitch, kLoopBufferMs, kLoopOverlapMs,
-                 m_cache, m_mixParams, m_mix)) {
+                 fadeInMs, m_cache, m_mixParams, m_mix)) {
         return false;
     }
     EncodeWavPcm16Into(m_mix.samples, m_mix.sampleRate, m_encoded);

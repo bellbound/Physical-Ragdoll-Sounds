@@ -45,6 +45,15 @@ enum class CueReason : std::uint8_t {
 
 [[nodiscard]] std::string_view ToString(CueReason r);
 
+/// Whether this layer is damage rather than contact - the crunch and the gore.
+///
+/// One mapping and not three. The game routes these to their own sound category so
+/// the gore slider does not take the impacts with it; the testbench has to split a
+/// moment the same way to mix the same two buffers; the verifier measures those
+/// buffers' headroom. Three copies of "which reasons are gore" is how the three
+/// come to disagree about what the game actually builds.
+[[nodiscard]] bool IsDamageLayer(CueReason r);
+
 struct CompressConfig;
 
 /// Which line of `[Compress]` holds a layer down.

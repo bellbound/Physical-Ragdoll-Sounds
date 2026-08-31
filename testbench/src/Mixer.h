@@ -2,12 +2,18 @@
 
 // Cue list to a stereo float buffer.
 //
-// This is the testbench's ICueSink rendered offline: every cue is a
-// ResolvedSound played at its gainDb and pitch, starting at cue.timeMs, with
-// loops honouring kStartLoop / kUpdateLoop / kStopLoop. It deliberately does
-// only what Cue.h says the game can do - gain, continuous pitch, position,
-// looping, fades - because anything richer would tune the mix against
-// something CommonLibVR cannot reproduce.
+// This is the testbench's ICueSink rendered offline: the one-shots of an
+// acoustic moment are mixed into one buffer by rds::MixComposite, exactly as the
+// game mixes them, and loops honour kStartLoop / kUpdateLoop / kStopLoop. It
+// deliberately does only what Cue.h says the game can do - gain, continuous
+// pitch, position, looping, fades - because anything richer would tune the mix
+// against something CommonLibVR cannot reproduce.
+//
+// Through core's mixer and not one of its own, which is what this was until
+// 2026-08-28. A cue at a time meant no per-composite soft clip and no length cap,
+// and those are not details: the top 1% of composites in the recording corpus
+// peak 3-5 dB over the clip's knee, so the loudest hits - the ones anybody
+// actually tunes - came out of here clean and out of the game squashed.
 
 #include <cstdint>
 #include <map>
@@ -16,6 +22,7 @@
 
 #include "rds/Cue.h"
 #include "rds/Feed.h"
+#include "rds/Pcm.h"
 #include "rds/SlotManifest.h"
 
 #include "VanillaLibrary.h"
@@ -51,7 +58,7 @@ struct MixedAudio {
 /// not go back through SoundBank::Resolve - that would advance the shuffle bag
 /// and pick a different file than the engine did. A slot with no recording
 /// comes back empty and its cue is skipped, exactly as the game skips it.
-class SoundSource {
+class SoundSource final : public rds::ISampleSource {
 public:
     /// The bank stays owned by the caller and must outlive this.
     ///
@@ -65,7 +72,7 @@ public:
 
     /// Mono at the mixer's sample rate. Never fails; a slot with no recording
     /// comes back empty and the cue is skipped.
-    const std::vector<float>& Get(rds::SlotId slot, std::uint8_t variant);
+    const rds::PcmBuffer& Get(rds::SlotId slot, std::uint8_t variant) override;
 
     /// Drop every decoded buffer. Called when a slot's assignment changes: the
     /// cache is keyed on (slot, variant) and that key now means a different file.
@@ -84,10 +91,7 @@ public:
     void ClearAudition();
 
 private:
-    struct Entry {
-        std::vector<float> samples;
-    };
-    std::map<std::uint32_t, Entry> m_cache;
+    std::map<std::uint32_t, rds::PcmBuffer> m_cache;
     const rds::SoundBank* m_bank{};
     int m_sampleRate{48000};
 
@@ -95,12 +99,19 @@ private:
     /// not keyed on a variant and must not survive an Invalidate.
     int m_auditionSlot{-1};
     std::string m_auditionPath;
-    std::vector<float> m_auditionSamples;
+    rds::PcmBuffer m_auditionSamples;
 };
 
-/// Mix a cue list. `listener` positions the stereo image; cues attached to a
-/// bone (boneIndex >= 0) sit centre, which is what the player's own ragdoll
+/// Mix a cue list. `listener` positions the stereo image; a moment placed on a
+/// bone (boneIndex >= 0) sits centre, which is what the player's own ragdoll
 /// does in the game.
+///
+/// One-shots are grouped the way `GameRenderer` groups them - (actorId,
+/// sourceSeq), with the damage layers a second buffer inside the same moment -
+/// and each group goes through `rds::MixComposite` against the moment's earliest
+/// time. So the layer offsets, the soft clip and the length cap are the game's
+/// arithmetic and not a second copy of it, and a composite is panned from one
+/// point because the game opens it as one voice.
 /// `limiter` soft-clips the sum. The game has no bus and no limiter, so this is
 /// the one thing here that is richer than what CommonLibVR can do - 00 section
 /// 13 says anything richer sits behind a flag marked not shippable, and this is

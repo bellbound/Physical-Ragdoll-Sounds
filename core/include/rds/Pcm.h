@@ -77,6 +77,24 @@ void EncodeWavPcm16Into(std::span<const float> mono, int sampleRate, std::vector
 
 [[nodiscard]] std::vector<std::uint8_t> EncodeWavPcm16(std::span<const float> mono, int sampleRate);
 
+/// Where a mixer gets a slot's samples.
+///
+/// A seam, not an abstraction for its own sake. `MixComposite` is the arithmetic
+/// the two halves have to agree on, and the testbench cannot be handed a
+/// `PcmCache`: its source has to be able to stand an audition in front of a
+/// slot's file. Without this the testbench had a mixer of its own, and the two
+/// drifted - the per-composite soft clip and the length cap were the game's
+/// alone, so the loudest hits came out of the tuning app several dB hotter and
+/// undistorted against the same config in the game.
+class ISampleSource {
+public:
+    virtual ~ISampleSource() = default;
+
+    /// Mono at the source's own rate. Never fails; a slot with no recording comes
+    /// back empty and the caller skips the cue.
+    [[nodiscard]] virtual const PcmBuffer& Get(SlotId slot, std::uint8_t variant) = 0;
+};
+
 /// Every slot variant the mixer has asked for, decoded once. Keyed on
 /// (slot, variant) because that is what a `Cue` carries - re-resolving would
 /// advance the shuffle bag and hand back a different file.
@@ -84,14 +102,14 @@ void EncodeWavPcm16Into(std::span<const float> mono, int sampleRate, std::vector
 /// A variant with no file behind it falls through to `Synthesise`, so a partial
 /// pack is a quieter mod rather than a broken one. That used to be testbench-only,
 /// because the game played files off disk and had nowhere to put a buffer.
-class PcmCache {
+class PcmCache final : public ISampleSource {
 public:
     /// The bank stays owned by the caller and must outlive the cache.
     void SetBank(const SoundBank* bank, int sampleRate);
 
     /// Mono at the cache's rate. Never fails; an unfilled voice slot comes back
     /// empty and the caller skips the cue.
-    [[nodiscard]] const PcmBuffer& Get(SlotId slot, std::uint8_t variant);
+    [[nodiscard]] const PcmBuffer& Get(SlotId slot, std::uint8_t variant) override;
 
     [[nodiscard]] int SampleRate() const { return m_sampleRate; }
 

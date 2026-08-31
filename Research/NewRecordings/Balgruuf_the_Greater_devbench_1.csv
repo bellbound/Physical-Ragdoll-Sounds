@@ -1,2 +1,0 @@
-seq,t_ms,game_hour,event,phase,actor,actor_id,limb,limb_index,impact_speed,normal_speed,tangent_speed,body_speed,angular_speed,mass,limb_radius,pos_x,pos_y,pos_z,nrm_x,nrm_y,nrm_z,vel_x,vel_y,vel_z,other_layer,other_material,material_source,other_body,other_limb,manifold_first,manifold_last,dropped,state
-0,27887.022,0.0000,state,unknown,Balgruuf the Greater,0001A67D,-,-,0.000,0.000,0.000,0.000,0.000,0.0000,0.000,0.000,0.000,0.000,0.0000,0.0000,0.0000,0.000,0.000,0.000,-,-,-,0000000000000000,-,0,0,0,session_stop

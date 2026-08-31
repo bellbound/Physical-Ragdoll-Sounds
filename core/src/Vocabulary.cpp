@@ -38,6 +38,10 @@ std::string_view ToString(CueReason r) {
     return "composite";
 }
 
+bool IsDamageLayer(CueReason r) {
+    return r == CueReason::kCrunch || r == CueReason::kGore;
+}
+
 std::string_view ToString(CompressBand band) {
     // The ini key rather than a word for it: every use of this is a tooltip
     // saying which slider held a cue down, and "fBodyDb" is the thing you then
